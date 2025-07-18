@@ -23,7 +23,7 @@ module load slurm_setup
 #######################################################
 
 ## Load conda environment ##
-source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/bin/conda
+source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 conda activate RNAseq
 
 ## Creating STAR index - interactive job - salloc -M inter -p cm4_inter -n 1 -c 8 -t 01:00:00 *COMPLETE* ##
