@@ -11,7 +11,7 @@
 #SBATCH --qos=cm4_std
 #SBATCH --nodes=2
 #SBATCH --ntasks=2
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=56
 #SBATCH --mem=16G
 #SBATCH --time=1:00:00
 #SBATCH --array=1-24
