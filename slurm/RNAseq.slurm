@@ -7,8 +7,7 @@
 #SBATCH --get-user-env
 #SBATCH --export=NONE
 #SBATCH --clusters=cm4
-#SBATCH --partition=cm4_std
-#SBATCH --qos=m4_std
+#SBATCH --partition=cm4_tiny
 #SBATCH --ntasks=1
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
