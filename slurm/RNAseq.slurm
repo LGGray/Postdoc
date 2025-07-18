@@ -23,6 +23,7 @@ module load slurm_setup
 #######################################################
 
 ## Load conda environment ##
+conda init
 conda activate RNAseq
 
 ## Creating STAR index - interactive job - salloc -M inter -p cm4_inter -n 1 -c 8 -t 01:00:00 *COMPLETE* ##
