@@ -9,9 +9,7 @@
 #SBATCH --clusters=cm4
 #SBATCH --partition=cm4_std
 #SBATCH --qos=cm4_std
-#SBATCH --ntasks=2
-#SBATCH --nodes=2
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=16G
 #SBATCH --time=1:00:00
