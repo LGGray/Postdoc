@@ -1,0 +1,13 @@
+chr	name	start	end	strand	sample	organ	sex	age	allelic_ratio	total_reads	median_allelic_ratio	min_total_reads	miRNA_overlap
+chrX	Ftx	103560909	103623754	-	He_E14-5_RNA_XistBxC_-+_XX_1	He	female	Embryonic	0,82	103	0.85	82	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	He_E14-5_RNA_XistBxC_-+_XX_3	He	female	Embryonic	0,87	127	0.85	82	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	He_E14-5_RNA_XistBxC_-+_XX_2	He	female	Embryonic	0,85	82	0.85	82	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Ki_E14-5_RNA_XistBxC_-+_XX_3	Ki	female	Embryonic	0,85	214	0.85	209	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Ki_E14-5_RNA_XistBxC_-+_XX_1	Ki	female	Embryonic	0,85	294	0.85	209	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Ki_E14-5_RNA_XistBxC_-+_XX_2	Ki	female	Embryonic	0,81	209	0.85	209	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Li_E14-5_RNA_XistBxC_-+_XX_2	Li	female	Embryonic	0,75	134	0.71	121	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Li_E14-5_RNA_XistBxC_-+_XX_3	Li	female	Embryonic	0,69	144	0.71	121	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Li_E14-5_RNA_XistBxC_-+_XX_1	Li	female	Embryonic	0,71	121	0.71	121	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Lu_E14-5_RNA_XistBxC_-+_XX_2	Lu	female	Embryonic	0,83	223	0.9	223	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Lu_E14-5_RNA_XistBxC_-+_XX_3	Lu	female	Embryonic	0,9	258	0.9	223	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Lu_E14-5_RNA_XistBxC_-+_XX_1	Lu	female	Embryonic	0,92	248	0.9	223	mmu-mir-421,mmu-mir-374b,mmu-mir-374c

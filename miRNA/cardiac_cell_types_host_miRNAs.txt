@@ -1,0 +1,4 @@
+chr	name	start	end	sample	celltype	sex	age	allelic_ratio	total_reads	median_allelic_ratio	min_total_reads	miRNA_overlap
+chrX	Ftx	103560909	103623754	EC_9w_RNA_XBxC_-+_XX_1	EC	female	Adult	1	47	0.72	36	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	EC_9w_RNA_XBxC_-+_XX_2	EC	female	Adult	0,72	36	0.72	36	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	EC_9w_RNA_XBxC_-+_XX_3	EC	female	Adult	0,67	43	0.72	36	mmu-mir-421,mmu-mir-374b,mmu-mir-374c

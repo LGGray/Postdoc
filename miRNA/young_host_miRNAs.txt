@@ -1,0 +1,10 @@
+chr	name	start	end	strand	sample	organ	sex	age	allelic_ratio	total_reads	median_allelic_ratio	min_total_reads	miRNA_overlap
+chrX	Ftx	103560909	103623754	-	Ki_4w_RNA_XistxC_-+_XX_1	Ki	female	Young	0,85	53	0.85	47	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Ki_4w_RNA_XistxC_-+_XX_3	Ki	female	Young	0,93	59	0.85	47	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Ki_4w_RNA_XistxC_-+_XX_2	Ki	female	Young	0,72	47	0.85	47	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Lu_4w_RNA_XistxC_-+_XX_3	Lu	female	Young	0,85	53	0.86	37	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Lu_4w_RNA_XistxC_-+_XX_2	Lu	female	Young	0,88	48	0.86	37	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Lu_4w_RNA_XistxC_-+_XX_1	Lu	female	Young	0,86	37	0.86	37	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Mu_4w_RNA_XistxC_-+_XX_1	Mu	female	Young	0,58	24	0.58	22	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Mu_4w_RNA_XistxC_-+_XX_3	Mu	female	Young	0,65	23	0.58	22	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
+chrX	Ftx	103560909	103623754	-	Mu_4w_RNA_XistxC_-+_XX_2	Mu	female	Young	0,55	22	0.58	22	mmu-mir-421,mmu-mir-374b,mmu-mir-374c
