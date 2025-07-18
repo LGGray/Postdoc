@@ -7,12 +7,12 @@
 #SBATCH --get-user-env
 #SBATCH --export=NONE
 #SBATCH --clusters=cm4
-#SBATCH --partition=cm4_std
-#SBATCH --qos=cm4_std
-#SBATCH --nodes=2
-#SBATCH --ntasks=2
-#SBATCH --cpus-per-task=56
-#SBATCH --mem=16G
+#SBATCH --partition=cm4_tiny
+#SBATCH --qos=cm4_tiny
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=9
+#SBATCH --mem=8G
 #SBATCH --time=1:00:00
 #SBATCH --array=1-24
 
@@ -42,12 +42,12 @@ SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" $fastq_dir/samplelist.txt)
 
 STAR \
 --genomeDir  genomeDir \
---readFilesIn $fastq_dir/${SAMPLE}_1.fastq $fastq_dir/${SAMPLE}_2.fastq --runThreadN 8 --outStd Log --outSAMtype BAM SortedByCoordinate \
+--readFilesIn $fastq_dir/${SAMPLE}_1.fastq $fastq_dir/${SAMPLE}_2.fastq --runThreadN 9 --outStd Log --outSAMtype BAM SortedByCoordinate \
 --alignIntronMax 100000 --outFilterIntronMotifs RemoveNoncanonical \
 --outFileNamePrefix $RESULTS"/STAR_alignment/"${SAMPLE}"_"  --outFilterMultimapNmax 1
 
 ## Indexing BAM file ##
-samtools index $RESULTS/$SAMPLE"_Aligned.sortedByCoord.out.bam"
+samtools index $RESULTS/STAR_alignment/${SAMPLE}_Aligned.sortedByCoord.out.bam
 
 ## Couting reads with HTSeq ##
 STRAND=reverse
