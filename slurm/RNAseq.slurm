@@ -1,7 +1,3 @@
-#######################################################
-# This file is used to preprocess and map RNAseq data #
-#######################################################
-
 #!/bin/bash
 #SBATCH --mail-user=lachlan.gray@tum.de
 #SBATCH -J RNAseq
@@ -22,6 +18,10 @@
 #SBATCH --array=1-24
 
 module load slurm_setup
+
+#######################################################
+# This file is used to preprocess and map RNAseq data #
+#######################################################
 
 ## Load conda environment ##
 conda activate RNAseq
