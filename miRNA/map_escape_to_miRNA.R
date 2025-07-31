@@ -111,10 +111,18 @@ mart <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
 # Get RefSeq mRNA IDs (NM_) from gene symbol
 results <- getBM(
     attributes = c("external_gene_name", "refseq_mrna"),
-    filters = "external_gene_name",
-    values = 'Ftx',
+    filters = "refseq_mrna",
+    values = mouse_targets$V2,
     mart = mart
 )
+
+# Match refseq$external_gene_name to mouse_targets$V2
+mouse_targets$gene_name <- results$external_gene_name[match(mouse_targets$V2, results$refseq_mrna)]
+
+write.table(mouse_targets, file = 'miRDB_mouse_targets.txt', sep = "\t", row.names = FALSE, quote = FALSE)
+
+
+
 
 refseq <- subset(results, refseq_mrna != "")
 

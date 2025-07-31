@@ -41,11 +41,20 @@ fastq_dir=cardiac_RNAseq
 RESULTS=cardiac_RNAseq
 SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" $fastq_dir/samplelist.txt)
 
+
+## STAR mapping for SNPsplit ##
 STAR \
 --genomeDir  genomeDir \
---readFilesIn $fastq_dir/${SAMPLE}_1.fastq $fastq_dir/${SAMPLE}_2.fastq --runThreadN 9 --outStd Log --outSAMtype BAM SortedByCoordinate \
---alignIntronMax 100000 --outFilterIntronMotifs RemoveNoncanonical \
---outFileNamePrefix $RESULTS"/STAR_alignment/"${SAMPLE}"_"  --outFilterMultimapNmax 1
+--readFilesIn $fastq_dir/${SAMPLE}_1.fastq $fastq_dir/${SAMPLE}_2.fastq \
+--runThreadN 9 \
+--outStd Log \
+--outSAMtype BAM Unsorted \
+--alignIntronMax 100000 \
+--outFilterIntronMotifs RemoveNoncanonical \
+--alignEndsType EndToEnd \
+--outSAMattributes NH HI NM MD \
+--outFileNamePrefix $RESULTS"/STAR_alignment/"${SAMPLE}"_" \
+--outFilterMultimapNmax 1
 
 ## Indexing BAM file ##
 samtools index $RESULTS/STAR_alignment/${SAMPLE}_Aligned.sortedByCoord.out.bam
