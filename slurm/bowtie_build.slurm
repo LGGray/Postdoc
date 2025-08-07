@@ -15,6 +15,8 @@
 #SBATCH --mem=8G
 #SBATCH --time=1:00:00
 
+module load slurm_setup
+
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 conda activate RNAseq
 
