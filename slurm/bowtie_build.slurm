@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --mail-user=lachlan.gray@tum.de
-#SBATCH -J bowtie_index
-#SBATCH -D /dss/dssfs02/lwp-dss-0001/pr23fa/pr23fa-dss-0000/go93qiw2
+#SBATCH -J bowtie
+#SBATCH -D  /dss/dssfs02/lwp-dss-0001/pr23fa/pr23fa-dss-0000/go93qiw2
 #SBATCH -o out_error/%x.%j.%N.out
 #SBATCH -e out_error/%x.%j.%N.err
 #SBATCH --get-user-env
@@ -11,9 +11,9 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=16G
-#SBATCH --time=02:00:00
+#SBATCH --cpus-per-task=18
+#SBATCH --mem=8G
+#SBATCH --time=1:00:00
 
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 conda activate RNAseq
