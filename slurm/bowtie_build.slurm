@@ -24,7 +24,4 @@ export PATH=/dss/dssfs02/lwp-dss-0001/pr23fa/pr23fa-dss-0000/go93qiw2/bowtie-1.3
 
 cd /dss/dssfs02/lwp-dss-0001/pr23fa/pr23fa-dss-0000/go93qiw2/miRNA/cardiac_miRNA
 
-# Run bowtie-build
-module load bowtie/1.3.1  # Adjust version if needed
-
 bowtie-build ../../genomeDir/GRCm38.primary_assembly.genome.fa GRCm38.primary_assembly.genome
