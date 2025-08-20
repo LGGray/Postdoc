@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --mail-user=lachlan.gray@tum.de
-#SBATCH -J RNAseq
+#SBATCH -J GRCm39
 #SBATCH -D  /dss/dssfs02/lwp-dss-0001/pr23fa/pr23fa-dss-0000/go93qiw2
 #SBATCH -o out_error/%x.%j.%N.out
 #SBATCH -e out_error/%x.%j.%N.err
@@ -22,43 +22,43 @@ module load slurm_setup
 # This file is used to preprocess and map RNAseq data #
 #######################################################
 
+source ~/.bashrc
+
 ## Load conda environment ##
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 conda activate RNAseq
 
-## Creating STAR index - interactive job - salloc -M inter -p cm4_inter -n 1 -c 8 -t 01:00:00 *COMPLETE* ##
+## Creating STAR index - Read length is 50bp so sjdbOverhang is set to 49 ##
 # STAR \
 # --runThreadN 8 \
 # --runMode genomeGenerate \
-# --genomeDir genomeDir \
-# --genomeFastaFiles genomeDir/GRCm38.primary_assembly.genome.fa \
-# --sjdbGTFfile genomeDir/gencode.vM23.annotation.gtf \
+# --genomeDir STAR_index \
+# --genomeFastaFiles Mus_musculus.GRCm39.dna.primary_assembly.fa \
+# --sjdbGTFfile gencode.vM37.primary_assembly.annotation.gtf \
 # --sjdbOverhang 49
 
 ## Running STAR alignment - parallel job for the 24 samples ##
 
-fastq_dir=cardiac_RNAseq
-RESULTS=cardiac_RNAseq
-SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" $fastq_dir/samplelist.txt)
+fastq_dir=cardiac_RNAseq/fastq
+RESULTS=cardiac_RNAseq/GRCm39_mapped
+SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" cardiac_RNAseq/fastq_files.txt)
 
 
 ## STAR mapping for SNPsplit ##
 STAR \
---genomeDir  genomeDir \
+--genomeDir  GRCm39/STAR_index \
 --readFilesIn $fastq_dir/${SAMPLE}_1.fastq $fastq_dir/${SAMPLE}_2.fastq \
 --runThreadN 9 \
 --outStd Log \
---outSAMtype BAM Unsorted \
+--outSAMtype BAM SortedByCoordinate \
 --alignIntronMax 100000 \
 --outFilterIntronMotifs RemoveNoncanonical \
---alignEndsType EndToEnd \
---outSAMattributes NH HI NM MD \
---outFileNamePrefix $RESULTS"/STAR_alignment/"${SAMPLE}"_" \
+--outFileNamePrefix $RESULTS/${SAMPLE}"_" \
 --outFilterMultimapNmax 1
 
 ## Indexing BAM file ##
-samtools index $RESULTS/STAR_alignment/${SAMPLE}_Aligned.sortedByCoord.out.bam
+samtools index $RESULTS/${SAMPLE}_Aligned.sortedByCoord.out.bam
 
 ## Couting reads with HTSeq ##
 STRAND=reverse
-htseq-count -s $STRAND -r pos -f bam $RESULTS"/STAR_alignment/"$SAMPLE"_Aligned.sortedByCoord.out.bam" genomeDir/gencode.vM23.annotation.gtf > $RESULTS"/HTseq_counts/"${SAMPLE}"_stranded_"${STRAND}".count"
+htseq-count -s $STRAND -r pos -f bam $RESULTS/$SAMPLE"_Aligned.sortedByCoord.out.bam" GRCm39/gencode.vM37.primary_assembly.annotation.gtf > $RESULTS"/HTseq_counts/"${SAMPLE}"_stranded_"${STRAND}".count"
