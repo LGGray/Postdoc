@@ -1,0 +1,33 @@
+#!/bin/bash
+#SBATCH --mail-user=lachlan.gray@tum.de
+#SBATCH -J RNAseq
+#SBATCH -D /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
+#SBATCH -o out_error/%x.%j.%N.out
+#SBATCH -e out_error/%x.%j.%N.err
+#SBATCH --get-user-env
+#SBATCH --export=NONE
+#SBATCH --clusters=cm4
+#SBATCH --partition=cm4_tiny
+#SBATCH --qos=cm4_tiny
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=18
+#SBATCH --mem=8G
+#SBATCH --time=1:00:00
+#SBATCH --array=2-24
+
+module load slurm_setup
+
+## Load conda environment ##
+source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
+conda activate RNAseq
+
+SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" cardiac_RNAseq/samplelist.txt)
+
+sh create_SNPfile_v5.sh mouse_SNP/mgp.v5.merged.snps_all.dbSNP142.vcf
+
+bash Allelome.LINK/00_src/Allelome.PRO2.sh \
+  -i $SAMPLE \
+  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm10/20180203_RefSeq/20180203_RefSeq.bed \
+  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm10/SNPs/SNPfile_BL6_CAST_v5.bed \
+  -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cardiac_RNAseq/Allelome.Pro
