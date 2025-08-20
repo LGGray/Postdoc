@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --mail-user=lachlan.gray@tum.de
-#SBATCH -J GRCm39
-#SBATCH -D /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
+#SBATCH -J RNAseq
+#SBATCH -D  /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 #SBATCH -o out_error/%x.%j.%N.out
 #SBATCH -e out_error/%x.%j.%N.err
 #SBATCH --get-user-env
