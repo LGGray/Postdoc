@@ -22,7 +22,7 @@ module load slurm_setup
 # This file is used to preprocess and map RNAseq data #
 #######################################################
 
-source ~/.bashrc
+cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 
 ## Load conda environment ##
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
