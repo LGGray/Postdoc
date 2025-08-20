@@ -22,6 +22,8 @@ module load slurm_setup
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 conda activate RNAseq
 
+cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
+
 SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" cardiac_RNAseq/samplelist.txt)
 
 sh create_SNPfile_v5.sh mouse_SNP/mgp.v5.merged.snps_all.dbSNP142.vcf
