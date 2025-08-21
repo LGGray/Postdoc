@@ -13,7 +13,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=8G
-#SBATCH --time=2:00:00
+#SBATCH --time=8:00:00
 #SBATCH --array=1-24
 
 module load slurm_setup
@@ -27,7 +27,7 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" cardiac_RNAseq/fastq_files.txt)
 
 bash Allelome.LINK/00_src/Allelome.PRO2.sh \
-  -i cardiac_RNAseq/GRCm39_mapped/${SAMPLE}_Aligned.sortedByCoord.out.bam \
-  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/20250512_RefSeq.bed \
-  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/SNPs/exonic_SNPfile_SH/02_output/SNPfile_C57BL_6NJxCAST_EiJ_sorted_exon_unique_REL2021.bed \
+  -i /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cardiac_RNAseq/GRCm39_mapped/${SAMPLE}_Aligned.sortedByCoord.out.bam \
+  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cardiac_RNAseq/Allelome.Pro_GRCm39/20250512_RefSeq.bed \
+  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cardiac_RNAseq/Allelome.Pro_GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_exon_unique_REL2021.bed \
   -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cardiac_RNAseq/Allelome.Pro_GRCm39
