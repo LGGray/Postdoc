@@ -1,82 +1,175 @@
+# Reading in all SNP files 
 
-reads <- read.delim("read_count_per_SNP.txt")
-
-autosomal <- subset(reads, chr != "chrX" & chr != "chrY")
-chrX <- subset(reads, chr == "chrX")
-
-gene_split <- split(autosomal, autosomal$name)
-
-bayes_function <- function(ref, alt, alpha, beta){
-    n <- ref + alt
-    k <- ref
-    alpha_post <- alpha + k
-    beta_post  <- beta + n - k
-    post_mean <- alpha_post / (alpha_post + beta_post)
-    ci <- qbeta(c(0.025, 0.975), alpha_post, beta_post) 
-    result_list <- list(
-        posterior = paste0("Beta(", alpha_post, ", ", beta_post, ")"),
-        mean = post_mean,
-        ci_95 = ci)
-    return(result_list)
-}
-
-gene_mean_posteriors <- list()
-for(i in 1:length(gene_split)){
-    tmp <- gene_split[[i]]
-    mean_list <- lapply(1:nrow(tmp), function(i){
-        bayes_function(tmp$A1_reads[i], tmp$A2_reads[i], 10, 10)$mean
-    })
-    gene_mean_posteriors[[i]] <- mean(unlist(mean_list))
-}
-names(gene_mean_posteriors) <- names(gene_split)
-
-gene_mean_posteriors[unlist(lapply(gene_mean_posteriors, function(x) x < 0.3 | x > 0.7))]
-
-gene_split_chrX <- split(chrX, chrX$name)
-
-gene_mean_posteriors_chrX <- list()
-for(i in 1:length(gene_split_chrX)){
-    tmp <- gene_split_chrX[[i]]
-    mean_list <- lapply(1:nrow(tmp), function(i){
-        bayes_function(tmp$A1_reads[i], tmp$A2_reads[i], 0.5, 0.5)$mean
-    })
-    gene_mean_posteriors_chrX[[i]] <- mean(unlist(mean_list))
-}
-names(gene_mean_posteriors_chrX) <- names(gene_split_chrX)
-
-gene_mean_posteriors_chrX[unlist(lapply(gene_mean_posteriors_chrX, function(x) x < 0.9 | x > 0.1))]
-
-lapply(1:nrow(gene_split_chrX[[586]]), function(x){
-    bayes_function(gene_split_chrX[[586]]$A1_reads[x], gene_split_chrX[[586]]$A2_reads[x], 0.5, 0.5)
+SNP_files_path <- list.files('.', pattern='read_count_per_SNP.txt', recursive=TRUE)
+SNP_files <- lapply(SNP_files_path, function(x){
+    read.delim(x)
+})
+names(SNP_files) <- lapply(SNP_files_path, function(x){
+    strsplit(dirname(x), '_')[[1]][4]
 })
 
 
-# prior parameters
-alpha <- 2
-beta <- 2
+metadata <- read.csv('../SraRunTable.csv')
+metadata <- subset(metadata, Run %in% names(SNP_files))
+metadata <- metadata[match(metadata$Run, names(SNP_files)),]
+metadata <- metadata[, c('Run', 'AGE', 'genotype', 'sex', 'tissue')]
+colnames(metadata)[1] <- 'sample'
 
-# observed data
-n <- test$A1_reads[1] + test$A2_reads[1]
-k <- test$A1_reads[1]
 
-# posterior parameters
-alpha_post <- alpha + k
-beta_post  <- beta + n - k
 
-# Posterior mean
-post_mean <- alpha_post / (alpha_post + beta_post)
+bayes_function <- function(ref, alt, alpha, beta, null = 0.5, tail = c("two.sided","less","greater")){
+  tail <- match.arg(tail)
+  n <- ref + alt
+  k <- ref
+  a <- alpha + k
+  b <- beta  + (n - k)
 
-# 95% equal-tailed credible interval
-ci <- qbeta(c(0.025, 0.975), alpha_post, beta_post)
+  post_mean <- a / (a + b)
+  ci <- qbeta(c(0.025, 0.975), a, b)
 
-list(
-  posterior = paste0("Beta(", alpha_post, ", ", beta_post, ")"),
-  mean = post_mean,
-  ci_95 = ci
-)
+  # posterior tail(s) at 'null'
+  if (tail == "greater") {
+    p <- 1 - pbeta(null, a, b)              # P(p > null)
+  } else if (tail == "less") {
+    p <- pbeta(null, a, b)                   # P(p < null)
+  } else { # two.sided
+    q_gt <- 1 - pbeta(null, a, b)
+    p <- 2 * pmin(q_gt, 1 - q_gt)
+  }
+  p <- pmax(p, .Machine$double.xmin)  # avoid 0
 
-pdf('../bayes.pdf')
-curve(dbeta(x, alpha, beta), 0, 1, lwd=2, ylab="Density", xlab="p")
-curve(dbeta(x, alpha_post, beta_post), add=TRUE, lwd=2, lty=2)
-legend("topright", c("Prior", "Posterior"), lwd=2, lty=c(1,2))
+  mag <- -log10(p)                         # magnitude
+  score <- sign(post_mean - null) * mag         # signed score
+
+  list(
+    posterior = paste0("Beta(", a, ", ", b, ")"),
+    mean = post_mean,
+    ci_95 = ci,
+    p_post = p,
+    score_postP = score
+  )
+}
+
+weighted_score <- function(results_list, ref_reads, alt_reads) {
+  # Extract the posterior scores from the results list
+  post_scores <- results_list$score_postP
+  
+  # Calculate the total read counts for each SNP to use as weights
+  total_reads <- ref_reads + alt_reads
+  
+  # Calculate the weighted average of the scores
+  weighted_score <- sum(post_scores * total_reads) / sum(total_reads)
+  
+  # Return the final weighted score
+  return(weighted_score)
+}
+
+weighted_mean <- function(results_list, ref_reads, alt_reads) {
+  # Extract the posterior means from the results list
+  post_means <- results_list$mean
+  
+  # Calculate the total read counts for each SNP to use as weights
+  total_reads <- ref_reads + alt_reads
+  
+  # Calculate the weighted mean
+  weighted_mean <- sum(post_means * total_reads) / sum(total_reads)
+  
+  # Return the final weighted mean
+  return(weighted_mean)
+}
+
+final_list <- list()
+for(file in names(SNP_files)){
+    input <- SNP_files[[file]]
+
+    input_split_by_gene <- split(input, input$name)
+
+    result_list <- lapply(input_split_by_gene, function(x){
+    if(nrow(x) < 10){
+        return(data.frame())
+    }
+    if (x$chr[1] != 'chrX') {
+    result <- bayes_function(x$A1_reads, x$A2_reads, 10, 10, null = 0.5, tail = "two.sided")
+    data.frame(weighted_score = weighted_score(result, x$A1_reads, x$A2_reads), 
+              weighted_mean = weighted_mean(result, x$A1_reads, x$A2_reads), 
+              chr = x$chr[1])
+    } else {
+    result <- bayes_function(x$A1_reads, x$A2_reads, 0.5, 0.5, null = 0.5, tail = "two.sided")
+    data.frame(weighted_score = weighted_score(result, x$A1_reads, x$A2_reads), 
+              weighted_mean = weighted_mean(result, x$A1_reads, x$A2_reads),
+              chr = x$chr[1])
+        }
+    })
+    names(result_list) <- names(input_split_by_gene)
+    result_list <- result_list[sapply(result_list, function(x) nrow(x) > 0)]
+    result_df <- dplyr::bind_rows(result_list, .id='name')
+
+    final_list[[file]] <- result_df
+    print(paste('done', file))
+}
+
+save(final_list, file='analysis/bayesian_update.RData')
+
+
+## Read in locus files
+locus_files_path <- list.files('.', pattern='locus_table.txt', recursive=TRUE)
+locus_files <- lapply(locus_files_path, function(x){
+    read.delim(x)
+})
+names(locus_files) <- lapply(locus_files_path, function(x){
+    strsplit(dirname(x), '_')[[1]][4]
+})
+
+subset(metadata, sex == 'female')
+
+merged <- merge(final_list[['SRR30223464']], locus_files[['SRR30223464']], by='name')
+
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Put into long format for easy plotting
+df_long <- merged %>%
+  select(name, weighted_score, allelic_score, total_reads) %>%
+  pivot_longer(cols = c(weighted_score, allelic_score),
+               names_to = "method", values_to = "score")
+
+library(ggpubr)
+
+pdf('analysis/allelic_score_vs_weighted_score.pdf')
+# add spearman correlation
+ggplot(merged, aes(x = allelic_score, y = weighted_score)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  stat_cor(method = "spearman")
+dev.off()
+
+pdf('analysis/allelic_ratio_vs_weighted_mean.pdf')
+ggplot(merged, aes(x = allelic_ratio, y = weighted_mean)) +
+  geom_point(alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed") +
+  stat_cor(method = "spearman")
+dev.off()
+
+
+metadata
+
+all_combined <- bind_rows(final_list, .id='sample')
+
+## Match all_combined$sample to metadata$organ
+all_combined <- left_join(all_combined, metadata, by = 'sample')
+
+all_combined_female_chrX <- subset(all_combined, sex == 'female' & chr == 'chrX')
+
+# Plot violin plot of weighted mean for each organ
+library(ggplot2)
+
+pdf('analysis/weighted_mean_by_tissue_female_chrX.pdf')
+ggplot(all_combined_female_chrX, aes(x = tissue, y = weighted_mean, fill = tissue)) +
+  geom_violin() +
+  theme_minimal() +
+  labs(title = "",
+       x = "",
+       y = "Weighted Mean") +
+  theme(legend.position = "none")
 dev.off()
