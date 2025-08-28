@@ -73,19 +73,44 @@ long_data <- plot_data %>%
 # Remove TPM = 0
 long_data <- subset(long_data, value > 0)
 
+
+# Set German factor labels
+long_data$age <- factor(long_data$age, 
+                        levels = c("embryo", "young", "adult", "aged"),
+                        labels = c("Embryo", "jung", "erwachsen", "gealtert"))
+
+long_data$organ <- factor(long_data$organ, 
+                          levels = c("brain", "heart", "kidney", "liver", "lung", "spleen", "muscle"),
+                          labels = c("Gehirn", "Herz", "Niere", "Leber", "Lunge", "Milz", "Muskel"))
+
+organ_colors <- c("#DCB465", "#8B1812","#244C51", "#C97A41", "#A77A76", "#555463", "#97A092")
+
+pdf('LRZ Sync+Share/LGray/Xist_TPM_Deutsch.pdf')
+ggplot(long_data, aes(x = age, y = value, fill = organ)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  scale_fill_manual(values = organ_colors) +
+  facet_wrap(~ organ, scales = "free_y", axes = 'all_x') +
+  labs(title = "Xist-Expression während der Entwicklung", 
+       x = "Alter", 
+       y = "Xist TPM") +
+  theme_minimal() +
+  theme(legend.position = 'none', axis.text.x = element_text(angle = 45, hjust = 1))
+dev.off()
+
 # Set factors
 long_data$age <- factor(long_data$age, levels = c("embryo", "young", "adult", "aged"))
 long_data$organ <- factor(long_data$organ, levels = c("brain", "heart", "kidney", "liver", "lung", "spleen", "muscle"))
 
 organ_colors <- c("#DCB465", "#8B1812","#244C51", "#C97A41", "#A77A76", "#555463", "#97A092")
 
-pdf('../Xist_TPM.pdf')
+pdf('Postdoc/Xist_TPM.pdf')
 ggplot(long_data, aes(x = age, y = value, fill = organ)) +
   geom_boxplot() +
   scale_fill_manual(values = organ_colors) +
   # show points
   geom_jitter(width = 0.2, alpha = 0.5) +
-  facet_wrap(~ organ, scales = "free_y") +
+  facet_wrap(~ organ, scales = "free_y", axes = 'all_x') +
   labs(title = "Xist expression across development", x = "Age", y = "Xist TPM") +
   theme_minimal() +
   theme(legend.position = 'none')
@@ -93,6 +118,76 @@ dev.off()
 
 brain_model <- lm(log2(value + 1) ~ age, data = subset(long_data, organ == "brain"))
 summary(brain_model)
+
+lapply(c('brain', 'heart', 'kidney', 'liver', 'lung', 'spleen', 'muscle'), function(x){
+    pairwise.t.test(log2(subset(long_data, organ==x)$value +1), subset(long_data, organ==x)$age, p.adjust.method = "bonferroni")
+})
+
+
+library(rstatix)
+library(ggpubr)
+# factors + transformed column
+long_data <- long_data %>%
+  mutate(
+    age   = factor(age, levels = c("embryo","young","adult","aged")),
+    organ = factor(organ),
+    y_log = log2(value + 1)
+  )
+
+# pairwise tests (on y_log), keep only comparisons vs aged (excluding embryo)
+stat.test <- long_data %>%
+  group_by(organ) %>%
+  pairwise_t_test(
+    y_log ~ age,
+    p.adjust.method = "bonferroni",
+    pool.sd = TRUE
+  ) %>%
+  filter(
+    (group1 == "aged" & group2 %in% c("young","adult")) |
+    (group2 == "aged" & group1 %in% c("young","adult"))
+  ) %>%
+  mutate(
+    group1 = factor(group1, levels = levels(long_data$age)),
+    group2 = factor(group2, levels = levels(long_data$age))
+  ) %>%
+  add_xy_position(data = long_data, x = "age", y = "value", y.trans=function(y))
+
+p <- ggplot(long_data, aes(x = age, y = value, fill = organ)) +
+  geom_boxplot() +
+  scale_fill_manual(values = organ_colors) +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  facet_wrap(~ organ, scales = "free_y") +          # <- keep plain facet_wrap
+  labs(title = "Xist expression across development", x = "Age", y = "Xist TPM") +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.adj.signif",
+    tip.length = 0.01,
+    hide.ns = TRUE,
+    bracket.size = 0.4,
+    y.trans = function(y) y                          # <- fixes y.trans error
+  )
+
+
+pdf('Postdoc/Xist_TPM.pdf')
+ggplot(long_data, aes(x = age, y = value, fill = organ)) +
+  geom_boxplot() +
+  scale_fill_manual(values = organ_colors) +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  facet_wrap(~ organ, scales = "free_y") +
+  labs(title = "Xist expression across development", x = "Age", y = "Xist TPM") +
+  theme_minimal() +
+  theme(legend.position = 'none') +
+  stat_pvalue_manual(
+    stat.test,
+    label = "p.adj.signif",
+    tip.length = 0.01,
+    hide.ns = TRUE,
+    bracket.size = 0.4
+  )
+dev.off()
+
 heart_model <- lm(log2(value + 1) ~ age, data = subset(long_data, organ == "heart"))
 summary(heart_model)
 kidney_model <- lm(log2(value + 1) ~ age, data = subset(long_data, organ == "kidney"))

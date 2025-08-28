@@ -123,3 +123,24 @@ for f in *_miRBase.counts.tsv; do
 
   rm -f "${sample}.miR.tmp" "${sample}.gen.tmp"
 done
+
+### Merge files into a single matrix ###
+# Start with the first file as the base
+files=(*.final.tsv)
+first="${files[0]}"
+cp "$first" matrix.tmp
+
+# Merge the rest
+for f in "${files[@]:1}"; do
+    join -t $'\t' -a1 -a2 -e 0 \
+         -o auto \
+         <(sort -k1,1 matrix.tmp) \
+         <(sort -k1,1 "$f") \
+    > matrix.next
+    mv matrix.next matrix.tmp
+done
+
+# Ensure header row is first
+# (join preserves header if all files have the same "miRNA" in col 1 of header)
+mv matrix.tmp miRNA_counts_matrix.tsv
+

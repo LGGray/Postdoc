@@ -69,6 +69,12 @@ for (tissue in names(metadata_split)) {
 
 save(dge_results, file = 'dge_results.RData')
 
+lapply(names(dge_results), function(x){
+  tmp <- data.frame(gene=rownames(dge_results[[x]]), dge_results[[x]])
+  write.csv(tmp, paste0(gsub(' ', '_', x), '.edgeR.csv'), row.names = FALSE)
+})
+
+
 #### Enrichment of miRNA targets ####
 pathways <-  gmtPathways('miRNA/m3.mirdb.v2025.1.Mm.symbols.gmt')
 names(pathways) <- gsub('MIR_', 'mmu-miR-', names(pathways))
@@ -81,11 +87,46 @@ for (tissue in names(dge_results)) {
   fgseaRes_list[[tissue]] <- fgsea(pathways = pathways, stats = ranks)
 }
 
+## Filter for significant enrichments ##
 lapply(fgseaRes_list, function(x) {
   subset(x, padj < 0.05)
 })
 
+# Read in sex proteins - Shi et al (2021)
+sex_proteins <- read.delim('cardiac_RNAseq/Sex_proteins.txt', row.names = NULL)
+sex_proteins$log2FC <- as.numeric(gsub(',', '.', sex_proteins$log2FC))
+
+aged_miRNA <- read.delim('Postdoc/miRNA/aged_host_miRNAs.txt')
+
+escape_miRNAs <- unique(unlist(lapply(aged_miRNA$miRNA_overlap, function(x){
+  strsplit(x, ',')
+})))
+
+names(pathways) <- gsub('MIR_', 'mmu-mir-', names(pathways))
+names(pathways) <- tolower(names(pathways))
+
+
+lapply(escape_miRNAs, function(x) {
+  grep(x, names(pathways))
+})
+
+sex_proteins$Protein[sex_proteins$Protein %in% pathways[[1594]]]
+
+names(pathways)[698]
+
+load('miRNA/CAST_miRNA_SNPs.RData')
 miRNA_SNP <- unlist(lapply(result, function(x){
     tmp <- gsub('Name=', '', strsplit(x$V9, ";")[[1]][3])
     gsub('-mir-', '-miR-', tmp)
 }))
+
+foo <- unique(unlist(lapply(unique(tolower(miRNA_SNP)), function(x) {
+    tmp <- grep(x, names(pathways))
+})))
+
+lapply(foo, function(x) {
+  paste(names(pathways)[x], sex_proteins$Protein[sex_proteins$Protein %in% pathways[[x]]])
+})
+
+
+names(pathways)[grep('mir-871', names(pathways))]
