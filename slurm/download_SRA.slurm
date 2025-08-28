@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --mail-user=lachlan.gray@tum.de
+#SBATCH --mail-type=END,FAIL
 #SBATCH -J download_SRA
 #SBATCH -D /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 #SBATCH -o out_error/%x.%j.%N.out
@@ -11,14 +12,16 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=18
-#SBATCH --mem=8G
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=16G
 #SBATCH --time=8:00:00
 #SBATCH --array=1-4
 
 
 
 set -euo pipefail
+
+cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 
 # --- Configuration ---------------------------------------------------------
 # Either: 1) edit the SRR_LIST below and put your four SRR accessions there
@@ -28,10 +31,10 @@ SRR_LIST=(SRR30223485 SRR30223486 SRR30223487 SRR30223488)
 
 # Path to the unpacked SRA Toolkit (adjust if it's located elsewhere).
 # This assumes the toolkit directory is in the directory you submit the job from.
-SRATOOLKIT_DIR="$SLURM_SUBMIT_DIR/sratoolkit.3.2.1-alma_linux64"
+SRATOOLKIT_DIR="sratoolkit.3.2.1-alma_linux64"
 
 # Output directory for FASTQ files
-OUTDIR="$SLURM_SUBMIT_DIR/adult_aged_heart_snRNAseq"
+OUTDIR="adult_aged_heart_snRNAseq"
 
 # Number of threads to pass to fasterq-dump; defaults to cpus-per-task if set
 THREADS=${SLURM_CPUS_PER_TASK:-4}
