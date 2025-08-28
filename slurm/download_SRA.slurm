@@ -70,23 +70,14 @@ echo "Starting download for $SRR -> $OUTDIR"
 # Use prefetch to fetch the .sra file into OUTDIR, then convert to FASTQ with fasterq-dump
 prefetch "$SRR" -O "$OUTDIR" || { echo "prefetch failed for $SRR" >&2; exit 3; }
 
-SRA_FILE="$OUTDIR/${SRR}.sra"
-if [ ! -f "$SRA_FILE" ]; then
-	# older prefetch locations or repo cache fallback: try to find the .sra under the submit dir
-	SRA_FILE_FOUND=$(find "$OUTDIR" -maxdepth 1 -name "${SRR}*.sra" -print -quit || true)
-	if [ -n "$SRA_FILE_FOUND" ]; then
-		SRA_FILE="$SRA_FILE_FOUND"
-	else
-		echo "ERROR: .sra file not found for $SRR after prefetch" >&2
-		exit 4
-	fi
-fi
+SRA_DIR="$OUTDIR/$SRR"
+SRA_FILE="$SRA_DIR/${SRR}.sralite"
 
 # Convert to FASTQ (split paired files if present) and write to OUTDIR
-fasterq-dump "$SRA_FILE" -O "$OUTDIR" -e "$THREADS" --split-files || { echo "fasterq-dump failed for $SRA_FILE" >&2; exit 5; }
+fasterq-dump "$SRA_FILE" -O "$SRA_DIR" -e "$THREADS" --split-files || { echo "fasterq-dump failed for $SRA_FILE" >&2; exit 5; }
 
 # Gzip FASTQ outputs to save space
-gzip -f "$OUTDIR"/*.fastq || echo "Note: gzip failed (maybe no .fastq files present)" >&2
+gzip -f "$SRA_DIR"/*.fastq || echo "Note: gzip failed (maybe no .fastq files present)" >&2
 
 # Optional: remove the .sra to save space
 rm -f "$SRA_FILE" || true
