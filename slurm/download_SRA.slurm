@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
+
 
 # --- Configuration ---------------------------------------------------------
 # Either: 1) edit the SRR_LIST below and put your four SRR accessions there
@@ -41,7 +41,7 @@ THREADS=${SLURM_CPUS_PER_TASK:-4}
 
 # ---------------------------------------------------------------------------
 
-cd "$SLURM_SUBMIT_DIR"
+cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 
 # If user provided a srr_list.txt file, read it (one SRR per line)
 #if [ -f srr_list.txt ]; then
