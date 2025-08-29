@@ -7,12 +7,12 @@
 #SBATCH --get-user-env
 #SBATCH --export=NONE
 #SBATCH --clusters=cm4
-#SBATCH --partition=cm4_std
-#SBATCH --qos=cm4_std
-#SBATCH --nodes=2
+#SBATCH --partition=cm4_tiny
+#SBATCH --qos=cm4_tiny
+#SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=112
-#SBATCH --mem=480G
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=200G
 #SBATCH --time=8:00:00
 
 export PATH=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cellranger-9.0.1:$PATH
