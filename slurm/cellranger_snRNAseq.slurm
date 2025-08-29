@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --mail-user=lachlan.gray@tum.de
+#SBATCH --mail-type=END,FAIL
 #SBATCH -J cellranger
 #SBATCH -D /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 #SBATCH -o out_error/%x.%j.%N.out
@@ -32,16 +33,19 @@ if [ "$SLURM_ARRAY_TASK_ID" -eq 1 ]; then
     --sample=Aged \
     --include-introns=true \
     --create-bam=true \
-    --localcores=8 --localmem=64
+    --localcores=32 \
+    --localmem=60
 
 
 # Adult
-if [ "$SLURM_ARRAY_TASK_ID" -eq 2 ]; then
+elif [ "$SLURM_ARRAY_TASK_ID" -eq 2 ]; then
   cellranger count \
     --id=9w \
     --transcriptome="$REF" \
-    --fastqs="$RAW/Adult" \
+    --fastqs=Adult \
     --sample=Adult \
     --include-introns=true \
     --create-bam=true \
-    --localcores=8 --localmem=64
+    --localcores=32 \
+    --localmem=60
+fi
