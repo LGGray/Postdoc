@@ -34,6 +34,7 @@ if [ "$SLURM_ARRAY_TASK_ID" -eq 1 ]; then
     --create-bam=true \
     --localcores=8 --localmem=64
 
+
 # Adult
 if [ "$SLURM_ARRAY_TASK_ID" -eq 2 ]; then
   cellranger count \
