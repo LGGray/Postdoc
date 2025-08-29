@@ -49,12 +49,22 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq
 #     --localmem=60
 # fi
 
-cellranger count \
-    --id=78w \
-    --transcriptome="$REF" \
-    --fastqs=Aged \
-    --sample=Aged \
-    --include-introns=true \
-    --create-bam=true \
-    --localcores=8 \
-    --localmem=60
+# cellranger count \
+#     --id=78w \
+#     --transcriptome="$REF" \
+#     --fastqs=Aged \
+#     --sample=Aged \
+#     --include-introns=true \
+#     --create-bam=true \
+#     --localcores=8 \
+#     --localmem=60
+
+  cellranger count \
+  --id=9w \
+  --transcriptome="$REF" \
+  --fastqs=Adult \
+  --sample=Adult \
+  --include-introns=true \
+  --create-bam=true \
+  --localcores=8 \
+  --localmem=60
