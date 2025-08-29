@@ -12,7 +12,7 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
 #SBATCH --time=8:00:00
 #SBATCH --array=1-2
@@ -33,7 +33,7 @@ if [ "$SLURM_ARRAY_TASK_ID" -eq 1 ]; then
     --sample=Aged \
     --include-introns=true \
     --create-bam=true \
-    --localcores=32 \
+    --localcores=8 \
     --localmem=60
 
 
@@ -46,6 +46,6 @@ elif [ "$SLURM_ARRAY_TASK_ID" -eq 2 ]; then
     --sample=Adult \
     --include-introns=true \
     --create-bam=true \
-    --localcores=32 \
+    --localcores=8 \
     --localmem=60
 fi
