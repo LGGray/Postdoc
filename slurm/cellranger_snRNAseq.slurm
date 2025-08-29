@@ -15,7 +15,6 @@
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=64G
 #SBATCH --time=6:00:00
-#SBATCH --array=1-2
 
 export PATH=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cellranger-9.0.1:$PATH
 
@@ -23,10 +22,34 @@ REF=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cellranger-9.0.1/refdata
 
 cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq
 
-# If array == then do aged if ==2 then do adult
-if [ "$SLURM_ARRAY_TASK_ID" -eq 1 ]; then
-  # Aged
-  cellranger count \
+# # If array == then do aged if ==2 then do adult
+# if [ "$SLURM_ARRAY_TASK_ID" -eq 1 ]; then
+#   # Aged
+#   cellranger count \
+#     --id=78w \
+#     --transcriptome="$REF" \
+#     --fastqs=Aged \
+#     --sample=Aged \
+#     --include-introns=true \
+#     --create-bam=true \
+#     --localcores=8 \
+#     --localmem=60
+
+
+# # Adult
+# elif [ "$SLURM_ARRAY_TASK_ID" -eq 2 ]; then
+#   cellranger count \
+#     --id=9w \
+#     --transcriptome="$REF" \
+#     --fastqs=Adult \
+#     --sample=Adult \
+#     --include-introns=true \
+#     --create-bam=true \
+#     --localcores=8 \
+#     --localmem=60
+# fi
+
+cellranger count \
     --id=78w \
     --transcriptome="$REF" \
     --fastqs=Aged \
@@ -35,17 +58,3 @@ if [ "$SLURM_ARRAY_TASK_ID" -eq 1 ]; then
     --create-bam=true \
     --localcores=8 \
     --localmem=60
-
-
-# Adult
-elif [ "$SLURM_ARRAY_TASK_ID" -eq 2 ]; then
-  cellranger count \
-    --id=9w \
-    --transcriptome="$REF" \
-    --fastqs=Adult \
-    --sample=Adult \
-    --include-introns=true \
-    --create-bam=true \
-    --localcores=8 \
-    --localmem=60
-fi
