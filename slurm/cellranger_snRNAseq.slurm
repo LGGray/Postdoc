@@ -7,48 +7,37 @@
 #SBATCH --get-user-env
 #SBATCH --export=NONE
 #SBATCH --clusters=cm4
-#SBATCH --partition=cm4_tiny
-#SBATCH --qos=cm4_tiny
+#SBATCH --partition=cm4_std
+#SBATCH --qos=cm4_std
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=18
-#SBATCH --mem=8G
+#SBATCH --cpus-per-task=112
+#SBATCH --mem=480G
 #SBATCH --time=8:00:00
 #SBATCH --array=1-2
 
-cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
-export PATH=cellranger-9.0.1:$PATH
+export PATH=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cellranger-9.0.1:$PATH
 
-# Corrected sample lists (fixed typo SRR30223486)
-adult=(SRR30223485 SRR30223486)
-aged=(SRR30223487 SRR30223488)
+REF=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cellranger-9.0.1/refdata-gex-GRCm39-2024-A/
 
-cellranger=cellranger-9.0.1/
-reference=$cellranger/refdata-gex-GRCm39-2024-A
+cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq
 
-# FASTQ_DIR should point to the directory on the cluster where your
-# per-SRR FASTQ subdirectories or files are located. Update as needed.
-FASTQ_DIR=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq
+# Aged
+cellranger count \
+  --id=78w \
+  --transcriptome="$REF" \
+  --fastqs=Aged \
+  --sample=Aged \
+  --include-introns=true \
+  --create-bam=true \
+  --localcores=8 --localmem=64
 
-# Run cellranger count per SRR. Cell Ranger will pick up paired files
-# (e.g. SRR30223485_1.fastq.gz and SRR30223485_2.fastq.gz) and multiple
-# lane files with the same SRR prefix if present in $FASTQ_DIR.
-for s in "${adult[@]}"; do
-  cellranger count \
-    --id="Adult_${s}" \
-    --transcriptome=$reference \
-    --fastqs=$FASTQ_DIR \
-    --sample=$s \
-    --include-introns \
-    --localcores=8 --localmem=64
-done
-
-for s in "${aged[@]}"; do
-  cellranger count \
-    --id="Aged_${s}" \
-    --transcriptome=$reference \
-    --fastqs=$FASTQ_DIR \
-    --sample=$s \
-    --include-introns \
-    --localcores=8 --localmem=64
-done
+# # Adult
+# cellranger count \
+#   --id=adult_aged_heart_snRNAseq/Adult \
+#   --transcriptome="$REF" \
+#   --fastqs="$RAW/Adult" \
+#   --sample=Adult \
+#   --include-introns=true \
+#   --create-bam=true \
+#   --localcores=8 --localmem=64
