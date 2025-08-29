@@ -77,7 +77,7 @@ SRA_FILE="$SRA_DIR/${SRR}.sralite"
 fasterq-dump "$SRA_FILE" -O "$SRA_DIR" -e "$THREADS" --split-files || { echo "fasterq-dump failed for $SRA_FILE" >&2; exit 5; }
 
 # Gzip FASTQ outputs to save space
-gzip -f "$SRA_DIR"/*.fastq || echo "Note: gzip failed (maybe no .fastq files present)" >&2
+#gzip -f "$SRA_DIR"/*.fastq || echo "Note: gzip failed (maybe no .fastq files present)" >&2
 
 # Optional: remove the .sra to save space
 rm -f "$SRA_FILE" || true
