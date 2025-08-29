@@ -12,7 +12,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=200G
+#SBATCH --mem=64G
 #SBATCH --time=8:00:00
 
 export PATH=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cellranger-9.0.1:$PATH
