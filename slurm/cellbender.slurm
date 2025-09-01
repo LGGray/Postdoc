@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --mail-user=lachlan.gray@tum.de
+#SBATCH --mail-type=END,FAIL
 #SBATCH -J cellbender
 #SBATCH -D /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 #SBATCH -o out_error/%x.%j.%N.out
@@ -26,11 +27,11 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq
 
 ## Map array task IDs to input/output paths. Edit or extend as needed.
 if [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 1 ]; then
-	INPUT="9w/raw_feature_bc_matrix.h5"
-	OUTPUT="9w/raw_feature_bc_matrix_cellbender.h5"
+	INPUT="9w/outs/raw_feature_bc_matrix.h5"
+	OUTPUT="9w/outs/raw_feature_bc_matrix_cellbender.h5"
 elif [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 2 ]; then
-	INPUT="12w/raw_feature_bc_matrix.h5"
-	OUTPUT="12w/raw_feature_bc_matrix_cellbender.h5"
+	INPUT="78w/outs/raw_feature_bc_matrix.h5"
+	OUTPUT="78w/outs/raw_feature_bc_matrix_cellbender.h5"
 else
 	echo "Unknown SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}. Exiting." >&2
 	exit 1
