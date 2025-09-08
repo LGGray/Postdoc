@@ -12,8 +12,8 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=18
-#SBATCH --mem=8G
+#SBATCH --cpus-per-task=9
+#SBATCH --mem=32G
 #SBATCH --time=8:00:00
 #SBATCH --array=1-24
 
@@ -24,6 +24,10 @@ source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x
 conda activate RNAseq
 
 cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq
+
+# only use 1 thread
+export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 \
+       VECLIB_MAXIMUM_THREADS=1 NUMEXPR_NUM_THREADS=1 DATATABLE_NUM_THREADS=1
 
 SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" filelist.txt)
 AGE=$(echo $SAMPLE | cut -d/ -f1)
