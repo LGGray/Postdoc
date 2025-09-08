@@ -12,7 +12,7 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=9
+#SBATCH --cpus-per-task=18
 #SBATCH --mem=32G
 #SBATCH --time=8:00:00
 #SBATCH --array=1-24
