@@ -79,61 +79,61 @@ weighted_mean <- function(results_list, ref_reads, alt_reads) {
 }
 
 
-# Example use
-library(ggplot2)
-library(tidyr)
-library(dplyr)
+# # Example use
+# library(ggplot2)
+# library(tidyr)
+# library(dplyr)
 
-ref_reads <- c(18, 25, 30, 22, 27, 19, 35, 40, 28, 32)
-alt_reads <- c(12, 20, 15, 18, 23, 21, 30, 35, 25, 28)
+# ref_reads <- c(18, 25, 30, 22, 27, 19, 35, 40, 28, 32)
+# alt_reads <- c(12, 20, 15, 18, 23, 21, 30, 35, 25, 28)
 
-results <- bayes_function(ref_reads, alt_reads, alpha = 10, beta = 10, null = 0.5, tail = "two.sided")
+# results <- bayes_function(ref_reads, alt_reads, alpha = 10, beta = 10, null = 0.5, tail = "two.sided")
 
-weighted_score(results, ref_reads, alt_reads)
-weighted_mean(results, ref_reads, alt_reads)
+# weighted_score(results, ref_reads, alt_reads)
+# weighted_mean(results, ref_reads, alt_reads)
 
 
-k <- sum(ref_reads)
-n <- sum(ref_reads + alt_reads)
+# k <- sum(ref_reads)
+# n <- sum(ref_reads + alt_reads)
 
-# Prior parameters
-alpha <- 10
-beta <- 10
+# # Prior parameters
+# alpha <- 10
+# beta <- 10
 
-# Posterior parameters
-post_alpha <- alpha + k
-post_beta <- beta + n - k
+# # Posterior parameters
+# post_alpha <- alpha + k
+# post_beta <- beta + n - k
 
-# Likelihood parameters (for visualization as Beta)
-like_alpha <- k + 1
-like_beta <- n - k + 1
+# # Likelihood parameters (for visualization as Beta)
+# like_alpha <- k + 1
+# like_beta <- n - k + 1
 
-# Create theta grid
-theta <- seq(0, 1, length.out = 1000)
+# # Create theta grid
+# theta <- seq(0, 1, length.out = 1000)
 
-# Calculate densities
-prior <- dbeta(theta, alpha, beta)
-likelihood <- dbeta(theta, like_alpha, like_beta)
-posterior <- dbeta(theta, post_alpha, post_beta)
+# # Calculate densities
+# prior <- dbeta(theta, alpha, beta)
+# likelihood <- dbeta(theta, like_alpha, like_beta)
+# posterior <- dbeta(theta, post_alpha, post_beta)
 
-# Combine into a data frame for ggplot
-df <- tibble(
-  theta = theta,
-  Prior = prior,
-  Likelihood = likelihood,
-  Posterior = posterior
-) %>%
-  pivot_longer(-theta, names_to = "Distribution", values_to = "Density")
+# # Combine into a data frame for ggplot
+# df <- tibble(
+#   theta = theta,
+#   Prior = prior,
+#   Likelihood = likelihood,
+#   Posterior = posterior
+# ) %>%
+#   pivot_longer(-theta, names_to = "Distribution", values_to = "Density")
 
-# Plot
-pdf('Bayes_example.pdf')
-ggplot(df, aes(x = theta, y = Density, color = Distribution)) +
-  geom_line(size = 1.2) +
-  labs(
-    title = "Prior, Likelihood, and Posterior Distributions",
-    x = "Allelic Ratio",
-    y = "Density"
-  ) +
-  theme_minimal() +
-  scale_color_manual(values = c("Prior" = "blue", "Likelihood" = "orange", "Posterior" = "red"))
-dev.off()
+# # Plot
+# pdf('Bayes_example.pdf')
+# ggplot(df, aes(x = theta, y = Density, color = Distribution)) +
+#   geom_line(size = 1.2) +
+#   labs(
+#     title = "Prior, Likelihood, and Posterior Distributions",
+#     x = "Allelic Ratio",
+#     y = "Density"
+#   ) +
+#   theme_minimal() +
+#   scale_color_manual(values = c("Prior" = "blue", "Likelihood" = "orange", "Posterior" = "red"))
+# dev.off()
