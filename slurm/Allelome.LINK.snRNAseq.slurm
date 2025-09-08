@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --mail-user=lachlan.gray@tum.de
+#SBATCH --mail-type=END,FAIL
 #SBATCH -J Allelome.LINK.snRNAseq
 #SBATCH -D /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 #SBATCH -o out_error/%x.%j.%N.out
