@@ -51,9 +51,9 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
   -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/$AGE/Allelome.LINK
 
-out_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/${AGE}/Allelome.LINK/2025_09_09_${celltype}_20250512_RefSeq.bed_1/
+out_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/${AGE}/Allelome.LINK/2025_09_09_${celltype}_20250512_RefSeq.bed_1
 mkdir -p ${out_dir}/LINK
 
-# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
-#   -i ${out_dir}/locus_table.txt \
-#   -o ${out_dir}/LINK/
+Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+  -i ${out_dir}/locus_table.txt \
+  -o ${out_dir}/LINK/
