@@ -222,3 +222,138 @@ aged <- cell_ids[cell_ids$age == 'aged', 1:2]
 
 write.table(adult, file = '9w/cell_index.txt', row.names = FALSE, col.names = FALSE, quote = FALSE)
 write.table(aged, file = '78w/cell_index.txt', row.names = FALSE, col.names = FALSE, quote = FALSE)
+
+
+### Compare gene expression between adult and aged cells
+DefaultAssay(merged) <- 'RNA'
+merged <- JoinLayers(merged)
+
+pseudobulk_fc <- function(
+  obj,
+  cell_ident,                 
+  group_by,                   
+  assay = "RNA",
+  layer = "counts",
+  contrast = NULL,            
+  min_total_count = 10,       
+  prior.count = 1             
+) {
+  stopifnot(group_by %in% colnames(obj[[]]))
+  if (!requireNamespace("edgeR", quietly = TRUE)) stop("Install edgeR.")
+
+  # 1) Subset to the cell type (by ident label or by explicit cells)
+  if (is.character(cell_ident) && all(cell_ident %in% Idents(obj))) {
+    x <- subset(obj, idents = cell_ident)
+  } else {
+    x <- subset(obj, cells = cell_ident)
+  }
+
+  # 2) Get raw counts (not scale.data)
+  m <- LayerData(x, assay = "RNA", layer = "counts")
+  if (!inherits(m, "dgCMatrix")) m <- as(m, "dgCMatrix")
+
+  # 3) Build pseudobulk (sum counts per group)
+  grp <- x[[group_by]][, 1, drop = TRUE]
+  groups <- split(colnames(x), grp)
+  pb_counts <- do.call(cbind, lapply(groups, function(cells)
+    Matrix::rowSums(m[, cells, drop = FALSE])
+  ))
+  colnames(pb_counts) <- names(groups)
+
+  # 4) Filter low-count genes (optional but sensible)
+  keep <- Matrix::rowSums(pb_counts) >= min_total_count
+  pb_counts <- pb_counts[keep, , drop = FALSE]
+
+  # 5) Normalise to logCPM
+  logCPM <- edgeR::cpm(pb_counts, prior.count = prior.count, log = TRUE)
+
+  # 6) Work out contrast
+  grps <- colnames(pb_counts)
+  if (is.null(contrast)) {
+    if (length(grps) != 2) {
+      stop("Provide 'contrast = c(target, reference)' when there are not exactly 2 groups.")
+    }
+    contrast <- grps
+  } else {
+    stopifnot(length(contrast) == 2, all(contrast %in% grps))
+  }
+  fc <- logCPM[, contrast[1]] - logCPM[, contrast[2]]
+
+  # 7) Tidy result
+  res <- data.frame(
+    gene = rownames(pb_counts),
+    count_ref = pb_counts[, contrast[2]],
+    count_tar = pb_counts[, contrast[1]],
+    logCPM_ref = logCPM[, contrast[2]],
+    logCPM_tar = logCPM[, contrast[1]],
+    log2FC = as.numeric(fc),
+    stringsAsFactors = FALSE,
+    row.names = NULL
+  )
+  res <- res[order(-abs(res$log2FC)), ]
+
+  list(
+    counts = pb_counts,
+    logCPM = logCPM,
+    contrast = paste0(contrast[1], " vs ", contrast[2]),
+    results = res
+  )
+}
+
+result_list <- list()
+for(celltype in levels(merged)){
+  result_list[[celltype]] <- pseudobulk_fc(merged, cell_ident = celltype, group_by = "age", contrast = c("aged", "adult"))$res
+}
+
+saveRDS(result_list, file = 'adult_aged_log2FC_results.RDS')
+
+# I want a heatmap of log2FC values across cell types
+library(ComplexHeatmap)
+library(circlize)
+
+common_genes <- Reduce(intersect, lapply(result_list, function(x) x$gene))
+log2FC_matrix <- do.call(cbind, lapply(result_list, function(x) {
+  x <- x[x$gene %in% common_genes, ]
+  x <- x[match(common_genes, x$gene), ]
+  x$log2FC
+}))
+rownames(log2FC_matrix) <- common_genes
+
+pdf('adult_aged_log2FC_heatmap.pdf')
+Heatmap(log2FC_matrix, name = "log2FC", col = colorRamp2(c(-1, 0, 1), c("blue", "white", "red")),
+        show_row_names = FALSE, show_column_names = TRUE,
+        clustering_distance_columns = 'spearman', clustering_method_columns = 'ward.D2',
+        cluster_rows = TRUE, cluster_columns = TRUE)
+dev.off()
+
+#### Read in Allelome.PRO2 ouput
+adult.files <- list.files('9w', pattern = 'locus_table.txt', full.names = TRUE, recursive = TRUE)
+adult.Allelome <- lapply(adult.files, function(file) {
+  read.delim(file)
+})
+names(adult.Allelome) <- unlist(lapply(adult.files, function(x){
+  tmp <- strsplit(x, '/')[[1]][[3]]
+  strsplit(tmp, '_')[[1]][4]
+}))
+
+adult.Allelome.combined <- dplyr::bind_rows(adult.Allelome, .id = "celltype")
+adult.Allelome.combined$age <- 'adult'
+
+aged.files <- list.files('9w', pattern = 'locus_table.txt', full.names = TRUE, recursive = TRUE)
+aged.Allelome <- lapply(aged.files, function(file) {
+  read.delim(file)
+})
+names(aged.Allelome) <- unlist(lapply(aged.files, function(x){
+  tmp <- strsplit(x, '/')[[1]][[3]]
+  strsplit(tmp, '_')[[1]][4]
+}))
+
+aged.Allelome.combined <- dplyr::bind_rows(aged.Allelome, .id = "celltype")
+aged.Allelome.combined$age <- 'aged'
+
+#### Match genes to gencode gtf
+gtf <- read.delim('../genomeDir/gencode.vM23.annotation.gtf', comment.char = "#", header = FALSE)
+
+head(gtf)
+
+head(subset(aged.Allelome.combined, allelic_ratio < 0.9 & chr=='chrX'))
