@@ -138,10 +138,6 @@ Idents(merged) <- 'seurat_clusters'
 
 merged <- RunUMAP(merged, reduction = "integrated.dr", dims = 1:30)
 
-pdf('adult_aged_umap.pdf')
-DimPlot(merged, reduction = "umap", label = TRUE)
-dev.off()
-
 
 # ### scDEED for integrated data - https://github.com/JSB-UCLA/scDEED
 # K=
@@ -204,17 +200,29 @@ to = c("FB","ventCM1","ventCM2","EC2","EC1","SMC",
 
 Idents(merged) <- 'celltype'
 
+
+
+## Set cluster colours
+cluster_colors <- list(Glial="#EC68A3", FB="#459AD5", LEC="#11B6EB", Adipo="#9188C0", 
+                      SMC="#2EB7BE", Epicard="#AD7AB3", Macro="#36B28F", atrialCM="#59B031", 
+                      EC2="#9AA921", EC1="#C49B05", ventCM1="#EE766F", ventCM2="#E38903")
+
+
 pdf('adult_aged_umap_celltype.pdf')
-DimPlot(merged, reduction = "umap")
+DimPlot(merged, reduction = "umap", label = FALSE, cols = cluster_colors)
 dev.off()
 
 saveRDS(merged, file = 'adult_aged_merged.RDS')
+merged <- readRDS('adult_aged_merged.RDS')
 
 pdf('batch_umap.pdf')
 DimPlot(merged, reduction = "umap", group.by = "age")
 dev.off()
 
 cell_ids <- data.frame(cell_id = colnames(merged), cell_type = merged$celltype, age = merged$age)
+cell_ids$cell_type <- factor(cell_ids$cell_type, levels = names(sort(table(cell_ids$cell_type))))
+cell_ids$age <- factor(cell_ids$age, levels = c("adult", "aged"))
+
 cell_ids$cell_id <- gsub('adult_|aged_', '', cell_ids$cell_id)
 
 adult <- cell_ids[cell_ids$age == 'adult', 1:2]
@@ -223,6 +231,17 @@ aged <- cell_ids[cell_ids$age == 'aged', 1:2]
 write.table(adult, file = '9w/cell_index.txt', row.names = FALSE, col.names = FALSE, quote = FALSE)
 write.table(aged, file = '78w/cell_index.txt', row.names = FALSE, col.names = FALSE, quote = FALSE)
 
+# Clustered bar chart of cell type percentage split by age
+pdf('celltype_percentage_by_age.pdf')
+ggplot(cell_ids, aes(x = age, fill = cell_type)) +
+  geom_bar(position = "fill") +
+  labs(x = "", y = "Cell composition", title = "") +
+  theme_minimal() +
+  scale_fill_manual(values = cluster_colors) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), breaks = seq(0, 1, by = 0.25)) +
+  coord_flip() +
+  theme(legend.position = "bottom", legend.title = element_blank())
+dev.off()
 
 ### Compare gene expression between adult and aged cells
 DefaultAssay(merged) <- 'RNA'
@@ -307,7 +326,7 @@ for(celltype in levels(merged)){
 
 saveRDS(result_list, file = 'adult_aged_log2FC_results.RDS')
 
-# I want a heatmap of log2FC values across cell types
+
 library(ComplexHeatmap)
 library(circlize)
 
@@ -326,34 +345,139 @@ Heatmap(log2FC_matrix, name = "log2FC", col = colorRamp2(c(-1, 0, 1), c("blue", 
         cluster_rows = TRUE, cluster_columns = TRUE)
 dev.off()
 
-#### Read in Allelome.PRO2 ouput
-adult.files <- list.files('9w', pattern = 'locus_table.txt', full.names = TRUE, recursive = TRUE)
-adult.Allelome <- lapply(adult.files, function(file) {
-  read.delim(file)
+#### Read in Allelome.PRO2 output
+load("adult.Allelome.PRO2.RData")
+load("aged.Allelome.PRO2.RData")
+
+
+
+# Create empty matrix with same dimensions as merged
+allelic_matrix <- matrix(NA, nrow = nrow(merged), ncol = ncol(merged))
+rownames(allelic_matrix) <- rownames(merged)
+colnames(allelic_matrix) <- colnames(merged)
+
+lapply(names(adult.Allelome), function(ct) {
+  adult.Allelome_mean <- adult.Allelome[[ct]] %>%
+    group_by(gene) %>%
+    summarise(allelic_ratio = mean(allelic_ratio)) %>%
+    ungroup() %>%
+    data.frame()
+
+  for(i in 1:nrow(adult.Allelome_mean)) {
+    gene <- adult.Allelome_mean[i, "gene"]
+    if(gene %in% rownames(allelic_matrix)) {
+      allelic_matrix[gene, subset(cell_ids, cell_type == ct & age == "adult")$cell_id] <- adult.Allelome_mean[i, "allelic_ratio"]
+    } else {
+      next
+    }
+  }
+
+  aged.Allelome_mean <- aged.Allelome[[ct]] %>%
+    group_by(gene) %>%
+    summarise(allelic_ratio = mean(allelic_ratio)) %>%
+    ungroup() %>%
+    data.frame()
+
+  for(i in 1:nrow(aged.Allelome_mean)) {
+    gene <- aged.Allelome_mean[i, "gene"]
+    if(gene %in% rownames(allelic_matrix)) {
+      allelic_matrix[gene, subset(cell_ids, cell_type == ct & age == "aged")$cell_id] <- aged.Allelome_mean[i, "allelic_ratio"]
+    } else {
+      next
+    }
+  }
 })
-names(adult.Allelome) <- unlist(lapply(adult.files, function(x){
-  tmp <- strsplit(x, '/')[[1]][[3]]
-  strsplit(tmp, '_')[[1]][4]
-}))
 
-adult.Allelome.combined <- dplyr::bind_rows(adult.Allelome, .id = "celltype")
-adult.Allelome.combined$age <- 'adult'
 
-aged.files <- list.files('9w', pattern = 'locus_table.txt', full.names = TRUE, recursive = TRUE)
-aged.Allelome <- lapply(aged.files, function(file) {
-  read.delim(file)
-})
-names(aged.Allelome) <- unlist(lapply(aged.files, function(x){
-  tmp <- strsplit(x, '/')[[1]][[3]]
-  strsplit(tmp, '_')[[1]][4]
-}))
+library(data.table)
+library(Matrix)
 
-aged.Allelome.combined <- dplyr::bind_rows(aged.Allelome, .id = "celltype")
-aged.Allelome.combined$age <- 'aged'
+# 0) Prep labels
+cell_ids$cell_id   <- as.character(cell_ids$cell_id)
+cell_ids$cell_type <- as.character(cell_ids$cell_type)
+cell_ids$age       <- as.character(cell_ids$age)
+stopifnot(identical(colnames(merged), cell_ids$cell_id))
 
-#### Match genes to gencode gtf
-gtf <- read.delim('../genomeDir/gencode.vM23.annotation.gtf', comment.char = "#", header = FALSE)
+# 1) Make a group per cell: (cell_type × age)
+cell_ids <- as.data.table(cell_ids)
+cell_ids[, grp := paste(cell_type, age, sep = "||")]
+grp_levels <- unique(cell_ids$grp)
 
-head(gtf)
+# 2) Bind adult/aged Allelome into one long DT with a 'grp' column
+#    (assumes each list element [[ct]] has columns: gene, allelic_ratio)
+stack_one <- function(L, age_label) {
+  if (length(L) == 0) return(data.table())
+  rbindlist(lapply(names(L), function(ct) {
+    if (is.null(L[[ct]]) || !nrow(L[[ct]])) return(NULL)
+    data.table(
+      gene = as.character(L[[ct]]$gene),
+      allelic_ratio = as.numeric(L[[ct]]$allelic_ratio),
+      grp  = paste(ct, age_label, sep = "||")
+    )
+  }), use.names = TRUE, fill = TRUE)
+}
 
-head(subset(aged.Allelome.combined, allelic_ratio < 0.9 & chr=='chrX'))
+DT <- rbind(
+  stack_one(adult.Allelome, "adult"),
+  stack_one(aged.Allelome,  "aged"),
+  use.names = TRUE, fill = TRUE
+)
+
+# 3) Per-gene mean within each group
+DT <- DT[!is.na(gene) & !is.na(allelic_ratio)]
+DTm <- DT[, .(allelic_ratio = mean(allelic_ratio, na.rm = TRUE)), by = .(gene, grp)]
+
+# 4) Build the **genes × groups** matrix A, aligned to rownames(merged) and grp_levels
+#    (fast dcast + reindex)
+A <- dcast(DTm, gene ~ grp, value.var = "allelic_ratio", fun.aggregate = mean)
+gene_order <- match(rownames(merged), A$gene)
+# Create a full matrix with NA, then fill matching rows
+A_full <- matrix(NA_real_, nrow = nrow(merged), ncol = length(grp_levels),
+                 dimnames = list(rownames(merged), grp_levels))
+ok <- !is.na(gene_order)
+if (any(ok)) {
+  # Reorder A's columns to grp_levels, dropping the 'gene' column
+  A_mat <- as.matrix(A[, grp_levels, with = FALSE])  # columns may be missing -> handled below
+  # If some groups absent in A, add them as NA columns
+  missing_cols <- setdiff(grp_levels, colnames(A_mat))
+  if (length(missing_cols)) {
+    A_mat <- cbind(A_mat, matrix(NA_real_, nrow = nrow(A_mat), ncol = length(missing_cols),
+                                 dimnames = list(NULL, missing_cols)))
+    A_mat <- A_mat[, grp_levels, drop = FALSE]
+  }
+  A_full[ok, ] <- A_mat[gene_order[ok], , drop = FALSE]
+}
+
+# 5) Build **groups × cells** one-hot sparse matrix P
+g_idx <- match(cell_ids$grp, grp_levels)
+P <- sparseMatrix(i = g_idx,
+                  j = seq_len(nrow(cell_ids)),
+                  x = 1, dims = c(length(grp_levels), nrow(cell_ids)),
+                  dimnames = list(grp_levels, cell_ids$cell_id))
+
+# 6) Broadcast in one go: (genes × groups) %*% (groups × cells) = (genes × cells)
+allelic_matrix <- A_full %*% P
+# Convert to base matrix (optional)
+allelic_matrix <- as.matrix(allelic_matrix)
+
+# Add allelic_matrix to merged assay
+merged <- CreateAssayObject(counts = allelic_matrix)
+
+# Plot UMAP for Med14 and colour by allelic ratio
+# From 0.5-0.9 shades of green
+# 0.9 = Orange
+# 1 = Red 
+library(scales)
+
+# Define color breaks
+breaks <- seq(0.5, 1, by = 0.1)
+colors <- c("green", "yellow", "orange", "red")
+
+# Create a color palette
+col_fun <- colorRamp2(breaks, colors)
+
+pdf('allelic_ratio_Med14.pdf')
+FeaturePlot(merged, features = "Med14", reduction = "umap", cols = col_fun(breaks), min.cutoff = 0.5, max.cutoff = 1) +
+  theme_minimal() +
+  labs(title = "Allelic Ratio of Med14") +
+  theme(plot.title = element_text(hjust = 0.5))

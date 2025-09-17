@@ -27,14 +27,15 @@ set -euo pipefail
 # Either: 1) edit the SRR_LIST below and put your four SRR accessions there
 #         2) or create a plain text file named `srr_list.txt` (one SRR per line)
 #            in the same directory as this script; it will be used instead.
-SRR_LIST=(SRR30223485 SRR30223486 SRR30223487 SRR30223488)
+SRR_file='adult_aged_kidney_ATAC/SRR_Acc_List_2.txt'
+mapfile -t SRR_LIST < "$SRR_file"
 
 # Path to the unpacked SRA Toolkit (adjust if it's located elsewhere).
 # This assumes the toolkit directory is in the directory you submit the job from.
 SRATOOLKIT_DIR="sratoolkit.3.2.1-alma_linux64"
 
 # Output directory for FASTQ files
-OUTDIR="adult_aged_heart_snRNAseq"
+OUTDIR="adult_aged_kidney_snRNAseq"
 
 # Number of threads to pass to fasterq-dump; defaults to cpus-per-task if set
 THREADS=${SLURM_CPUS_PER_TASK:-4}
@@ -42,11 +43,6 @@ THREADS=${SLURM_CPUS_PER_TASK:-4}
 # ---------------------------------------------------------------------------
 
 cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
-
-# If user provided a srr_list.txt file, read it (one SRR per line)
-#if [ -f srr_list.txt ]; then
-#	mapfile -t SRR_LIST < srr_list.txt
-#fi
 
 # Select accession for this array task (SLURM_ARRAY_TASK_ID starts at 1)
 IDX=$((SLURM_ARRAY_TASK_ID - 1))

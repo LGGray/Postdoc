@@ -10,6 +10,11 @@ library(ggalluvial)
 
 age.colours <- c("adult" = "#94A2AB", "aged" = "#284456")
 
+# Function to extract the link key - base|target|mechanism
+link_key <- function(df) paste(df$gene_base, df$gene_target, df$mechanism, sep="|")
+# Function to determine how many mechanisms switch
+pair_key <- function(df) paste(df$gene_base, df$gene_target, sep="|")
+
 #### Match RefSeq transcript ID to gene name
 gtf <- read.delim('../GRCm39/GCF_000001635.27_GRCm39_genomic.gtf', comment.char = "#", header = FALSE)
 gtf_transcripts <- subset(gtf, V3 == "transcript")
@@ -177,15 +182,6 @@ names(adult.LINK) <- unlist(lapply(adult.files, function(x){
   strsplit(tmp, '_')[[1]][4]
 }))
 
-aged.files <- list.files('78w/Allelome.LINK', recursive=TRUE, pattern='_links_full_table.txt', full.names=TRUE)
-aged.LINK <- lapply(aged.files, function(file) {
-  read.delim(file)
-})
-names(aged.LINK) <- unlist(lapply(aged.files, function(x){
-  tmp <- strsplit(x, '/')[[1]][[3]]
-  strsplit(tmp, '_')[[1]][4]
-}))
-
 # Loop over adult and aged to annotate genes
 adult.LINK <- lapply(adult.LINK, function(x) {
   dt_x <- data.table(x)
@@ -199,17 +195,28 @@ adult.LINK <- lapply(adult.LINK, function(x) {
 save(adult.LINK, file = "adult.Allelome.LINK.RData")
 load("adult.Allelome.LINK.RData")
 
+aged.files <- list.files('78w/Allelome.LINK', recursive=TRUE, pattern='_links_full_table.txt', full.names=TRUE)
+aged.LINK <- lapply(aged.files, function(file) {
+  read.delim(file)
+})
+names(aged.LINK) <- unlist(lapply(aged.files, function(x){
+  tmp <- strsplit(x, '/')[[1]][[3]]
+  strsplit(tmp, '_')[[1]][4]
+}))
+
 aged.LINK <- lapply(aged.LINK, function(x) {
   dt_x <- data.table(x)
   dt_x[, gene_base := dt_gtf[.SD, on = .(transcript_id = name_base), gene_ids]]
+  dt_x[, biotype_base := dt_gtf[.SD, on = .(transcript_id = name_base), biotype_ids]]
   dt_x[, gene_target := dt_gtf[.SD, on = .(transcript_id = name_target), gene_ids]]
+  dt_x[, biotype_target := dt_gtf[.SD, on = .(transcript_id = name_target), biotype_ids]]
   as.data.frame(dt_x)
 })
 
 save(aged.LINK, file = "aged.Allelome.LINK.RData")
 load("aged.Allelome.LINK.RData")
 
-#### Visualising the data ###
+#### Visualising the data ####
 
 # Clustered bar chart of the proportion of enhancive and repressive links across cell types, split by age
 combined.adult <- bind_rows(adult.LINK, .id = "celltype")
@@ -244,7 +251,7 @@ ggplot(combined.LINK, aes(x = celltype, y = linkage_score, fill = age)) +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 dev.off()
 
-link_key <- function(df) paste(df$gene_base, df$gene_target, df$mechanism, sep="|")
+
 
 # Venn diagram of links per cell type - adult and aged
 adult_sets <- lapply(adult.LINK, function(x) unique(link_key(x)))
@@ -298,9 +305,67 @@ ggplot(jaccard, aes(x=reorder(celltype, -jaccard), y=jaccard)) +
   theme(axis.text.x=element_text(angle=45, hjust=1))
 ggsave("figures/jaccard_per_celltype.pdf", width=8, height=5)
 
+### Alluvial plot of gained and lost links for one cell types
+status_per_pair <- function(ct){
+  A <- adult.LINK[[ct]] %>% mutate(pair=pair_key(.), status_adult=mechanism)
+  G <- aged.LINK[[ct]]  %>% mutate(pair=pair_key(.), status_aged =mechanism)
 
-# Determine how many mechanisms switch
-pair_key <- function(df) paste(df$gene_base, df$gene_target, sep="|")
+  pairs <- full_join(A[,c("pair","status_adult")], G[,c("pair","status_aged")], by="pair", relationship = "many-to-many") %>%
+    mutate(status_adult = ifelse(is.na(status_adult), "Absent", status_adult),
+           status_aged  = ifelse(is.na(status_aged),  "Absent", status_aged))
+  pairs$celltype <- ct
+  pairs
+}
+
+flows <- bind_rows(lapply(names(adult.LINK), function(x) unique(status_per_pair(x))))
+
+flows_clean <- flows %>%
+  mutate(
+    status_adult = recode(status_adult,
+                          enhancing = "Enhancing",
+                          repressing = "Repressing",
+                          Absent    = "No link"),
+    status_aged  = recode(status_aged,
+                          enhancing = "Enhancing",
+                          repressing = "Repressing",
+                          Absent    = "No link"),
+    status_adult = factor(status_adult, levels = c("No link","Repressing","Enhancing")),
+    status_aged  = factor(status_aged,  levels = c("No link","Repressing","Enhancing"))
+  )
+
+## 2) Count transitions per cell type
+transitions <- flows_clean %>%
+  count(celltype, status_adult, status_aged, name = "n")
+
+plot_link_flows <- function(ct) {
+  df <- transitions %>% filter(celltype == ct)
+
+  # label only large flows; compute midpoints within each Adult stratum
+  ggplot(df, aes(y = n, axis1 = status_adult, axis2 = status_aged)) +
+  geom_alluvium(aes(fill = status_aged), alpha = 0.6, discern = TRUE) +
+  geom_stratum(fill = "grey95", colour = "grey40", discern = TRUE) +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Adult","Aged"), expand = c(.12,.05)) +
+  theme_minimal() + theme(panel.grid = element_blank(), axis.text.y = element_blank()) +
+  ylab('')
+}
+
+lapply(names(adult.LINK), function(x) {
+  plot_link_flows(x)
+  ggsave(paste0("figures/alluvial_", x, "_adult_to_aged.pdf"))
+})
+
+ggplot(transitions, aes(y = n, axis1 = status_adult, axis2 = status_aged)) +
+  geom_alluvium(aes(fill = status_aged), alpha = 0.6, discern = TRUE) +
+  geom_stratum(fill = "grey95", colour = "grey40", discern = TRUE) +
+  geom_text(stat = "stratum", aes(label = after_stat(stratum)), size = 2.5) +
+  scale_x_discrete(limits = c("Adult","Aged"), expand = c(.12,.05)) +
+  theme_minimal() + theme(panel.grid = element_blank(), axis.text.y = element_blank()) +
+  ylab('') +
+  facet_wrap(~ celltype, ncol=4, scales="free_y")
+ggsave("figures/alluvial_all_celltypes_adult_to_aged.pdf", width=12, height=12)
+
+
 
 # Bar plot
 flip_tab <- lapply(names(adult.LINK), function(ct){
@@ -446,7 +511,7 @@ score_lost <- function(link, fc_table) {
 
   # For "lost", we expect base to fall in aged OR at least be not expressed in aged
   base_down   <- !is.na(base_fc$log2FC) && base_fc$log2FC <= lfc_down_thr
-  base_no_aged<- is.na(base_fc$logCPM_tar) || base_fc$logCPM_tar < min_logCPM
+  base_no_aged <- is.na(base_fc$logCPM_tar) || base_fc$logCPM_tar < min_logCPM
   base_decline <- base_down || base_no_aged
 
   target_up    <- !is.na(target_fc$log2FC) && target_fc$log2FC >= lfc_up_thr
@@ -518,6 +583,24 @@ mechanism_match_expr_perm <- lapply(names(adult_sets), function(ct){
 
 mechanism_match <- do.call(rbind, mechanism_match_expr_perm)
 write.table(mechanism_match, file = "figures/mechanism_match_perm_results.txt", sep = "\t", row.names = FALSE)
+
+
+
+ct <- 'ventCM1'
+lnc_base_pc_target_adult <- subset(adult.LINK[[ct]], grepl('NR|XR', name_base ) & grepl('NM|XM', name_target))
+lnc_base_pc_target_aged <- subset(aged.LINK[[ct]], grepl('NR|XR', name_base) & grepl('NM|XM', name_target))
+a <- link_key(lnc_base_pc_target_adult)
+g <- link_key(lnc_base_pc_target_aged)
+Gained_in_Aged <- setdiff(g, a)
+unique(unlist(lapply(Gained_in_Aged, function(x) strsplit(x, '\\|')[[1]][2])))
+
+
+
+
+
+
+
+
 
 
 # How many links are shared or unique to each cell type - adult and aged
