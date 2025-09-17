@@ -15,7 +15,7 @@
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=8G
 #SBATCH --time=2:00:00
-#SBATCH --array=1-4
+#SBATCH --array=1-8
 
 
 
