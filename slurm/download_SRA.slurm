@@ -64,7 +64,7 @@ fi
 echo "Starting download for $SRR -> $OUTDIR"
 
 # Use prefetch to fetch the .sra file into OUTDIR, then convert to FASTQ with fasterq-dump
-prefetch "$SRR" -O "$OUTDIR" || { echo "prefetch failed for $SRR" >&2; exit 3; }
+prefetch --check-rs no --ngc GTEx/prj_32764.ngc "$SRR" -O "$OUTDIR" || { echo "prefetch failed for $SRR" >&2; exit 3; }
 
 SRA_DIR="$OUTDIR/$SRR"
 SRA_FILE="$SRA_DIR/${SRR}.sralite"
