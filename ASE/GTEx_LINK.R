@@ -19,6 +19,7 @@ gtex_link <- data.frame(read_excel('07_SUPPLEMENTARY_TABLE.xlsx', sheet = 17))
 gtex_link$Link <- paste(gtex_link$ncRNA, gtex_link$Name_pcGene, sep = "_")
 
 metadata <- read.delim('GTEx_Analysis_v10_Annotations_SubjectPhenotypesDS.txt')
+unique(metadata$AGE)
 
 # Extract the relevant part of the Sample
 gtex_link$SUBJID <- unlist(lapply(gtex_link$Sample, function(x) {
@@ -625,6 +626,9 @@ age_change_links <- lapply(unique(gtex_link$Tissue), function(tissue){
 })
 names(age_change_links) <- unique(gtex_link$Tissue)
 
+# Save Rdata
+saveRDS(age_change_links, file = 'age_change_links_logit.RDS')
+
 # Matrix of significant changes
 sig_links <- lapply(age_change_links, function(df){
     unique(subset(df, adj.p.value < 0.05)$key)
@@ -696,7 +700,44 @@ lapply(1:nrow(sig_results), function(i){
     dev.off()
 })
 
+##################################
+# Overlap with CpG clock #
+##################################
+Horvath_clock <- read.delim('Horvath_clock.csv', sep = ',', header = TRUE, skip=2)
+Horvath_genes <- unique(Horvath_clock$Symbol[-1])
 
+overlap_Horvath <- lapply(1:length(age_change_links), function(i){
+  tmp <- age_change_links[[i]]
+  tmp$pcgene <- unlist(lapply(tmp$key, function(x) strsplit(x, ' \\| ')[[1]][2]))
+  return(subset(tmp, pcgene %in% Horvath_genes))
+})
+names(overlap_Horvath) <- names(age_change_links)
+overlap_Horvath <- overlap_Horvath[sapply(overlap_Horvath, function(x) nrow(x) > 0)]
+
+PhenoAge_clock <- read.delim('PhenoAge_clock.csv', sep = ',', header = TRUE)
+PhenoAge_genes <- unique(PhenoAge_clock$Gene.Symbol[-1])
+
+overlap_PhenoAge <- lapply(1:length(age_change_links), function(i){
+  tmp <- age_change_links[[i]]
+  tmp$pcgene <- unlist(lapply(tmp$key, function(x) strsplit(x, ' \\| ')[[1]][2]))
+  return(subset(tmp, pcgene %in% PhenoAge_genes))
+})
+names(overlap_PhenoAge) <- names(age_change_links)
+
+overlap_PhenoAge <- overlap_PhenoAge[sapply(overlap_PhenoAge, function(x) nrow(x) > 0)]
+
+subset(PhenoAge_clock, Gene.Symbol == 'AKR7A3')
+
+Hannum_clock <- data.frame(read_excel('Hannum_clock.xlsx', sheet = 2))
+Hannum_genes <- unique(unlist(lapply(Hannum_clock$Genes, function(x) unlist(strsplit(x, ',')[[1]]))))
+Hannum_genes <- Hannum_genes[!is.na(Hannum_genes)]
+overlap_Hannum <- lapply(1:length(age_change_links), function(i){
+  tmp <- age_change_links[[i]]
+  tmp$pcgene <- unlist(lapply(tmp$key, function(x) strsplit(x, ' \\| ')[[1]][2]))
+  return(subset(tmp, pcgene %in% Hannum_genes))
+})
+names(overlap_Hannum) <- names(age_change_links)
+overlap_Hannum <- overlap_Hannum[sapply(overlap_Hannum, function(x) nrow(x) > 0)]
 
 
 ###############################################################
@@ -760,3 +801,4 @@ lapply(names(sig_links_flt), function(tissue) {
         }
     }
 })
+

@@ -74,6 +74,7 @@ aged.Allelome <- lapply(aged.Allelome, function(x) {
 })
 
 save(aged.Allelome, file = "aged.Allelome.PRO2.RData")
+load("aged.Allelome.PRO2.RData")
 
 
 # Violin plot of allelic ratios across cell types split by age
@@ -189,6 +190,8 @@ adult.LINK <- lapply(adult.LINK, function(x) {
   dt_x[, biotype_base := dt_gtf[.SD, on = .(transcript_id = name_base), biotype_ids]]
   dt_x[, gene_target := dt_gtf[.SD, on = .(transcript_id = name_target), gene_ids]]
   dt_x[, biotype_target := dt_gtf[.SD, on = .(transcript_id = name_target), biotype_ids]]
+  # Filter out same-gene links (different isoforms of same gene)
+  dt_x <- dt_x[gene_base != gene_target | is.na(gene_base) | is.na(gene_target)]
   as.data.frame(dt_x)
 })
 
@@ -210,6 +213,8 @@ aged.LINK <- lapply(aged.LINK, function(x) {
   dt_x[, biotype_base := dt_gtf[.SD, on = .(transcript_id = name_base), biotype_ids]]
   dt_x[, gene_target := dt_gtf[.SD, on = .(transcript_id = name_target), gene_ids]]
   dt_x[, biotype_target := dt_gtf[.SD, on = .(transcript_id = name_target), biotype_ids]]
+  # Filter out same-gene links (different isoforms of same gene)
+  dt_x <- dt_x[gene_base != gene_target | is.na(gene_base) | is.na(gene_target)]
   as.data.frame(dt_x)
 })
 
@@ -244,6 +249,7 @@ dev.off()
 pdf("figures/combined_linkage_score_boxplot.pdf")
 ggplot(combined.LINK, aes(x = celltype, y = linkage_score, fill = age)) +
     geom_boxplot(outlier.shape = NA) +
+    scale_fill_manual(values = age.colours) +
     labs(title = "",
          x = "",
          y = "Linkage Score") +
@@ -443,7 +449,7 @@ tx_fc <- lapply(names(adult_tx), function(ct){
 })
 names(tx_fc) <- names(adult_tx)
 
-subset(tx_fc[['ventCM1']], transcript == 'NM_009785.1')
+
 tx_fc <- bind_rows(tx_fc)
 
 ### Read in fold change results
@@ -596,18 +602,234 @@ unique(unlist(lapply(Gained_in_Aged, function(x) strsplit(x, '\\|')[[1]][2])))
 
 
 
+######################################################
+# Are discordant links due to switch in allelic bias #
+######################################################
 
 
+# Improved classification of lost links
+classify_lost_link <- function(base_gene, target_gene, aged_data, read_thresh = 50, bias_thresh = 0.7) {
+  # Get data for both genes
+  base_data <- subset(aged_data, gene == base_gene)
+  target_data <- subset(aged_data, gene == target_gene)
+  
+  # Helper function to classify a single gene
+  classify_gene <- function(gene_data, gene_name) {
+    if (nrow(gene_data) == 0) {
+      return(list(status = "absent", reason = "not_detected"))
+    }
+    
+    # Use maximum reads across transcripts (most expressed isoform)
+    max_reads <- max(gene_data$total_reads, na.rm = TRUE)
+    # Use the allelic ratio from the most expressed transcript
+    main_transcript <- gene_data[which.max(gene_data$total_reads), ]
+    allelic_ratio <- main_transcript$allelic_ratio
+    
+    if (max_reads < read_thresh) {
+      return(list(status = "low_expression", reason = "insufficient_reads", reads = max_reads))
+    }
+    
+    if (allelic_ratio > (1 - bias_thresh) && allelic_ratio < bias_thresh) {
+      return(list(status = "balanced", reason = "lost_bias", reads = max_reads, ratio = allelic_ratio))
+    }
+    
+    return(list(status = "still_biased", reason = "other", reads = max_reads, ratio = allelic_ratio))
+  }
+  
+  base_class <- classify_gene(base_data, base_gene)
+  target_class <- classify_gene(target_data, target_gene)
+  
+  # Determine overall link loss reason
+  if (base_class$status %in% c("absent", "low_expression") || 
+      target_class$status %in% c("absent", "low_expression")) {
+    loss_type <- "expression_loss"
+  } else if (base_class$status == "balanced" || target_class$status == "balanced") {
+    loss_type <- "mechanism_loss" 
+  } else {
+    loss_type <- "other"  # Both genes still biased but link lost (shouldn't happen often)
+  }
+  
+  return(data.frame(
+    base = base_gene,
+    target = target_gene,
+    loss_type = loss_type,
+    base_status = base_class$status,
+    target_status = target_class$status,
+    base_reads = ifelse(is.null(base_class$reads), 0, base_class$reads),
+    target_reads = ifelse(is.null(target_class$reads), 0, target_class$reads),
+    base_ratio = ifelse(is.null(base_class$ratio), NA, base_class$ratio),
+    target_ratio = ifelse(is.null(target_class$ratio), NA, target_class$ratio)
+  ))
+}
 
 
+lost_aged <- lapply(names(adult.LINK), function(ct){
+  discordant_aged <- setdiff(link_key(adult.LINK[[ct]]), link_key(aged.LINK[[ct]]))
+  links <- strsplit(discordant_aged, '\\|')
+  base <- unlist(lapply(links, function(x) x[1]))
+  target <- unlist(lapply(links, function(x) x[2]))
 
-
-
-# How many links are shared or unique to each cell type - adult and aged
-adult_links <- lapply(names(adult.LINK), function(ct){
-    unique(paste(adult.LINK[[ct]]$gene_base, adult.LINK[[ct]]$gene_target, adult.LINK[[ct]]$mechanism, sep='_'))
+  tmp <- lapply(1:length(links), function(i){
+    classify_lost_link(base[i], target[i], aged.Allelome[[ct]])
+  })
+  df <- bind_rows(tmp)
+  df$celltype <- ct
+  df
 })
-names(adult_links) <- names(adult.LINK)
+names(lost_aged) <- names(adult.LINK)
+
+lost_aged <- bind_rows(lost_aged, .id = "celltype")
+lost_aged$age <- 'lost_aged'
+
+lost_adult <- lapply(names(aged.LINK), function(ct){
+  discordant_adult <- setdiff(link_key(aged.LINK[[ct]]), link_key(adult.LINK[[ct]]))
+  links <- strsplit(discordant_adult, '\\|')
+  base <- unlist(lapply(links, function(x) x[1]))
+  target <- unlist(lapply(links, function(x) x[2]))
+
+  tmp <- lapply(1:length(links), function(i){
+    classify_lost_link(base[i], target[i], adult.Allelome[[ct]])
+  })
+  df <- bind_rows(tmp)
+  df$celltype <- ct
+  df
+})
+names(lost_adult) <- names(aged.LINK)
+
+lost_adult <- bind_rows(lost_adult, .id = "celltype")
+lost_adult$age <- 'lost_adult'
+
+lost_combined <- bind_rows(lost_aged, lost_adult)
+lost_combined$age <- factor(lost_combined$age, levels = c('lost_aged', 'lost_adult'))
+
+# stacked bar plot of lost link reasons, split by age
+pdf("figures/lost_link_reasons_stackedbar.pdf", width = 8, height = 6)
+ggplot(lost_combined, aes(x = celltype, fill = loss_type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "", y = "% of lost links", fill = "Loss reason") +
+  scale_fill_manual(values = c("expression_loss" = "#C36F6D", "mechanism_loss" = "#8AAAA1", "other" = "grey70 ")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  facet_wrap(~ age)
+dev.off()
+
+################################################
+# Are lost links enriched for CpG clock genes? #
+################################################
+
+Mouse_clock <- read.delim('Mouse.CpG.clock.txt')
+colnames(Mouse_clock)[4] <- 'gene'
+
+lost_aged_CpG <- lapply(names(adult.LINK), function(ct){
+  discordant_aged <- setdiff(link_key(adult.LINK[[ct]]), link_key(aged.LINK[[ct]]))
+  discordant_links <- strsplit(discordant_aged, '\\|')
+  discordant_base <- unlist(lapply(discordant_links, function(x) x[1]))
+  discordant_target <- unlist(lapply(discordant_links, function(x) x[2]))
+
+  concordant_aged <- setdiff(link_key(aged.LINK[[ct]]), link_key(adult.LINK[[ct]]))
+  concordant_links <- strsplit(concordant_aged, '\\|')
+  concordant_base <- unlist(lapply(concordant_links, function(x) x[1]))
+  concordant_target <- unlist(lapply(concordant_links, function(x) x[2]))
+
+  tmp_base <- matrix(NA, nrow=2, ncol=2)
+  tmp_base[1,1] <- nrow(subset(Mouse_clock, gene %in% unique(discordant_base)))
+  tmp_base[1,2] <- nrow(subset(Mouse_clock, !(gene %in% unique(discordant_base))))
+  tmp_base[2,1] <- nrow(subset(Mouse_clock, gene %in% unique(concordant_base)))
+  tmp_base[2,2] <- nrow(subset(Mouse_clock, !(gene %in% unique(concordant_base))))
+  base_p <- fisher.test(tmp_base)$p.value
+
+
+  tmp_target <- matrix(NA, nrow=2, ncol=2)
+  tmp_target[1,1] <- nrow(subset(Mouse_clock, gene %in% unique(discordant_target)))
+  tmp_target[1,2] <- nrow(subset(Mouse_clock, !(gene %in% unique(discordant_target))))
+  tmp_target[2,1] <- nrow(subset(Mouse_clock, gene %in% unique(concordant_target)))
+  tmp_target[2,2] <- nrow(subset(Mouse_clock, !(gene %in% unique(concordant_target))))
+  target_p <- fisher.test(tmp_target)$p.value
+
+  return(data.frame(
+    celltype = ct, 
+    base_perc= (tmp_base[1,1] / sum(tmp_base[1,])) * 100, 
+    base_n = tmp_base[1,1],
+    target_perc= (tmp_target[1,1] / sum(tmp_target[1,])) * 100, 
+    target_n = tmp_target[1,1],
+    base_p = base_p, 
+    target_p = target_p))
+})
+lost_aged_CpG <- bind_rows(lost_aged_CpG)
+lost_aged_CpG$base_p_adj <- p.adjust(lost_aged_CpG$base_p, method = "BH")
+lost_aged_CpG$target_p_adj <- p.adjust(lost_aged_CpG$target_p, method = "BH")
+
+
+lost_adult_CpG <- lapply(names(aged.LINK), function(ct){
+  discordant_adult <- setdiff(link_key(aged.LINK[[ct]]), link_key(adult.LINK[[ct]]))
+  discordant_links <- strsplit(discordant_adult, '\\|')
+  discordant_base <- unlist(lapply(discordant_links, function(x) x[1]))
+  discordant_target <- unlist(lapply(discordant_links, function(x) x[2]))
+
+  concordant_adult <- setdiff(link_key(adult.LINK[[ct]]), link_key(aged.LINK[[ct]]))
+  concordant_links <- strsplit(concordant_adult, '\\|')
+  concordant_base <- unlist(lapply(concordant_links, function(x) x[1]))
+  concordant_target <- unlist(lapply(concordant_links, function(x) x[2]))
+
+  tmp_base <- matrix(NA, nrow=2, ncol=2)
+  tmp_base[1,1] <- nrow(subset(Mouse_clock, gene %in% unique(discordant_base)))
+  tmp_base[1,2] <- nrow(subset(Mouse_clock, !(gene %in% unique(discordant_base))))
+  tmp_base[2,1] <- nrow(subset(Mouse_clock, gene %in% unique(concordant_base)))
+  tmp_base[2,2] <- nrow(subset(Mouse_clock, !(gene %in% unique(concordant_base))))
+  base_p <- fisher.test(tmp_base)$p.value
+
+  tmp_target <- matrix(NA, nrow=2, ncol=2)
+  tmp_target[1,1] <- nrow(subset(Mouse_clock, gene %in% unique(discordant_target)))
+  tmp_target[1,2] <- nrow(subset(Mouse_clock, !(gene %in% unique(discordant_target))))
+  tmp_target[2,1] <- nrow(subset(Mouse_clock, gene %in% unique(concordant_target)))
+  tmp_target[2,2] <- nrow(subset(Mouse_clock, !(gene %in% unique(concordant_target))))
+  target_p <- fisher.test(tmp_target)$p.value
+  return(data.frame(
+    celltype = ct, 
+    base_perc= (tmp_base[1,1] / sum(tmp_base[1,])) * 100,
+    base_n = tmp_base[1,1],
+    target_perc= (tmp_target[1,1] / sum(tmp_target[1,])) * 100,
+    target_n = tmp_target[1,1],
+    base_p = base_p, 
+    target_p = target_p))
+})
+lost_adult_CpG <- bind_rows(lost_adult_CpG)
+lost_adult_CpG$base_p_adj <- p.adjust(lost_adult_CpG$base_p, method = "BH")
+lost_adult_CpG$target_p_adj <- p.adjust(lost_adult_CpG$target_p, method = "BH")
+
+# Overlap CpG sites with discordant links to understand the mechanisms
+
+ct <- 'ventCM1'
+discordant_aged <- setdiff(link_key(adult.LINK[[ct]]), link_key(aged.LINK[[ct]]))
+discordant_links <- strsplit(discordant_aged, '\\|')
+discordant_base <- unlist(lapply(discordant_links, function(x) x[1]))
+discordant_target <- unlist(lapply(discordant_links, function(x) x[2]))
+tmp <- subset(Mouse_clock, gene %in% unique(discordant_base))
+
+subset(lost_combined, celltype == ct & age == 'lost_aged' & base %in% tmp$gene)
+
+discordant_adult <- setdiff(link_key(aged.LINK[[ct]]), link_key(adult.LINK[[ct]]))
+discordant_links <- strsplit(discordant_adult, '\\|')
+discordant_base <- unlist(lapply(discordant_links, function(x) x[1]))
+discordant_target <- unlist(lapply(discordant_links, function(x) x[2]))
+tmp <- subset(Mouse_clock, gene %in% unique(discordant_base))
+
+subset(lost_combined, celltype == ct & age == 'lost_adult' & base %in% tmp$gene)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 adult_links_matrix <- fromList(adult_links)
 pdf("figures/adult_links_upset.pdf", width = 8, height = 6, onefile = FALSE)
 upset(adult_links_matrix, nsets = length(adult_links), order.by = "freq", 
@@ -668,3 +890,6 @@ nrow(subset(adult.LINK_nc[[1]], gene_target %in% subset(unique_links_nc_fc[[1]],
 
 nrow(subset(aged.LINK_nc[[1]], gene_base %in% subset(unique_links_nc_fc[[1]], type == 'base')$gene))
 nrow(subset(aged.LINK_nc[[1]], gene_target %in% subset(unique_links_nc_fc[[1]], type == 'target')$gene))
+
+
+
