@@ -11,7 +11,7 @@
 #SBATCH --partition=cm4_tiny
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=6          
+#SBATCH --ntasks-per-node=2          
 #SBATCH --cpus-per-task=9
 #SBATCH --mem=36G
 #SBATCH --time=24:00:00
