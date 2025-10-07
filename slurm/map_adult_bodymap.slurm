@@ -1,5 +1,6 @@
 #!/bin/bash
 #SBATCH --mail-user=lachlan.gray@tum.de
+#SBATCH --mail-type=END,FAIL
 #SBATCH -J adult_Allelome_LINK
 #SBATCH -D /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 #SBATCH -o out_error/%x.%j.%N.out
@@ -64,12 +65,18 @@ run_one() {
 
 # Launch up to --ntasks-per-node jobs concurrently
 running=0
+total=${#SAMPLES[@]}
+completed=0
+
 for S in "${SAMPLES[@]}"; do
   run_one "$S" &
   (( running++ ))
+  (( completed++ ))
   if (( running >= SLURM_NTASKS_PER_NODE )); then
     wait
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] --- Completed ${completed}/${total} samples ---" >&2
     running=0
   fi
 done
+
 wait
