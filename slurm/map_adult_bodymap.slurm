@@ -12,7 +12,7 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1   
 #SBATCH --cpus-per-task=18
-#SBATCH --mem=36G
+#SBATCH --mem=8G
 #SBATCH --time=8:00:00
 
 module load slurm_setup
