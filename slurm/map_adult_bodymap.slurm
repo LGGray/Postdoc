@@ -10,9 +10,8 @@
 #SBATCH --clusters=cm4
 #SBATCH --partition=cm4_tiny
 #SBATCH --qos=cm4_tiny
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=2          
-#SBATCH --cpus-per-task=9
+#SBATCH --nodes=1   
+#SBATCH --cpus-per-task=18
 #SBATCH --mem=36G
 #SBATCH --time=24:00:00
 
@@ -23,9 +22,6 @@ conda activate RNAseq
 cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_bodymap
 
 adult_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/01_aging_TH_for_LG/00_rawdata/01_adult
-
-# Read the first 27 samples from the list
-mapfile -t SAMPLES < <(head -n 27 adult_path.txt)
 
 run_one() {
   SAMPLE="$1"
@@ -61,22 +57,12 @@ run_one() {
     "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" \
     ../GRCm39/gencode.vM37.primary_assembly.annotation.gtf \
     > "adult/${SAMPLE}/HTseq_counts/${filename}_stranded_${STRAND}.count"
+
+  echo "Finished processing sample: $i $SAMPLE"
 }
 
-# Launch up to --ntasks-per-node jobs concurrently
-running=0
-total=${#SAMPLES[@]}
-completed=0
-
-for S in "${SAMPLES[@]}"; do
-  run_one "$S" &
-  (( running++ ))
-  (( completed++ ))
-  if (( running >= SLURM_NTASKS_PER_NODE )); then
-    wait
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] --- Completed ${completed}/${total} samples ---" >&2
-    running=0
-  fi
+# Change to a simple loop from sample 1 to sample 27
+for ((i=1; i<=27; i++)); do
+  SAMPLE="sample_${i}"
+  run_one "$SAMPLE"
 done
-
-wait
