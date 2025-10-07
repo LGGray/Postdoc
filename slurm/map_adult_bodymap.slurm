@@ -13,7 +13,7 @@
 #SBATCH --nodes=1   
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=36G
-#SBATCH --time=24:00:00
+#SBATCH --time=8:00:00
 
 module load slurm_setup
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
