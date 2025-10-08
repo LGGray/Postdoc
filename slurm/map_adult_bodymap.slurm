@@ -27,7 +27,7 @@ run_one() {
   SAMPLE="$1"
   filename=$(echo "$SAMPLE" | cut -d'_' -f2)
 
-  mkdir -p "adult/${SAMPLE}/HTseq_counts"
+  mkdir -p "adult/${SAMPLE}"
 
   shopt -s nullglob
   R1=($(printf "%s\n" ${adult_dir}/${SAMPLE}/${filename}_S*_L*_R1_001.fastq.gz | sort))
@@ -56,13 +56,43 @@ run_one() {
   htseq-count -s $STRAND -r pos -f bam \
     "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" \
     ../GRCm39/gencode.vM37.primary_assembly.annotation.gtf \
-    > "adult/${SAMPLE}/HTseq_counts/${filename}_stranded_${STRAND}.count"
+    > "adult/${SAMPLE}/${filename}_stranded_${STRAND}.count"
 
   echo "Finished processing sample: $i $SAMPLE"
 }
 
 # Change to a simple loop from sample 1 to sample 27
 for ((i=1; i<=27; i++)); do
-  SAMPLE="sample_${i}"
+  SAMPLE=$(sed -n "${i}p" adult_path.txt)
   run_one "$SAMPLE"
 done
+
+# Separate BAM files into forward and reverse reads
+strandrule="1+-,1-+,2++,2--"
+perl separate_BAM_strand.pl "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule adult/${SAMPLE}
+
+# Run Allelome.PRO
+
+bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+  -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
+  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/20250512_RefSeq.bed \
+  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
+  -o "adult/${SAMPLE}"
+
+bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+  -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
+  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/20250512_RefSeq.bed \
+  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
+  -o "adult/${SAMPLE}"
+
+
+# Merge locus_table from forward and reverse strands
+Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R
+
+# Merge across replicates
+Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_replicates.R
+
+# Allelome LINK
+Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+  -i adult/${SAMPLE}/locus_table_reps.txt \
+  -o ${out_dir}/LINK/
