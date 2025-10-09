@@ -12,8 +12,9 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1   
 #SBATCH --cpus-per-task=18
-#SBATCH --mem=8G
+#SBATCH --mem=20G
 #SBATCH --time=8:00:00
+#SBATCH --array=1-27
 
 module load slurm_setup
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
@@ -61,20 +62,19 @@ run_one() {
   echo "Finished processing sample: $i $SAMPLE"
 }
 
-# Change to a simple loop from sample 1 to sample 27
-for ((i=1; i<=27; i++)); do
-  SAMPLE=$(sed -n "${i}p" adult_path.txt)
-  filename=$(echo "$SAMPLE" | cut -d'_' -f2)
-  run_one "$SAMPLE"
-done
 
-# Separate BAM files into forward and reverse reads
-BAM="adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
-ANNOTATION=../GRCm39/gencode.vM37.primary_assembly.annotation.gtf
-#awk '{ if ($0 ~ "transcript_id") print $0; else print $0" transcript_id \"\";"; }' $ANNOTATION | gtf2bed - > ../GRCm39/gencode.vM37.primary_assembly.annotation.bed
-BED=../GRCm39/gencode.vM37.primary_assembly.annotation.bed
+SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" adult_path.txt)
+filename=$(echo "$SAMPLE" | cut -d'_' -f2)
+run_one "$SAMPLE"
 
-../Postdoc/infer_experiment.py -i $BAM -r $BED
+
+# # Separate BAM files into forward and reverse reads
+# BAM="adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
+# ANNOTATION=../GRCm39/gencode.vM37.primary_assembly.annotation.gtf
+# #awk '{ if ($0 ~ "transcript_id") print $0; else print $0" transcript_id \"\";"; }' $ANNOTATION | gtf2bed - > ../GRCm39/gencode.vM37.primary_assembly.annotation.bed
+# BED=../GRCm39/gencode.vM37.primary_assembly.annotation.bed
+
+# ../Postdoc/infer_experiment.py -i $BAM -r $BED
 
 strandrule="1+-,1-+,2++,2--"
 perl ../Postdoc/separate_BAM_strand.pl "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule adult/${SAMPLE}
@@ -98,12 +98,12 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
 
 
 # Merge locus_table from forward and reverse strands
-Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult
+Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult $SAMPLE
 
-# Merge across replicates
-Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_replicates.R
+# # Merge across replicates
+# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_replicates.R
 
-# Allelome LINK
-Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
-  -i adult/${SAMPLE}/locus_table_reps.txt \
-  -o ${out_dir}/LINK/
+# # Allelome LINK
+# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+#   -i adult/${SAMPLE}/locus_table_reps.txt \
+#   -o ${out_dir}/LINK/
