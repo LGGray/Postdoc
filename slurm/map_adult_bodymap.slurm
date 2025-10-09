@@ -64,30 +64,41 @@ run_one() {
 # Change to a simple loop from sample 1 to sample 27
 for ((i=1; i<=27; i++)); do
   SAMPLE=$(sed -n "${i}p" adult_path.txt)
+  filename=$(echo "$SAMPLE" | cut -d'_' -f2)
   run_one "$SAMPLE"
 done
 
 # Separate BAM files into forward and reverse reads
+BAM="adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
+ANNOTATION=../GRCm39/gencode.vM37.primary_assembly.annotation.gtf
+#awk '{ if ($0 ~ "transcript_id") print $0; else print $0" transcript_id \"\";"; }' $ANNOTATION | gtf2bed - > ../GRCm39/gencode.vM37.primary_assembly.annotation.bed
+BED=../GRCm39/gencode.vM37.primary_assembly.annotation.bed
+
+../Postdoc/infer_experiment.py -i $BAM -r $BED
+
 strandrule="1+-,1-+,2++,2--"
-perl separate_BAM_strand.pl "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule adult/${SAMPLE}
+perl ../Postdoc/separate_BAM_strand.pl "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule adult/${SAMPLE}
+
+# Split RefSeq into forward and reverse strands
+#awk '$6 == "+" {print > "../GRCm39/forward_20250512_RefSeq.bed"} $6 == "-" {print > "../GRCm39/reverse_20250512_RefSeq.bed"}' ../GRCm39/20250512_RefSeq.bed
 
 # Run Allelome.PRO
 
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
-  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/20250512_RefSeq.bed \
+  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/forward_20250512_RefSeq.bed \
   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
   -o "adult/${SAMPLE}"
 
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
-  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/20250512_RefSeq.bed \
+  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/reverse_20250512_RefSeq.bed \
   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
   -o "adult/${SAMPLE}"
 
 
 # Merge locus_table from forward and reverse strands
-Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R
+Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult
 
 # Merge across replicates
 Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_replicates.R
