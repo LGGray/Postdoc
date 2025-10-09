@@ -95,8 +95,9 @@ open BAMREAD, "samtools view -H $ARGV[0] |";
 $fwd_bam = $ARGV[2]."/".basename($ARGV[0],".bam")."_fwd.bam";
 $rev_bam = $ARGV[2]."/".basename($ARGV[0],".bam")."_rev.bam";
 
-open FWDWRITE, "| samtools view -bS -> $fwd_bam";
-open REVWRITE, "| samtools view -bS -> $rev_bam";
+# Updated to use correct syntax for opening pipes
+open FWDWRITE, "|-", "samtools view -bS > $fwd_bam" or die "Cannot open forward BAM file: $!";
+open REVWRITE, "|-", "samtools view -bS > $rev_bam" or die "Cannot open reverse BAM file: $!";
 
 while (<BAMREAD>)
 {
