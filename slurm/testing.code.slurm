@@ -29,7 +29,7 @@ SAMPLE=$(sed -n "${i}p" adult_path.txt)
 filename=$(echo "$SAMPLE" | cut -d'_' -f2)
 
 # Merge locus_table from forward and reverse strands
-Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult SAMPLE
+#Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult $SAMPLE
 
 # Merge across replicates
 #Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_replicates.R
