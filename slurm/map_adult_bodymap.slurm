@@ -7,9 +7,8 @@
 #SBATCH -e out_error/%x.%j.%N.err
 #SBATCH --get-user-env
 #SBATCH --export=NONE
-#SBATCH --clusters=cm4
-#SBATCH --partition=cm4_tiny
-#SBATCH --qos=cm4_tiny
+#SBATCH --clusters=serial
+#SBATCH --partition=serial_std
 #SBATCH --nodes=1   
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=20G
