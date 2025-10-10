@@ -56,8 +56,7 @@ run_one() {
 }
 
 
-#SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" sample_names.txt)
-SAMPLE=$(sed -n 1p sample_names.txt)
+SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" sample_names.txt)
 filename=$(echo "$SAMPLE" | cut -d'_' -f2)
 run_one "$SAMPLE"
 
