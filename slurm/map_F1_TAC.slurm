@@ -63,7 +63,7 @@ run_one "$SAMPLE"
 # # Separate BAM files into forward and reverse reads
 #BAM="${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
 #ANNOTATION=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.gtf
-#BED=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.bed
+# BED=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.bed
 
 #python /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/infer_experiment.py -i $BAM -r $BED
 
