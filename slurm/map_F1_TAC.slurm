@@ -66,7 +66,7 @@ run_one "$SAMPLE"
 #ANNOTATION=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.gtf
 #BED=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.bed
 
-python /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/infer_experiment.py -i $BAM -r $BED
+#python /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/infer_experiment.py -i $BAM -r $BED
 
 strandrule="1+-,1-+,2++,2--"
 perl /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/separate_BAM_strand.pl "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule ${SAMPLE}
