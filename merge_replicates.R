@@ -39,10 +39,11 @@ lapply(unique(adult_metadata$organ_age), function(x) {
                                            "allelic_ratio")
   locus_tab <- locus_tab %>% arrange(chr,start)
   # output summarized locus table
+  if (!dir.exists(x)) {
   dir.create(x)
-  write.table(locus_tab, paste0(x, '/', 'locus_table_reps.txt'))
+  }
+  write.table(locus_tab, paste0(x, '/', 'locus_table_reps.txt'), row.names=FALSE, quote=FALSE, sep='\t')
 })
-
 
 ### ------ merge replicates for aged bodymap ------- ###
 aged_metadata <- read.csv('aged_metadata.csv', sep=',')
@@ -82,6 +83,8 @@ lapply(unique(aged_metadata$organ_age), function(x) {
                                            "allelic_ratio")
   locus_tab <- locus_tab %>% arrange(chr,start)
   # output summarized locus table
+  if (!dir.exists(x)) {
   dir.create(x)
-  write.table(locus_tab, paste0(x, '/', 'locus_table_reps.txt'))
+  }
+  write.table(locus_tab, paste0(x, '/', 'locus_table_reps.txt'), row.names=FALSE, quote=FALSE, sep='\t')
 })

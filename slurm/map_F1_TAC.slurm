@@ -13,8 +13,56 @@
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=20G
 #SBATCH --time=8:00:00
-#SBATCH --array=1-12
+
+module load slurm_setup
+
+## Load conda environment ##
+source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
+conda activate RNAseq
+
+cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/F1_TAC_Sarah
+
+run_one() {
+  SAMPLE="$1"
+  filename=$(echo "$SAMPLE" | cut -d'_' -f2)
+
+  R1_files=(${SAMPLE}/${filename}_S*_L*_R1_001.fastq.gz)
+  R2_files=(${SAMPLE}/${filename}_S*_L*_R2_001.fastq.gz)
+
+  # One STAR per srun; --exclusive ensures each gets its own CPU set
+  srun --exclusive -n 1 -c "${SLURM_CPUS_PER_TASK}" \
+    STAR \
+      --genomeDir /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/STAR_index \
+      --readFilesIn "$R1_files" "$R2_files" \
+      --readFilesCommand zcat \
+      --runThreadN "${SLURM_CPUS_PER_TASK}" \
+      --outStd Log \
+      --outSAMtype BAM SortedByCoordinate \
+      --alignIntronMax 100000 \
+      --outFilterIntronMotifs RemoveNoncanonical \
+      --outFileNamePrefix "${SAMPLE}/${filename}_" \
+      --outFilterMultimapNmax 1
+
+  samtools index "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
+
+  STRAND=reverse
+  htseq-count -s $STRAND -r pos -f bam \
+    "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" \
+    /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.gtf \
+    > "${SAMPLE}/${filename}_stranded_${STRAND}.count"
+
+  echo "Finished processing sample: $i $SAMPLE"
+}
 
 
+#SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" sample_names.txt)
+SAMPLE=$(sed -n 1p sample_names.txt)
+filename=$(echo "$SAMPLE" | cut -d'_' -f2)
+run_one "$SAMPLE"
 
+# # Separate BAM files into forward and reverse reads
+BAM="${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
+ANNOTATION=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.gtf
+BED=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.bed
 
+python /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/infer_experiment.py -i $BAM -r $BED
