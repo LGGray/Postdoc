@@ -37,6 +37,8 @@ gtex_link$AGE_collapsed <- ifelse(gtex_link$AGE %in% c('20-29', '30-39', '40-49'
                               ifelse(gtex_link$AGE %in% c('60-69', '70-79'), '60-79', '50-59'))
 gtex_link$AGE_collapsed <- factor(gtex_link$AGE_collapsed, levels = c('20-49', '50-59', '60-79'))
 
+write.table(gtex_link, file='GTEx_ASE_links.txt', sep='\t', quote=FALSE, row.names=FALSE)
+
 
 # Count the number of enhancing and repressing links per individual and return long format
 summarise_links <- function(df) {
