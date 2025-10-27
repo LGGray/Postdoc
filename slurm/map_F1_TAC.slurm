@@ -58,7 +58,7 @@ run_one() {
 
 SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" sample_names.txt)
 filename=$(echo "$SAMPLE" | cut -d'_' -f2)
-run_one "$SAMPLE"
+# run_one "$SAMPLE"
 
 # # Separate BAM files into forward and reverse reads
 #BAM="${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
@@ -67,18 +67,20 @@ run_one "$SAMPLE"
 
 #python /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/infer_experiment.py -i $BAM -r $BED
 
-strandrule="1+-,1-+,2++,2--"
-perl /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/separate_BAM_strand.pl "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule ${SAMPLE}
+# strandrule="1+-,1-+,2++,2--"
+# perl /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/separate_BAM_strand.pl "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule ${SAMPLE}
+
+ref_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq
 
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i ${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
-  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/forward_20250512_RefSeq.bed \
+  -a $ref_dir/annotation_no_predicted_f.bed \
   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
   -o "${SAMPLE}"
 
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i ${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
-  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/reverse_20250512_RefSeq.bed \
+  -a $ref_dir/annotation_no_predicted_r.bed \
   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
   -o "${SAMPLE}"
 

@@ -259,7 +259,7 @@ adult_enhancing_ncRNA <- unique(link_key(subset(bodymap[['He_9w']], mechanism ==
 adult_repressive_ncRNA <- unique(link_key(subset(bodymap[['He_9w']], mechanism == "repressing" & biotype_base != "mRNA")))
 aged_enhancing_ncRNA  <- unique(link_key(subset(bodymap[['He_78w']], mechanism == "enhancing" & biotype_base != "mRNA")))
 aged_repressive_ncRNA  <- unique(link_key(subset(bodymap[['He_78w']], mechanism == "repressing" & biotype_base != "mRNA")))
-tac_enhancing_ncRNA   <- unique(link_key(subset(TAC_SHAM[['He_TAC28d_RNA_XistBxC_-+_XX']], mechanism == "enhancing" & biotype_base != "mRNA" & base_gene == 'Magi2'))
+tac_enhancing_ncRNA   <- unique(link_key(subset(TAC_SHAM[['He_TAC28d_RNA_XistBxC_-+_XX']], mechanism == "enhancing" & biotype_base != "mRNA")))
 tac_repressive_ncRNA   <- unique(link_key(subset(TAC_SHAM[['He_TAC28d_RNA_XistBxC_-+_XX']], mechanism == "repressing" & biotype_base != "mRNA")))
 
 pdf('LINKS_study/figures/venn_adult_aged_TAC_links_enhancing_ncRNA.pdf')
