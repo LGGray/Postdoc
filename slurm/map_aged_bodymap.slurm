@@ -70,7 +70,7 @@ filename=$(echo "$SAMPLE" | cut -d'_' -f2)
 # strandrule="1+-,1-+,2++,2--"
 # perl ../Postdoc/separate_BAM_strand.pl "aged/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule aged/${SAMPLE}
 
-ref_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq
+ref_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39
 
 # Run Allelome.PRO
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \

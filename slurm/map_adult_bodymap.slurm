@@ -83,7 +83,7 @@ filename=$(echo "$SAMPLE" | cut -d'_' -f2)
 
 # Run Allelome.PRO
 
-ref_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq
+ref_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39
 
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
@@ -94,7 +94,7 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
   -a $ref_dir/annotation_no_predicted_r.bed \
-  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
+  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \ 
   -o "adult/${SAMPLE}"
 
 
