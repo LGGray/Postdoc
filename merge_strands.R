@@ -22,8 +22,11 @@ library(data.table)
 
 sample <- commandArgs(trailingOnly = TRUE)[1]
 
-forward <- list.files(sample, pattern='locus_table.txt', recursive=T, full.names = TRUE)[3]
-reverse <- list.files(sample, pattern='locus_table.txt', recursive=T, full.names = TRUE)[4]
+files <- list.files(sample, pattern='locus_table.txt', recursive=T, full.names = TRUE)
+files <- files[grepl('no_predicted', files)]
+
+forward <- files[1]
+reverse <- files[2]
 
 
 # Merge locus table
