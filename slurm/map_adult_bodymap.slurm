@@ -123,8 +123,3 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
 DATE=$(date +%Y_%m_%d)
 Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation_no_predicted
 Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
-
-# # Allelome LINK
-# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
-#   -i adult/${SAMPLE}/locus_table_reps.txt \
-#   -o ${out_dir}/LINK/
