@@ -21,9 +21,11 @@ library(data.table)
 
 
 sample <- commandArgs(trailingOnly = TRUE)[1]
+date <- commandArgs(trailingOnly = TRUE)[2]
+reference <- commandArgs(trailingOnly = TRUE)[3]
 
 files <- list.files(sample, pattern='locus_table.txt', recursive=T, full.names = TRUE)
-files <- files[grepl('no_predicted', files)]
+files <- files[grepl(paste(reference, date, sep="|"), files)]
 
 forward <- files[1]
 reverse <- files[2]
@@ -35,4 +37,4 @@ rev_locus <- fread(reverse, header = T)
 merge_locus <- rbind(fwd_locus, rev_locus)
 merge_locus <- merge_locus[order(merge_locus$chr, merge_locus$start), ]
 
-write.table(merge_locus, paste0(sample, '/merged_locus_table.txt'), col.names=T, row.names=F, sep="\t", quote=F)
+write.table(merge_locus, paste0(sample, '/', reference, '_merged_locus_table.txt'), col.names=T, row.names=F, sep="\t", quote=F)

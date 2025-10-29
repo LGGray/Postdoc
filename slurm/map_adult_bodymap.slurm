@@ -55,7 +55,7 @@ run_one() {
   STRAND=reverse
   htseq-count -s $STRAND -r pos -f bam \
     "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" \
-    ../GRCm39/gencode.vM37.primary_assembly.annotation.gtf \
+    ../GRCm39/gencode.vM37.primary_assembly.annotation.nochr.gtf \
     > "adult/${SAMPLE}/${filename}_stranded_${STRAND}.count"
 
   echo "Finished processing sample: $i $SAMPLE"
@@ -64,6 +64,14 @@ run_one() {
 
 SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" adult_path.txt)
 filename=$(echo "$SAMPLE" | cut -d'_' -f2)
+
+STRAND=reverse
+htseq-count -s $STRAND -r pos -f bam \
+  "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" \
+  ../GRCm39/gencode.vM37.primary_assembly.annotation.nochr.gtf \
+  > "adult/${SAMPLE}/${filename}_stranded_${STRAND}.count"
+
+
 # run_one "$SAMPLE"
 
 
@@ -85,6 +93,7 @@ filename=$(echo "$SAMPLE" | cut -d'_' -f2)
 
 ref_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39
 
+# Allelome Pro with no predicted genes
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
   -a $ref_dir/annotation_no_predicted_f.bed \
@@ -97,9 +106,23 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
   -o "adult/${SAMPLE}"
 
+# Allelome Pro with predicted genes
+bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+  -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
+  -a $ref_dir/annotation_f.bed \
+  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
+  -o "adult/${SAMPLE}"
+
+bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+  -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
+  -a $ref_dir/annotation_r.bed \
+  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
+  -o "adult/${SAMPLE}"
 
 # Merge locus_table from forward and reverse strands
-Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE
+DATE=$(date +%Y_%m_%d)
+Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation_no_predicted
+Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
 
 # # Allelome LINK
 # Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \

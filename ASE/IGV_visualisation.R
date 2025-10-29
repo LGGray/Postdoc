@@ -2,42 +2,43 @@ library(data.table)
 library(dplyr)
 
 
-#### Match RefSeq transcript ID to gene name
-gtf <- read.delim('/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/GCF_000001635.27_GRCm39_genomic.gtf', comment.char = "#", header = FALSE)
-gtf_transcripts <- subset(gtf, V3 == "transcript")
+# #### Match RefSeq transcript ID to gene name
+# gtf <- read.delim('/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/GCF_000001635.27_GRCm39_genomic.gtf', comment.char = "#", header = FALSE)
+# gtf_transcripts <- subset(gtf, V3 == "transcript")
 
-attrs <- strsplit(as.character(gtf_transcripts$V9), "; ", fixed = TRUE)
-gene_ids <- vapply(attrs, function(x) {
-  if (length(x) >= 1) sub("^gene_id\\s*", "", x[1]) else NA_character_
-}, character(1))
-transcript_ids <- vapply(attrs, function(x) {
-  ti <- grep("^transcript_id", x, value = TRUE)
-  if (length(ti)) sub("^transcript_id\\s*", "", ti[1]) else NA_character_
-}, character(1))
-biotype_ids <- vapply(attrs, function(x) {
-  bt <- grep("^transcript_biotype", x, value = TRUE)
-  if (length(bt)) sub("^transcript_biotype\\s*", "", bt[1]) else NA_character_
-}, character(1))
+# attrs <- strsplit(as.character(gtf_transcripts$V9), "; ", fixed = TRUE)
+# gene_ids <- vapply(attrs, function(x) {
+#   if (length(x) >= 1) sub("^gene_id\\s*", "", x[1]) else NA_character_
+# }, character(1))
+# transcript_ids <- vapply(attrs, function(x) {
+#   ti <- grep("^transcript_id", x, value = TRUE)
+#   if (length(ti)) sub("^transcript_id\\s*", "", ti[1]) else NA_character_
+# }, character(1))
+# biotype_ids <- vapply(attrs, function(x) {
+#   bt <- grep("^transcript_biotype", x, value = TRUE)
+#   if (length(bt)) sub("^transcript_biotype\\s*", "", bt[1]) else NA_character_
+# }, character(1))
 
-# make gtf data.tables
-dt_gtf <- data.table(gtf_transcripts)[, .(transcript_id = transcript_ids, gene_ids, biotype_ids)]
+# # make gtf data.tables
+# dt_gtf <- data.table(gtf_transcripts)[, .(transcript_id = transcript_ids, gene_ids, biotype_ids)]
 
 # Read in links table
-links_table <- fread(list.files(pattern = "links_full_table.txt", full.names = TRUE, recursive = TRUE), data.table=FALSE)
+link_file <- list.files(pattern = "links_full_table.txt", full.names = TRUE, recursive = TRUE)
+link_file <- grep("2025-10-27", link_file, value=TRUE)
+links_table <- fread(link_file, data.table=FALSE)
 
 # Add gene name and biotype
-
-dt_x <- data.table(links_table)
-dt_x[, gene_base := dt_gtf[.SD, on = .(transcript_id = name_base), gene_ids]]
-dt_x[, biotype_base := dt_gtf[.SD, on = .(transcript_id = name_base), biotype_ids]]
-dt_x[, gene_target := dt_gtf[.SD, on = .(transcript_id = name_target), gene_ids]]
-dt_x[, biotype_target := dt_gtf[.SD, on = .(transcript_id = name_target), biotype_ids]]
-links_table <- as.data.frame(dt_x)
+# dt_x <- data.table(links_table)
+# dt_x[, gene_base := dt_gtf[.SD, on = .(transcript_id = name_base), gene_ids]]
+# dt_x[, biotype_base := dt_gtf[.SD, on = .(transcript_id = name_base), biotype_ids]]
+# dt_x[, gene_target := dt_gtf[.SD, on = .(transcript_id = name_target), gene_ids]]
+# dt_x[, biotype_target := dt_gtf[.SD, on = .(transcript_id = name_target), biotype_ids]]
+# links_table <- as.data.frame(dt_x)
 
 
 bedpe <- links_table %>%
   mutate(
-    name = paste(gene_base, gene_target, mechanism, sep = "_"),
+    name = paste(name_base, name_target, mechanism, sep = "_"),
     score = ifelse(mechanism == "enhancing", 1, -1),
     strand1 = ".",
     strand2 = ".",
