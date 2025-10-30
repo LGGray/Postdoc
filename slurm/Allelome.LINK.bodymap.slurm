@@ -26,3 +26,39 @@ SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" dir_path.txt)
 Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
    -i ${SAMPLE}/locus_table_reps.txt \
    -o $SAMPLE
+
+# for i in {1..16}; do
+#   SAMPLE=$(sed -n "${i}p" dir_path.txt)
+#   Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+#   -i ${SAMPLE}/annotation_no_predicted_locus_table_reps.txt \
+#   -o ${SAMPLE} \
+#   --allelic-bias 0.7 \
+#   -n no_predicted_70
+# done
+
+# for i in {1..16}; do
+#   SAMPLE=$(sed -n "${i}p" dir_path.txt)
+#   Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+#   -i ${SAMPLE}/annotation_no_predicted_locus_table_reps.txt \
+#   -o ${SAMPLE} \
+#   --allelic-bias 0.65 \
+#   -n no_predicted_65
+# done
+
+# for i in {1..16}; do
+#   SAMPLE=$(sed -n "${i}p" dir_path.txt)
+#   Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+#   -i ${SAMPLE}/annotation_locus_table_reps.txt \
+#   -o ${SAMPLE} \
+#   --allelic-bias 0.7 \
+#   -n predicted_70
+# done
+
+# for i in {1..16}; do
+#   SAMPLE=$(sed -n "${i}p" dir_path.txt)
+#   Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+#   -i ${SAMPLE}/annotation_locus_table_reps.txt \
+#   -o ${SAMPLE} \
+#   --allelic-bias 0.65 \
+#   -n predicted_65
+# done

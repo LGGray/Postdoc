@@ -24,12 +24,8 @@ sample <- commandArgs(trailingOnly = TRUE)[1]
 date <- commandArgs(trailingOnly = TRUE)[2]
 reference <- commandArgs(trailingOnly = TRUE)[3]
 
-files <- list.files(sample, pattern='locus_table.txt', recursive=T, full.names = TRUE)
-files <- files[grepl(paste(reference, date, sep="|"), files)]
-
-forward <- files[1]
-reverse <- files[2]
-
+forward <- paste0(sample, '/', date, '_', gsub('.+_', '', sample), '_Aligned.sortedByCoord.out_fwd_', reference, '_f.bed_1/locus_table.txt')
+reverse <- paste0(sample, '/', date, '_', gsub('.+_', '', sample), '_Aligned.sortedByCoord.out_rev_', reference, '_r.bed_1/locus_table.txt')
 
 # Merge locus table
 fwd_locus <- fread(forward, header = T)
