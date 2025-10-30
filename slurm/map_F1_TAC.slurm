@@ -60,11 +60,11 @@ SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" sample_names.txt)
 filename=$(echo "$SAMPLE" | cut -d'_' -f2)
 # run_one "$SAMPLE"
 
-STRAND=reverse
-htseq-count -s $STRAND -r pos -f bam \
-  "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" \
-  /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.nochr.gtf \
-  > "${SAMPLE}/${filename}_stranded_${STRAND}.count"
+# STRAND=reverse
+# htseq-count -s $STRAND -r pos -f bam \
+#   "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" \
+#   /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.nochr.gtf \
+#   > "${SAMPLE}/${filename}_stranded_${STRAND}.count"
 
 # # Separate BAM files into forward and reverse reads
 #BAM="${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
