@@ -62,18 +62,17 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
 
 DATE=$(date +%Y_%m_%d)
 out_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/${AGE}/Allelome.LINK/${DATE}_${celltype}_annotation_no_predicted_us.bed_1
-mkdir -p ${out_dir}/LINK
 
 Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
   -i ${out_dir}/locus_table.txt \
-  -o ${out_dir}/LINK/ \
-  --allelic-bias 70 \
+  -o ${out_dir} \
+  --allelic-bias 0.7 \
   -n ${celltype}_no_predicted_70
 
 Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
   -i ${out_dir}/locus_table.txt \
-  -o ${out_dir}/LINK/ \
-  --allelic-bias 65 \
+  -o ${out_dir} \
+  --allelic-bias 0.65 \
   -n ${celltype}_no_predicted_65
 
 out_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/${AGE}/Allelome.LINK/${DATE}_${celltype}_annotation_us.bed_1
@@ -81,12 +80,12 @@ mkdir -p ${out_dir}/LINK
 
 Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
   -i ${out_dir}/locus_table.txt \
-  -o ${out_dir}/LINK/ \
-  --allelic-bias 70 \
+  -o ${out_dir} \
+  --allelic-bias 0.70 \
   -n ${celltype}_70
 
 Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
   -i ${out_dir}/locus_table.txt \
-  -o ${out_dir}/LINK/ \
-  --allelic-bias 65 \
+  -o ${out_dir} \
+  --allelic-bias 0.65 \
   -n ${celltype}_65
