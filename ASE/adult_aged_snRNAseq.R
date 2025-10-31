@@ -172,7 +172,7 @@ merged <- RunUMAP(merged, reduction = "integrated.dr", dims = 1:30)
 # merged <- FindClusters(merged, resolution = 0.1, cluster.name = "seurat_clusters")
 
 
-
+Idents(merged) <- 'seurat_clusters'
 pdf('adult_aged_umap.pdf')
 DimPlot(merged, reduction = "umap", label = TRUE)
 dev.off()
@@ -192,20 +192,22 @@ pdf('adult_aged_marker_genes_heatmap.pdf', width = 10, height = 8)
 DoHeatmap(merged, features = marker_genes$V1, assay = "SCT") + scale_fill_gradientn(colors = c("blue", "white", "red"))
 dev.off()
 
+pdf('adult_aged_ventricular_CM_markers.pdf')
+VlnPlot(merged, features = c("Nppa","Nppb","Pln","Tnnt2","Myh6"), group.by = "seurat_clusters")
+dev.off()
+table(Idents(merged), merged$sample)
 
 merged$celltype <- plyr::mapvalues(Idents(merged),
 from = 0:11,
-to = c("FB","ventCM1","ventCM2","EC2","EC1","SMC",
+to = c("FB","ventCM","ventCM","EC","EC","SMC",
 "Macro","atrialCM","LEC","Epicard","Adipo","Glial"))
 
 Idents(merged) <- 'celltype'
 
-
-
 ## Set cluster colours
 cluster_colors <- list(Glial="#EC68A3", FB="#459AD5", LEC="#11B6EB", Adipo="#9188C0", 
                       SMC="#2EB7BE", Epicard="#AD7AB3", Macro="#36B28F", atrialCM="#59B031", 
-                      EC2="#9AA921", EC1="#C49B05", ventCM1="#EE766F", ventCM2="#E38903")
+                      EC="#9AA921", ventCM="#EE766F")
 
 
 pdf('adult_aged_umap_celltype.pdf')
@@ -219,11 +221,13 @@ pdf('batch_umap.pdf')
 DimPlot(merged, reduction = "umap", group.by = "age")
 dev.off()
 
+# Export cell IDs for sinto - Allelome.PRO2
 cell_ids <- data.frame(cell_id = colnames(merged), cell_type = merged$celltype, age = merged$age)
 cell_ids$cell_type <- factor(cell_ids$cell_type, levels = names(sort(table(cell_ids$cell_type))))
 cell_ids$age <- factor(cell_ids$age, levels = c("adult", "aged"))
 
 cell_ids$cell_id <- gsub('adult_|aged_', '', cell_ids$cell_id)
+cell_ids$age <- factor(cell_ids$age, levels = c('aged', 'adult'))
 
 adult <- cell_ids[cell_ids$age == 'adult', 1:2]
 aged <- cell_ids[cell_ids$age == 'aged', 1:2]
@@ -242,6 +246,12 @@ ggplot(cell_ids, aes(x = age, fill = cell_type)) +
   coord_flip() +
   theme(legend.position = "bottom", legend.title = element_blank())
 dev.off()
+
+cell_ids <- data.frame(cell_id = colnames(merged), age = merged$age)
+adult <- cell_ids[cell_ids$age == 'adult', , drop = FALSE]
+aged <- cell_ids[cell_ids$age == 'aged', , drop = FALSE]
+write.table(adult, file = 'pseudobulk/adult_cell_index.txt', row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(aged, file = 'pseudobulk/aged_cell_index.txt', row.names = FALSE, col.names = FALSE, quote = FALSE)
 
 ### Compare gene expression between adult and aged cells
 DefaultAssay(merged) <- 'RNA'
@@ -344,6 +354,7 @@ Heatmap(log2FC_matrix, name = "log2FC", col = colorRamp2(c(-1, 0, 1), c("blue", 
         clustering_distance_columns = 'spearman', clustering_method_columns = 'ward.D2',
         cluster_rows = TRUE, cluster_columns = TRUE)
 dev.off()
+
 
 #### Read in Allelome.PRO2 output
 load("adult.Allelome.PRO2.RData")

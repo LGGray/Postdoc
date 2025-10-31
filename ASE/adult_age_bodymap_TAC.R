@@ -47,10 +47,8 @@ bodymap_dirs <- list.dirs('adult_aged_bodymap', recursive = FALSE, full.names = 
 bodymap_dirs <- grep('_', bodymap_dirs, value = TRUE)
 
 bodymap <- lapply(bodymap_dirs, function(dir) {
-    tmp <- list.files(paste0('adult_aged_bodymap/', dir), pattern = 'links_full_table.txt', full.names = TRUE, recursive = TRUE)
-    tmp <- grep('2025-10-27', tmp, value=TRUE)
-    tmp <- read.delim(tmp)
-    return(tmp)
+    tmp <- paste0('adult_aged_bodymap/', dir, '/no_predicted_65/no_predicted_65_links_full_table.txt')
+    read.delim(tmp)
 })
 names(bodymap) <- bodymap_dirs
 
@@ -66,8 +64,8 @@ names(bodymap) <- bodymap_dirs
 #   as.data.frame(dt_x)
 # })
 
-save(bodymap, file = 'adult_aged_bodymap/bodymap_links.RData')
-load('adult_aged_bodymap/bodymap_links.RData')
+save(bodymap, file = 'adult_aged_bodymap/bodymap_links_no_predicted_65.RData')
+load('adult_aged_bodymap/bodymap_links_no_predicted_65.RData')
 
 #######################################
 # Compare link between adult and aged #
@@ -84,7 +82,7 @@ links_mtx <- links_mtx[, c('Ao_9w', 'Br_9w', 'He_9w', 'Ki_9w', 'Li_9w', 'Lu_9w',
                            'Ao_78w', 'Br_78w', 'He_78w', 'Ki_78w', 'Li_78w', 'Lu_78w', 'Mu_78w', 'Sp_78w')]
 
 # Heatmap of links across all adult and aged bodymap samples
-pdf('LINKS_study/figures/heatmap_adult_aged_bodymap_links.pdf')
+pdf('LINKS_study/figures/heatmap_adult_aged_bodymap_links_no_predicted_65.pdf')
 ann <- HeatmapAnnotation(
   Age = c(rep("Adult", 8), rep("Aged", 8)),
   col = list(Age = c("Adult" = "#94A2AB", "Aged" = "#7BA5B8"))
@@ -108,7 +106,7 @@ Heatmap(links_mtx,
 dev.off()
 
 # UpSet plot of links across all adult and aged bodymap samples
-pdf('LINKS_study/figures/UpSet_adult_aged_bodymap_links.pdf', onefile = FALSE, width = 10, height = 6)
+pdf('LINKS_study/figures/UpSet_adult_aged_bodymap_links_no_predicted_65.pdf', onefile = FALSE, width = 10, height = 6)
 upset(links_mtx,
       nsets = ncol(links_mtx),
       order.by = "freq",
@@ -144,7 +142,7 @@ plot_list <- lapply(tissues, function(tissue) {
   plot(fit, quantities = TRUE, fill = age.colours, main=tissue_name[[tissue]])
 })
 
-pdf('LINKS_study/figures/venn_adult_aged_bodymap_links.pdf', width = 12, height = 6)
+pdf('LINKS_study/figures/venn_adult_aged_bodymap_links_no_predicted_65.pdf', width = 12, height = 6)
 grid.arrange(grobs = plot_list, ncol = 4, nrow = 2)
 dev.off()
 
@@ -166,7 +164,7 @@ summ_change <- lapply(tissues, function(tissue) {
   group_by(organ) |>
   mutate(frac = count / sum(count))
 
-pdf('LINKS_study/figures/barplot_adult_aged_bodymap_link_changes.pdf', width = 8, height = 6)
+pdf('LINKS_study/figures/barplot_adult_aged_bodymap_link_changes_no_predicted_65.pdf', width = 8, height = 6)
 ggplot(summ_change, aes(x=organ, y=frac, fill=status)) +
   geom_col() +
   scale_y_continuous(labels=scales::percent) +
@@ -223,34 +221,63 @@ mech_switch_by_tissue <- lapply(tissues, function(tissue) {
   )
 }) |> bind_rows()
 
+# Identify links which do switch
+mech_switch_links <- lapply(tissues, function(tissue) {
+  adult <- bodymap[[paste0(tissue, '_9w')]]
+  aged  <- bodymap[[paste0(tissue, '_78w')]]
+
+  # mechanisms per base|target pair (within each age)
+  adult_map <- lapply(split(adult$mechanism, pair_key(adult)), function(x) unique(na.omit(x)))
+  aged_map  <- lapply(split(aged$mechanism,  pair_key(aged)),  function(x) unique(na.omit(x)))
+
+  common_pairs <- intersect(names(adult_map), names(aged_map))
+
+  sw_links <- lapply(common_pairs, function(p) {
+    a <- adult_map[[p]]
+    g <- aged_map[[p]]
+    any_switch <- ("enhancing" %in% a && "repressing" %in% g) ||
+                  ("repressing" %in% a && "enhancing" %in% g)
+    if (any_switch) {
+      return(p)
+    } else {
+      return(NULL)
+    }
+  })
+  sw_links <- unlist(sw_links)
+  names(sw_links) <- NULL
+  return(sw_links)
+})
+names(mech_switch_links) <- tissues
+
+
 ############################################################################
 # Overlap with snRNAseq cell-type specific links from adult and aged heart #
 ############################################################################
-adult.files <- list.files('adult_aged_heart_snRNAseq/9w/Allelome.LINK', pattern = 'links_full_table.txt', full.names = TRUE, recursive = TRUE)
-adult_files <- grep('2025-10-27', adult.files, value=TRUE)
-adult_link <- lapply(adult_files, function(f) {
+adult.files <- list.files('adult_aged_heart_snRNAseq/9w/Allelome.LINK', pattern = 'no_predicted_65_links_full_table.txt', full.names = TRUE, recursive = TRUE)
+adult_link <- lapply(adult.files, function(f) {
     tmp <- read.delim(f)
     return(tmp)
 })
-names(adult_link) <- lapply(adult_files, function(f) {
-    ct <- strsplit(f, '_')[[1]][7]
+names(adult_link) <- lapply(adult.files, function(f) {
+    ct <- strsplit(f, '/')[[1]][5]
+    ct <- gsub('_no_predicted_65', '', ct)
     return(ct)
 })
-save(adult_link, file = 'adult_aged_heart_snRNAseq/adult.Allelome.LINK.RData')
-load('adult_aged_heart_snRNAseq/adult.Allelome.LINK.RData')
+save(adult_link, file = 'adult_aged_heart_snRNAseq/adult.Allelome.LINK_no_predicted_65.RData')
+load('adult_aged_heart_snRNAseq/adult.Allelome.LINK_no_predicted_65.RData')
 
-aged.files <- list.files('adult_aged_heart_snRNAseq/78w/Allelome.LINK/', pattern = 'links_full_table.txt', full.names = TRUE, recursive = TRUE)
-aged_files <- grep('2025-10-27', aged.files, value=TRUE)
-aged_link <- lapply(aged_files, function(f) {
+aged.files <- list.files('adult_aged_heart_snRNAseq/78w/Allelome.LINK', pattern = 'no_predicted_65_links_full_table.txt', full.names = TRUE, recursive = TRUE)
+aged_link <- lapply(aged.files, function(f) {
     tmp <- read.delim(f)
     return(tmp)
 })
-names(aged_link) <- lapply(aged_files, function(f) {
-    ct <- strsplit(f, '_')[[1]][7]
+names(aged_link) <- lapply(aged.files, function(f) {
+    ct <- strsplit(f, '/')[[1]][5]
+    ct <- gsub('_no_predicted_65', '', ct)
     return(ct)
 })
-save(aged_link, file = 'adult_aged_heart_snRNAseq/aged.Allelome.LINK.RData')
-load('adult_aged_heart_snRNAseq/aged.Allelome.LINK.RData')
+save(aged_link, file = 'adult_aged_heart_snRNAseq/aged.Allelome.LINK_no_predicted_65.RData')
+load('adult_aged_heart_snRNAseq/aged.Allelome.LINK_no_predicted_65.RData')
 
 
 # Visualise cell type specific links
@@ -266,7 +293,7 @@ rownames(combined_mtx) <- combined_mtx$Row.names
 combined_mtx <- combined_mtx[, -1]
 combined_mtx[is.na(combined_mtx)] <- 0
 
-pdf('LINKS_study/figures/heatmap_adult_aged_heart_snRNAseq_links.pdf')
+pdf('LINKS_study/figures/heatmap_adult_aged_heart_snRNAseq_links_no_predicted_65.pdf')
 Heatmap(as.matrix(combined_mtx),
         name = "Link",
         col = c("white", "red"),
@@ -283,7 +310,7 @@ Heatmap(as.matrix(combined_mtx),
 )
 dev.off()
 
-pdf('LINKS_study/figures/UpSet_adult_aged_heart_snRNAseq_links.pdf', onefile = FALSE, width = 10, height = 10)
+pdf('LINKS_study/figures/UpSet_adult_aged_heart_snRNAseq_links_no_predicted_65.pdf', onefile = FALSE, width = 10, height = 10)
 upset(combined_mtx,
       nsets = ncol(combined_mtx),
       order.by = "freq",
@@ -306,7 +333,7 @@ plot_list <- lapply(names(adult_link), function(ct) {
     ))
   plot(fit, quantities = TRUE, fill = age.colours, main=ct)
 })
-pdf('LINKS_study/figures/venn_adult_aged_heart_snRNAseq_links.pdf', width = 12, height = 6)
+pdf('LINKS_study/figures/venn_adult_aged_heart_snRNAseq_links_no_predicted_65.pdf', width = 12, height = 6)
 grid.arrange(grobs = plot_list, ncol = 6, nrow = 2)
 dev.off()
 
@@ -362,7 +389,7 @@ aged_He <- link_key(bodymap[['He_78w']])
 aged_jaccard <- lapply(aged_link, function(ct){
     ct_links <- unique(link_key(ct))
     jaccard_index(aged_He, ct_links)
-    print(length(intersect(aged_He, ct_links)))
+    # print(length(intersect(aged_He, ct_links)))
 })
 
 ##################################
@@ -372,15 +399,13 @@ TAC_dirs <- list.dirs('F1_TAC_Sarah', recursive = FALSE, full.names = FALSE)
 TAC_dirs <- grep('He', TAC_dirs, value = TRUE)
 
 TAC_SHAM <- lapply(TAC_dirs, function(dir) {
-    tmp <- list.files(paste0('F1_TAC_Sarah/', dir), pattern = 'links_full_table.txt', full.names = TRUE, recursive = TRUE)
-    tmp <- grep('2025-10-27', tmp, value=TRUE)
-    tmp <- read.delim(tmp)
-    return(tmp)
+    tmp <- paste0('F1_TAC_Sarah/', dir, '/no_predicted_65/no_predicted_65_links_full_table.txt')
+    read.delim(tmp)
 })
 names(TAC_SHAM) <- TAC_dirs
 
-save(TAC_SHAM, file = 'F1_TAC_Sarah/TAC_SHAM_links.RData')
-load('F1_TAC_Sarah/TAC_SHAM_links.RData')
+save(TAC_SHAM, file = 'F1_TAC_Sarah/TAC_SHAM_links_no_predicted_65.RData')
+load('F1_TAC_Sarah/TAC_SHAM_links_no_predicted_65.RData')
 
 # # Loop over bodymap to annotate genes
 # TAC_SHAM <- lapply(TAC_SHAM, function(x) {
@@ -416,7 +441,7 @@ fit_repressive <- euler(list(
 fit_repressive <- plot(fit_repressive, quantities=TRUE, fill=c("#E31A1C", "#FB9A99"), main='Repressive Links')
 plot_list <- list(fit_enhancing, fit_repressive)
 
-pdf('LINKS_study/figures/venn_TAC_sham_links.pdf')
+pdf('LINKS_study/figures/venn_TAC_sham_links_no_predicted_65.pdf')
 grid.arrange(grobs = plot_list, ncol = 2)
 dev.off()
 
@@ -452,7 +477,7 @@ adult_aged_tac_repressive <- euler(list(
 ))
 adult_aged_tac_repressive <- plot(adult_aged_tac_repressive, quantities=TRUE, fill=sample_colours, main='Repressive Links in Heart')
 plot_list <- list(adult_aged_tac_enhancing, adult_aged_tac_repressive)
-pdf('LINKS_study/figures/venn_adult_aged_TAC_links.pdf')
+pdf('LINKS_study/figures/venn_adult_aged_TAC_links_no_predicted_65.pdf')
 grid.arrange(grobs = plot_list, nrow = 2)
 dev.off()
 
@@ -474,16 +499,27 @@ overlap_lists <- list(
   adult_tac_only_rep = adult_tac_only_rep,
   adult_tac_only_enh = adult_tac_only_enh
 )
-save(overlap_lists, file = 'LINKS_study/adult_aged_TAC_link_overlaps.RData')
-load('LINKS_study/adult_aged_TAC_link_overlaps.RData')
+save(overlap_lists, file = 'LINKS_study/adult_aged_TAC_link_overlaps_no_predicted_65.RData')
+load('LINKS_study/adult_aged_TAC_link_overlaps_no_predicted_65.RData')
 
-lapply(overlap_lists, function(x) {
-    tmp <- lapply(aged_link, function(y){
-        ct_links <- unique(link_key(y))
-        intersect(x, ct_links)
-    })
-    return(tmp)
-})
+##################################################
+# Compare link between adult, aged and Sham heart #
+adult_aged_sham_enhancing <- euler(list(
+  Adult = adult_heart_enhancing,
+  Aged  = aged_heart_enhancing,
+  Sham  = sham_unique_enhancing
+))
+adult_aged_sham_enhancing <- plot(adult_aged_sham_enhancing, quantities = TRUE, fill = sample_colours, main='Enhancing Links in Heart') 
+adult_aged_sham_repressive <- euler(list(
+  Adult = adult_heart_repressive,
+  Aged  = aged_heart_repressive,
+  Sham  = sham_unique_repressive
+))
+adult_aged_sham_repressive <- plot(adult_aged_sham_repressive, quantities=TRUE, fill=sample_colours, main='Repressive Links in Heart')
+plot_list <- list(adult_aged_sham_enhancing, adult_aged_sham_repressive)
+pdf('LINKS_study/figures/venn_adult_aged_Sham_links_no_predicted_65.pdf')
+grid.arrange(grobs = plot_list, nrow = 2)
+dev.off()
 
 ################################
 # Analysis of repressive links #

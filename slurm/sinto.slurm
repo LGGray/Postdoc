@@ -44,3 +44,20 @@ mkdir -p "$output_dir"
 nproc=${SLURM_CPUS_PER_TASK:-8}
 export OMP_NUM_THREADS="$nproc"
 sinto filterbarcodes --bam "$input_bam" --cells "$out_cell_barcodes_annot" --outdir "$output_dir" --nproc "$nproc"
+
+if [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 1 ]; then
+	input_bam="9w/outs/possorted_genome_bam.bam"
+	out_cell_barcodes_annot="pseudobulk/adult_cell_index.txt"
+    output_dir="pseudobulk/"
+elif [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 2 ]; then
+	input_bam="78w/outs/possorted_genome_bam.bam"
+	out_cell_barcodes_annot="pseudobulk/aged_cell_index.txt"
+	output_dir="pseudobulk/"
+else
+	echo "Unknown SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}. Exiting." >&2
+	exit 1
+fi
+
+nproc=${SLURM_CPUS_PER_TASK:-8}
+export OMP_NUM_THREADS="$nproc"
+sinto filterbarcodes --bam "$input_bam" --cells "$out_cell_barcodes_annot" --outdir "$output_dir" --nproc "$nproc"
