@@ -13,7 +13,7 @@
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=20G
 #SBATCH --time=8:00:00
-#SBATCH --array=1-24
+#SBATCH --array=1-20
 
 module load slurm_setup
 
@@ -53,12 +53,12 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
   -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/$AGE/Allelome.LINK
 
-# Allelome Pro with predicted genes
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-  -i $SAMPLE\
-  -a $ref_dir/annotation_us.bed \
-  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
-  -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/$AGE/Allelome.LINK
+# # Allelome Pro with predicted genes
+# bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+#   -i $SAMPLE\
+#   -a $ref_dir/annotation_us.bed \
+#   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
+#   -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/$AGE/Allelome.LINK
 
 DATE=$(date +%Y_%m_%d)
 out_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/${AGE}/Allelome.LINK/${DATE}_${celltype}_annotation_no_predicted_us.bed_1
@@ -75,17 +75,17 @@ Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src
   --allelic-bias 0.65 \
   -n ${celltype}_no_predicted_65
 
-out_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/${AGE}/Allelome.LINK/${DATE}_${celltype}_annotation_us.bed_1
-mkdir -p ${out_dir}/LINK
+# out_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/${AGE}/Allelome.LINK/${DATE}_${celltype}_annotation_us.bed_1
+# mkdir -p ${out_dir}/LINK
 
-Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
-  -i ${out_dir}/locus_table.txt \
-  -o ${out_dir} \
-  --allelic-bias 0.70 \
-  -n ${celltype}_70
+# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+#   -i ${out_dir}/locus_table.txt \
+#   -o ${out_dir} \
+#   --allelic-bias 0.70 \
+#   -n ${celltype}_70
 
-Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
-  -i ${out_dir}/locus_table.txt \
-  -o ${out_dir} \
-  --allelic-bias 0.65 \
-  -n ${celltype}_65
+# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+#   -i ${out_dir}/locus_table.txt \
+#   -o ${out_dir} \
+#   --allelic-bias 0.65 \
+#   -n ${celltype}_65
