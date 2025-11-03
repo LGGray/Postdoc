@@ -7,11 +7,9 @@
 #SBATCH -e out_error/%x.%j.%N.err
 #SBATCH --get-user-env
 #SBATCH --export=NONE
-#SBATCH --clusters=cm4
-#SBATCH --partition=cm4_tiny
-#SBATCH --qos=cm4_tiny
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
+#SBATCH --clusters=serial
+#SBATCH --partition=serial_std
+#SBATCH --nodes=1   
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=50G
 #SBATCH --time=8:00:00
@@ -30,13 +28,13 @@ if [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 1 ]; then
     bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
     -i pseudobulk/adult.bam \
     -a $ref_dir/annotation_no_predicted_us.bed \
-    -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.fixed.bed \
+    -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
     -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/pseudobulk
 elif [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 2 ]; then
     bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
     -i pseudobulk/aged.bam \
     -a $ref_dir/annotation_no_predicted_us.bed \
-    -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.fixed.bed \
+    -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
     -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/pseudobulk
 fi
 
