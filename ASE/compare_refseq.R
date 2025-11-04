@@ -1,6 +1,11 @@
 library(tidyverse)
 library(data.table)
 
+# Subset for noncoding-coding link
+noncoding_coding <- read.delim('GRCm39/Refseq_coding_noncoding.txt', header = TRUE)
+coding <- subset(noncoding_coding, coding_noncoding == "coding")$name
+noncoding <- subset(noncoding_coding, coding_noncoding == "noncoding")$name
+
 #############################
 # Read in aged bodymap data #
 #############################
@@ -10,28 +15,28 @@ bodymap_dirs <- grep('_', bodymap_dirs, value = TRUE)
 # No pred 70:30
 bodymap_no_pred_70 <- lapply(bodymap_dirs, function(dir){
     tmp <- fread(list.files(paste0('adult_aged_bodymap/', dir), pattern = 'no_predicted_70_links_full_table.txt', full.names = TRUE, recursive = TRUE), data.table = FALSE)
-    return(tmp)
+    subset(tmp, name_base %in% noncoding & name_target %in% coding)
 })
 names(bodymap_no_pred_70) <- bodymap_dirs
 
 # No pred 65:35
 bodymap_no_pred_65 <- lapply(bodymap_dirs, function(dir){
     tmp <- fread(list.files(paste0('adult_aged_bodymap/', dir), pattern = 'no_predicted_65_links_full_table.txt', full.names = TRUE, recursive = TRUE), data.table = FALSE)
-    return(tmp)
+    subset(tmp, name_base %in% noncoding & name_target %in% coding)
 })
 names(bodymap_no_pred_65) <- bodymap_dirs
 
 # Pred 70:30
 bodymap_pred_70 <- lapply(bodymap_dirs, function(dir){
     tmp <- fread(list.files(paste0('adult_aged_bodymap/', dir), pattern = '^predicted_70_links_full_table.txt', full.names = TRUE, recursive = TRUE), data.table = FALSE)
-    return(tmp)
+    subset(tmp, name_base %in% noncoding & name_target %in% coding)
 })
 names(bodymap_pred_70) <- bodymap_dirs
 
 # Pred 65:35
 bodymap_pred_65 <- lapply(bodymap_dirs, function(dir){
     tmp <- fread(list.files(paste0('adult_aged_bodymap/', dir), pattern = '^predicted_65_links_full_table.txt', full.names = TRUE, recursive = TRUE), data.table = FALSE)
-    return(tmp)
+    subset(tmp, name_base %in% noncoding & name_target %in% coding)
 })
 names(bodymap_pred_65) <- bodymap_dirs
 
@@ -44,28 +49,28 @@ TAC_dirs <- grep('He', TAC_dirs, value = TRUE)
 # No pred 70:30
 TAC_no_pred_70 <- lapply(TAC_dirs, function(dir){
     tmp <- fread(list.files(paste0('F1_TAC_Sarah/', dir), pattern = 'no_predicted_70_links_full_table.txt', full.names = TRUE, recursive = TRUE), data.table = FALSE)
-    return(tmp)
+    subset(tmp, name_base %in% noncoding & name_target %in% coding)
 })
 names(TAC_no_pred_70) <- TAC_dirs
 
 # No pred 65:35
 TAC_no_pred_65 <- lapply(TAC_dirs, function(dir){
     tmp <- fread(list.files(paste0('F1_TAC_Sarah/', dir), pattern = 'no_predicted_65_links_full_table.txt', full.names = TRUE, recursive = TRUE), data.table = FALSE)
-    return(tmp)
+    subset(tmp, name_base %in% noncoding & name_target %in% coding)
 })
 names(TAC_no_pred_65) <- TAC_dirs
 
 # Pred 70:30
 TAC_pred_70 <- lapply(TAC_dirs, function(dir){
     tmp <- fread(list.files(paste0('F1_TAC_Sarah/', dir), pattern = '^predicted_70_links_full_table.txt', full.names = TRUE, recursive = TRUE), data.table = FALSE)
-    return(tmp)
+    subset(tmp, name_base %in% noncoding & name_target %in% coding)
 })
 names(TAC_pred_70) <- TAC_dirs
 
 # Pred 65:35
 TAC_pred_65 <- lapply(TAC_dirs, function(dir){
     tmp <- fread(list.files(paste0('F1_TAC_Sarah/', dir), pattern = '^predicted_65_links_full_table.txt', full.names = TRUE, recursive = TRUE), data.table = FALSE)
-    return(tmp)
+    subset(tmp, name_base %in% noncoding & name_target %in% coding)
 })
 names(TAC_pred_65) <- TAC_dirs
 
@@ -98,7 +103,7 @@ plot_data <- data.frame(
 )
 plot_data$reference <- factor(plot_data$reference, levels = c('NoPred_70', 'NoPred_65', 'Pred_70', 'Pred_65'))
 
-pdf('LINKS_study/compare_refseq.pdf')
+pdf('LINKS_study/compare_refseq_lncRNA_pcGene.pdf')
 ggplot(plot_data, aes(x = reference, y = Num_Links, fill = Sample)) +
     geom_bar(stat = 'identity', position = 'dodge') +
     theme_bw() +

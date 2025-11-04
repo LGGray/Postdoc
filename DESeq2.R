@@ -1,5 +1,6 @@
 library(dplyr)
 library(tidyr)
+library(DESeq2)
 
 
 gencode <- read.delim('/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.gtf', header=FALSE, comment.char='#')
@@ -55,7 +56,7 @@ mart <- useMart("ensembl", dataset="mmusculus_gene_ensembl")
 ###########################################
 
 
-exprMat <- read.delim('He_GEM.txt', header=TRUE)
+exprMat <- read.delim('DEG/He_GEM.txt', header=TRUE)
 
 metadata <- data.frame(
   sample    = colnames(exprMat),

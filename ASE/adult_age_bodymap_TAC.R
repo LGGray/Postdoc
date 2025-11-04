@@ -20,6 +20,8 @@ jaccard_index <- function(set1, set2) {
   return(intersection / union)
 }
 
+sample_colours <- c("adult" = "#E69F00", "aged" = "#56B4E9", "TAC" = "#009E73", "Sham" = "#CC79A7")
+
 # #### Match RefSeq transcript ID to gene name
 # gtf <- read.delim('GRCm39/GCF_000001635.27_GRCm39_genomic.gtf', comment.char = "#", header = FALSE)
 # gtf_transcripts <- subset(gtf, V3 == "transcript")
@@ -64,16 +66,26 @@ names(bodymap) <- bodymap_dirs
 #   as.data.frame(dt_x)
 # })
 
+
+# Subset for noncoding-coding link
+noncoding_coding <- read.delim('GRCm39/Refseq_coding_noncoding.txt', header = TRUE)
+head(noncoding_coding)
+coding <- subset(noncoding_coding, coding_noncoding == "coding")$name
+noncoding <- subset(noncoding_coding, coding_noncoding == "noncoding")$name
+
+bodymap <- lapply(bodymap, function(df) {
+  subset(df, name_base %in% noncoding & name_target %in% coding)
+})
+
 save(bodymap, file = 'adult_aged_bodymap/bodymap_links_no_predicted_65.RData')
 load('adult_aged_bodymap/bodymap_links_no_predicted_65.RData')
+
 
 #######################################
 # Compare link between adult and aged #
 #######################################
 
 # Colours for adult and aged
-age.colours <- c("adult" = "#94A2AB", "aged" = "#7BA5B8")
-
 bodymap_link_keys <- lapply(bodymap, function(df) unique(link_key(df)))
 
 links_mtx <- fromList(bodymap_link_keys)
@@ -85,7 +97,7 @@ links_mtx <- links_mtx[, c('Ao_9w', 'Br_9w', 'He_9w', 'Ki_9w', 'Li_9w', 'Lu_9w',
 pdf('LINKS_study/figures/heatmap_adult_aged_bodymap_links_no_predicted_65.pdf')
 ann <- HeatmapAnnotation(
   Age = c(rep("Adult", 8), rep("Aged", 8)),
-  col = list(Age = c("Adult" = "#94A2AB", "Aged" = "#7BA5B8"))
+  col = list(Age = c("Adult" = "#E69F00", "Aged" = "#56B4E9"))
 )
 
 Heatmap(links_mtx,
@@ -111,7 +123,7 @@ upset(links_mtx,
       nsets = ncol(links_mtx),
       order.by = "freq",
       main.bar.color = "black",
-      sets.bar.color = "#94A2AB",
+      sets.bar.color = "black",
       mainbar.y.label = "Number of Links",
       sets.x.label = "Links per Sample"
 )
@@ -139,7 +151,7 @@ plot_list <- lapply(tissues, function(tissue) {
       'Adult' = adult_sets,
       'Aged'  = aged_sets
     ))
-  plot(fit, quantities = TRUE, fill = age.colours, main=tissue_name[[tissue]])
+  plot(fit, quantities = TRUE, fill = sample_colours[c("adult", "aged")], main=tissue_name[[tissue]])
 })
 
 pdf('LINKS_study/figures/venn_adult_aged_bodymap_links_no_predicted_65.pdf', width = 12, height = 6)
@@ -249,11 +261,198 @@ mech_switch_links <- lapply(tissues, function(tissue) {
 })
 names(mech_switch_links) <- tissues
 
+##################################################################
+# Understanding changes in link mechanism between adult and aged #
+##################################################################
+
+deseq <- read.delim('adult_aged_bodymap/DESeq2/He_9w_vs_78w.txt', header = TRUE)
+deseq$ensembl_gene_id_version <- gsub('\\..+', '', deseq$ensembl_gene_id_version)
+
+# Plot a venn diagram of adult and aged heart
+pdf('LINKS_study/figures/venn_adult_aged_bodymap_He_links_no_predicted_65.pdf')
+adult_links <- link_key(bodymap[['He_9w']])
+aged_links  <- link_key(bodymap[['He_78w']])
+fit <- euler(list(
+    'Adult' = adult_links,
+    'Aged'  = aged_links
+  ))
+plot(fit, quantities = TRUE, fill = sample_colours[c("adult", "aged")], main='Heart')
+dev.off()
+
+adult_specific <- setdiff(link_key(bodymap[['He_9w']]), link_key(bodymap[['He_78w']]))
+aged_specific  <- setdiff(link_key(bodymap[['He_78w']]), link_key(bodymap[['He_9w']]))
+
+adult_specific <- lapply(adult_specific, function(link) {
+  data.frame(base = strsplit(link, "\\|")[[1]][1],
+              target = strsplit(link, "\\|")[[1]][2])
+})
+adult_specific <- bind_rows(adult_specific)
+
+library(biomaRt)
+# convert gene name to ensembl id
+mart <- useMart("ensembl", dataset = "mmusculus_gene_ensembl")
+base_map <- getBM(attributes = c('mgi_symbol', 'ensembl_gene_id'),
+                  filters = 'mgi_symbol',
+                  values = adult_specific$base,
+                  mart = mart)
+
+target_map <- getBM(attributes = c('mgi_symbol', 'ensembl_gene_id'),
+                     filters = 'mgi_symbol',
+                     values = adult_specific$target,
+                     mart = mart)
+base_deg <- subset(deseq, ensembl_gene_id_version %in% base_map$ensembl_gene_id & padj < 0.05)
+target_deg <- subset(deseq, ensembl_gene_id_version %in% target_map$ensembl_gene_id & padj < 0.05)
+adult_deg <- rbind(
+  data.frame(gene = base_deg$gene_name,
+             log2FoldChange = base_deg$log2FoldChange,
+             padj = base_deg$padj,
+             role = 'base'),
+  data.frame(gene = target_deg$gene_name,
+             log2FoldChange = target_deg$log2FoldChange,
+             padj = target_deg$padj,
+             role = 'target')
+)
+
+aged_specific <- lapply(aged_specific, function(link) {
+  data.frame(base = strsplit(link, "\\|")[[1]][1],
+              target = strsplit(link, "\\|")[[1]][2])
+})
+aged_specific <- bind_rows(aged_specific)
+# convert gene name to ensembl id
+base_map <- getBM(attributes = c('mgi_symbol', 'ensembl_gene_id'),
+                  filters = 'mgi_symbol',
+                  values = aged_specific$base,
+                  mart = mart)  
+target_map <- getBM(attributes = c('mgi_symbol', 'ensembl_gene_id'),
+                     filters = 'mgi_symbol',
+                     values = aged_specific$target,
+                     mart = mart)
+base_deg <- subset(deseq, ensembl_gene_id_version %in% base_map$ensembl_gene_id & padj < 0.05)
+target_deg <- subset(deseq, ensembl_gene_id_version %in% target_map$ensembl_gene_id & padj < 0.05)
+aged_deg <- rbind(
+  data.frame(gene = base_deg$gene_name,
+             log2FoldChange = base_deg$log2FoldChange,
+             padj = base_deg$padj,
+             role = 'base'),
+  data.frame(gene = target_deg$gene_name,
+             log2FoldChange = target_deg$log2FoldChange,
+             padj = target_deg$padj,
+             role = 'target')
+)
+
+deg_result <- rbind(adult_deg, data.frame(gene = base_deg$gene_name,
+             log2FoldChange = base_deg$log2FoldChange,
+             padj = base_deg$padj,
+             role = 'base'))
+write.table(deg_result, file = 'LINKS_study/DE_genes_in_adult_aged_bodymap_He_links_no_predicted_65.txt', sep = "\t", row.names = FALSE, quote = FALSE)
+
+selected_genes <- unique(c(adult_deg$gene, 'H19'))
+
+subset(deseq, gene_name %in% selected_genes)[,c('gene_name', 'log2FoldChange', 'padj')]
+
+# Plot a volcano plot highlighting DE genes involved in lost/gained links
+deseq$highlight <- ifelse(deseq$gene_name %in% selected_genes, deseq$gene_name, NA)
+pdf('LINKS_study/figures/volcano_adult_aged_bodymap_He_links_no_predicted_65.pdf', width = 8, height = 6)
+ggplot(deseq, aes(x=log2FoldChange, y=-log10(padj))) +
+  geom_point(alpha=0.4) +
+  geom_point(data=subset(deseq, !is.na(highlight)), color='red') +
+  # geom_text(data=subset(deseq, !is.na(highlight)), aes(label=highlight), vjust=1.5, color='black', position=position_jitter(width=0.2, height=0)) +
+  theme_minimal() +
+  labs(title='Heart: Adult vs Aged', x='Log2 Fold Change', y='-Log10 Adjusted P-value') +
+  theme(legend.position = "none")
+dev.off()
+
+#############################################
+# Are links changing due to switches in ASE #
+#############################################
+adult_allelome <- read.delim('adult_aged_bodymap/He_9w/annotation_no_predicted_locus_table_reps.txt', header = TRUE)
+aged_allelome  <- read.delim('adult_aged_bodymap/He_78w/annotation_no_predicted_locus_table_reps.txt', header = TRUE)
+
+adult_ase <- apply(adult_specific, 1, function(row) {
+  base <- subset(adult_allelome, name == row[['base']])
+  base <- base[, c('name','allelic_ratio'), drop = FALSE]
+  if (nrow(base) == 0) base <- data.frame(name = row[['base']], allelic_ratio = NA_real_)
+  base$gene_type <- 'base'
+  target <- subset(adult_allelome, name == row[['target']])
+  target <- target[, c('name','allelic_ratio'), drop = FALSE]
+  if (nrow(target) == 0) target <- data.frame(name = row[['target']], allelic_ratio = NA_real_)
+  target$gene_type <- 'target'
+  rbind(base, target)[,c('name', 'allelic_ratio', 'gene_type')]
+})
+adult_ase <- bind_rows(adult_ase)
+
+aged_ase <- apply(adult_specific, 1, function(row) {
+  base <- subset(aged_allelome, name == row[['base']])
+  base <- base[, c('name','allelic_ratio'), drop = FALSE]
+  if (nrow(base) == 0) base <- data.frame(name = row[['base']], allelic_ratio = NA_real_)
+  base$gene_type <- 'base'
+
+  target <- subset(aged_allelome, name == row[['target']])
+  target <- target[, c('name','allelic_ratio'), drop = FALSE]
+  if (nrow(target) == 0) target <- data.frame(name = row[['target']], allelic_ratio = NA_real_)
+  target$gene_type <- 'target'
+
+  rbind(base, target)  # now both have exactly the same columns
+})
+aged_ase <- bind_rows(aged_ase)
+
+combined_adult <- merge(adult_ase, aged_ase, by = "name", suffixes = c("_adult", "_aged"))
+
+pdf('LINKS_study/figures/scatter_adult_aged_bodymap_He_ASE_adult_specific_links_no_predicted_65.pdf')
+ggplot(unique(combined_adult), aes(x=allelic_ratio_adult, y=allelic_ratio_aged, color=gene_type_adult)) +
+  geom_point(size = 1.8) +
+  geom_vline(xintercept = c(0.35, 0.65), linetype = 2) +
+  geom_hline(yintercept = c(0.35, 0.65), linetype = 2) +
+  theme_minimal() +
+  labs(title='ASE in Adult-specific Links: Adult vs Aged', x='Allelic Ratio (Adult)', y='Allelic Ratio (Aged)') +
+  geom_abline(slope=1, intercept=0, linetype="dashed", color = "red")
+dev.off()
+
+cor(combined_adult$allelic_ratio_adult, combined_adult$allelic_ratio_aged, method = "spearman")
+
+
+adult_ase <- apply(aged_specific, 1, function(row) {
+  base <- subset(adult_allelome, name == row[['base']])
+  base <- base[, c('name','allelic_ratio'), drop = FALSE]
+  if (nrow(base) == 0) base <- data.frame(name = row[['base']], allelic_ratio = NA_real_)
+  base$gene_type <- 'base'
+  target <- subset(adult_allelome, name == row[['target']])
+  target <- target[, c('name','allelic_ratio'), drop = FALSE]
+  if (nrow(target) == 0) target <- data.frame(name = row[['target']], allelic_ratio = NA_real_)
+  target$gene_type <- 'target'
+  rbind(base, target)[,c('name', 'allelic_ratio', 'gene_type')]
+})
+adult_ase <- bind_rows(adult_ase)
+aged_ase <- apply(aged_specific, 1, function(row) {
+  base <- subset(aged_allelome, name == row[['base']])
+  base <- base[, c('name','allelic_ratio'), drop = FALSE]
+  if (nrow(base) == 0) base <- data.frame(name = row[['base']], allelic_ratio = NA_real_)
+  base$gene_type <- 'base'
+  target <- subset(aged_allelome, name == row[['target']])
+  target <- target[, c('name','allelic_ratio'), drop = FALSE]
+  if (nrow(target) == 0) target <- data.frame(name = row[['target']], allelic_ratio = NA_real_)   
+  target$gene_type <- 'target'
+  rbind(base, target)[,c('name', 'allelic_ratio', 'gene_type')]
+})
+aged_ase <- bind_rows(aged_ase) 
+
+combined_aged <- merge(adult_ase, aged_ase, by = "name", suffixes = c("_adult", "_aged"))
+pdf('LINKS_study/figures/scatter_adult_aged_bodymap_He_ASE_aged_specific_links_no_predicted_65.pdf')
+ggplot(unique(combined_aged), aes(x=allelic_ratio_adult, y=allelic_ratio_aged, color=gene_type_aged)) +
+  geom_point(size = 1.8) +
+  geom_vline(xintercept = c(0.35, 0.65), linetype = 2) +
+  geom_hline(yintercept = c(0.35, 0.65), linetype = 2) +
+  theme_minimal() +
+  labs(title='ASE in Aged-specific Links: Adult vs Aged', x='Allelic Ratio (Adult)', y='Allelic Ratio (Aged)') +
+  geom_abline(slope=1, intercept=0, linetype="dashed", color = "red")
+dev.off()
+
 
 ############################################################################
 # Overlap with snRNAseq cell-type specific links from adult and aged heart #
 ############################################################################
 adult.files <- list.files('adult_aged_heart_snRNAseq/9w/Allelome.LINK', pattern = 'no_predicted_65_links_full_table.txt', full.names = TRUE, recursive = TRUE)
+adult.files <- grep('2025_10_31', adult.files, value = TRUE)
 adult_link <- lapply(adult.files, function(f) {
     tmp <- read.delim(f)
     return(tmp)
@@ -263,10 +462,17 @@ names(adult_link) <- lapply(adult.files, function(f) {
     ct <- gsub('_no_predicted_65', '', ct)
     return(ct)
 })
+
+# Filter for noncoding-coding links only
+adult_link <- lapply(adult_link, function(df) {
+  subset(df, name_base %in% noncoding & name_target %in% coding)
+})
+
 save(adult_link, file = 'adult_aged_heart_snRNAseq/adult.Allelome.LINK_no_predicted_65.RData')
 load('adult_aged_heart_snRNAseq/adult.Allelome.LINK_no_predicted_65.RData')
 
 aged.files <- list.files('adult_aged_heart_snRNAseq/78w/Allelome.LINK', pattern = 'no_predicted_65_links_full_table.txt', full.names = TRUE, recursive = TRUE)
+aged.files <- grep('2025_10_31', aged.files, value = TRUE)
 aged_link <- lapply(aged.files, function(f) {
     tmp <- read.delim(f)
     return(tmp)
@@ -276,6 +482,12 @@ names(aged_link) <- lapply(aged.files, function(f) {
     ct <- gsub('_no_predicted_65', '', ct)
     return(ct)
 })
+
+# Filter for noncoding-coding links only
+aged_link <- lapply(aged_link, function(df) {
+  subset(df, name_base %in% noncoding & name_target %in% coding)
+})
+
 save(aged_link, file = 'adult_aged_heart_snRNAseq/aged.Allelome.LINK_no_predicted_65.RData')
 load('adult_aged_heart_snRNAseq/aged.Allelome.LINK_no_predicted_65.RData')
 
@@ -315,7 +527,7 @@ upset(combined_mtx,
       nsets = ncol(combined_mtx),
       order.by = "freq",
       main.bar.color = "black",
-      sets.bar.color = "#94A2AB",
+      sets.bar.color = "black",
       mainbar.y.label = "Number of Links",
       sets.x.label = "Links per Sample"
 )
@@ -391,6 +603,33 @@ aged_jaccard <- lapply(aged_link, function(ct){
     jaccard_index(aged_He, ct_links)
     # print(length(intersect(aged_He, ct_links)))
 })
+aged_jaccard['Epicard'] <- 0
+
+aged_jaccard <- aged_jaccard[names(adult_jaccard)]
+
+plot_data <- data.frame(
+  Cell_Type = names(adult_jaccard),
+  Adult = unlist(adult_jaccard),
+  Aged = unlist(aged_jaccard)
+)
+
+pdf('LINKS_study/figures/heatmap_jaccard_adult_aged_heart_snRNAseq_links_no_predicted_65.pdf')
+Heatmap(as.matrix(plot_data[, -1]),
+        name = "Jaccard Index",
+        col = colorRamp2(c(0, max(plot_data[, -1], na.rm=TRUE)), c("white", "red")),
+        show_row_names = TRUE,
+        show_column_names = TRUE,
+        cluster_rows = FALSE,
+        cluster_columns = FALSE,
+        column_title = "",
+        heatmap_legend_param = list(
+          title = "Jaccard Index",
+          at = c(0, max(plot_data[, -1], na.rm=TRUE)/2, max(plot_data[, -1], na.rm=TRUE)),
+          labels = c("0", round(max(plot_data[, -1], na.rm=TRUE)/2, 2), round(max(plot_data[, -1], na.rm=TRUE), 2))
+        )
+)
+dev.off()
+
 
 ##################################
 # Read in data from TAC and Sham #
@@ -403,6 +642,10 @@ TAC_SHAM <- lapply(TAC_dirs, function(dir) {
     read.delim(tmp)
 })
 names(TAC_SHAM) <- TAC_dirs
+
+TAC_SHAM <- lapply(TAC_SHAM, function(df) {
+  subset(df, name_base %in% noncoding & name_target %in% coding)
+})
 
 save(TAC_SHAM, file = 'F1_TAC_Sarah/TAC_SHAM_links_no_predicted_65.RData')
 load('F1_TAC_Sarah/TAC_SHAM_links_no_predicted_65.RData')
@@ -428,17 +671,19 @@ tac_repressive <- unique(link_key(subset(tac_heart_links, mechanism == "repressi
 sham_enhancing <- unique(link_key(subset(sham_heart_links, mechanism == "enhancing")))
 sham_repressive <- unique(link_key(subset(sham_heart_links, mechanism == "repressing")))
 
+
+
 # Capture the two euler plots as grobs and arrange them side-by-side in one PDF
 fit_enhancing <- euler(list(
   TAC  = tac_enhancing,
   Sham = sham_enhancing
 ))
-fit_enhancing <- plot(fit_enhancing, quantities = TRUE, fill = c("#E31A1C", "#FB9A99"), main='Enhancing Links')
+fit_enhancing <- plot(fit_enhancing, quantities = TRUE, fill = sample_colours[c("TAC", "Sham")], main='Enhancing Links')
 fit_repressive <- euler(list(
   TAC  = tac_repressive,
   Sham = sham_repressive
 ))
-fit_repressive <- plot(fit_repressive, quantities=TRUE, fill=c("#E31A1C", "#FB9A99"), main='Repressive Links')
+fit_repressive <- plot(fit_repressive, quantities=TRUE, fill = sample_colours[c("TAC", "Sham")], main='Repressive Links')
 plot_list <- list(fit_enhancing, fit_repressive)
 
 pdf('LINKS_study/figures/venn_TAC_sham_links_no_predicted_65.pdf')
@@ -450,7 +695,6 @@ tac_unique_repressive <- setdiff(tac_repressive, sham_repressive)
 sham_unique_enhancing <- setdiff(sham_enhancing, tac_enhancing)
 sham_unique_repressive <- setdiff(sham_repressive, tac_repressive)
 
-
 ##################################################
 # Compare link between adult, aged and TAC heart #
 ##################################################
@@ -460,26 +704,64 @@ adult_heart_enhancing <- unique(link_key(subset(bodymap[['He_9w']], mechanism ==
 aged_heart_repressive  <- unique(link_key(subset(bodymap[['He_78w']], mechanism == "repressing")))
 aged_heart_enhancing  <- unique(link_key(subset(bodymap[['He_78w']], mechanism == "enhancing")))
 
-sample_colours <- c("adult" = "#94A2AB", "aged" = "#7BA5B8", "TAC" = "#E31A1C", "Sham" = "#FB9A99")
-
-
-adult_aged_tac_enhancing <- euler(list(
+adult_aged_tac_sham_enhancing <- euler(list(
   Adult = adult_heart_enhancing,
   Aged  = aged_heart_enhancing,
-  TAC   = tac_unique_enhancing
+  TAC   = tac_unique_enhancing,
+  Sham  = sham_unique_enhancing
 ))
-adult_aged_tac_enhancing <- plot(adult_aged_tac_enhancing, quantities = TRUE, fill = sample_colours, main='Enhancing Links in Heart')
+adult_aged_tac_sham_enhancing <- plot(adult_aged_tac_sham_enhancing, quantities = TRUE, fill = sample_colours, main='Enhancing Links in Heart')
 
-adult_aged_tac_repressive <- euler(list(
+adult_aged_tac_sham_repressive <- euler(list(
   Adult = adult_heart_repressive,
   Aged  = aged_heart_repressive,
-  TAC   = tac_unique_repressive
+  TAC   = tac_unique_repressive,
+  Sham  = sham_unique_repressive
 ))
-adult_aged_tac_repressive <- plot(adult_aged_tac_repressive, quantities=TRUE, fill=sample_colours, main='Repressive Links in Heart')
-plot_list <- list(adult_aged_tac_enhancing, adult_aged_tac_repressive)
-pdf('LINKS_study/figures/venn_adult_aged_TAC_links_no_predicted_65.pdf')
+adult_aged_tac_sham_repressive <- plot(adult_aged_tac_sham_repressive, quantities=TRUE, fill=sample_colours, main='Repressive Links in Heart')
+plot_list <- list(adult_aged_tac_sham_enhancing, adult_aged_tac_sham_repressive)
+pdf('LINKS_study/figures/venn_adult_aged_TAC_Sham_links_no_predicted_65.pdf')
 grid.arrange(grobs = plot_list, nrow = 2)
 dev.off()
+
+enhancing_list <- list(
+  adult_heart_enhancing = adult_heart_enhancing,
+  aged_heart_enhancing  = aged_heart_enhancing,
+  tac_unique_enhancing  = tac_unique_enhancing,
+  sham_unique_enhancing = sham_unique_enhancing
+)
+enhancing_mtx <- fromList(enhancing_list)
+
+pdf('LINKS_study/figures/upset_adult_aged_TAC_Sham_enhancing_links_no_predicted_65.pdf', onefile = FALSE)
+upset(enhancing_mtx,
+      nsets = ncol(enhancing_mtx),
+      order.by = "freq",
+      main.bar.color = "black",
+      sets.bar.color = "black",
+      mainbar.y.label = "Number of Links",
+      sets.x.label = "Links per Sample"
+)
+dev.off()
+
+
+repressive_list <- list(
+  adult_heart_repressive = adult_heart_repressive,
+  aged_heart_repressive  = aged_heart_repressive,
+  tac_unique_repressive  = tac_unique_repressive,
+  sham_unique_repressive = sham_unique_repressive
+)
+repressive_mtx <- fromList(repressive_list)
+pdf('LINKS_study/figures/upset_adult_aged_TAC_Sham_repressive_links_no_predicted_65.pdf', onefile = FALSE)
+upset(repressive_mtx,
+      nsets = ncol(repressive_mtx),
+      order.by = "freq",
+      main.bar.color = "black",
+      sets.bar.color = "black",
+      mainbar.y.label = "Number of Links",
+      sets.x.label = "Links per Sample"
+)
+dev.off()
+
 
 # Aged ∩ TAC but not Adult
 aged_tac_only_rep <- setdiff(intersect(aged_heart_repressive, tac_unique_repressive), adult_heart_repressive)
