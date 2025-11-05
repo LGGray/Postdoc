@@ -11,7 +11,7 @@
 #SBATCH --partition=serial_std
 #SBATCH --nodes=1   
 #SBATCH --cpus-per-task=18
-#SBATCH --mem=20G
+#SBATCH --mem=50G
 #SBATCH --time=8:00:00
 #SBATCH --array=1-27
 
@@ -22,7 +22,7 @@ conda activate RNAseq
 cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mm10_analysis
 
 sample_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/01_aging_TH_for_LG/00_rawdata/01_adult
-genome_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/RNA_reference_files/STAR_genome_mm10/genome_dir_gencodeM25_mm10.201911/
+genome_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mm10_STAR_index
 annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/RNA_reference_files/genome_ref_mm10/GENCODE_M25GRCm38.p6_201911/gencode.vM25.primary_assembly.annotation.gtf
 annotation_f=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/annotation/20180203_RefSeq/annotation_f.bed
 annotation_r=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/annotation/20180203_RefSeq/annotation_r.bed
