@@ -69,7 +69,6 @@ names(bodymap) <- bodymap_dirs
 
 # Subset for noncoding-coding link
 noncoding_coding <- read.delim('GRCm39/Refseq_coding_noncoding.txt', header = TRUE)
-head(noncoding_coding)
 coding <- subset(noncoding_coding, coding_noncoding == "coding")$name
 noncoding <- subset(noncoding_coding, coding_noncoding == "noncoding")$name
 
@@ -396,10 +395,16 @@ aged_ase <- apply(adult_specific, 1, function(row) {
 })
 aged_ase <- bind_rows(aged_ase)
 
-combined_adult <- merge(adult_ase, aged_ase, by = "name", suffixes = c("_adult", "_aged"))
+combined_adult <- unique(merge(adult_ase, aged_ase, by = "name", suffixes = c("_adult", "_aged")))
+
+subset(
+  combined_adult,
+  (allelic_ratio_adult < 0.35 | allelic_ratio_adult > 0.65) &
+  (allelic_ratio_aged >= 0.35 & allelic_ratio_aged <= 0.65)
+)
 
 pdf('LINKS_study/figures/scatter_adult_aged_bodymap_He_ASE_adult_specific_links_no_predicted_65.pdf')
-ggplot(unique(combined_adult), aes(x=allelic_ratio_adult, y=allelic_ratio_aged, color=gene_type_adult)) +
+ggplot(combined_adult, aes(x=allelic_ratio_adult, y=allelic_ratio_aged, color=gene_type_adult)) +
   geom_point(size = 1.8) +
   geom_vline(xintercept = c(0.35, 0.65), linetype = 2) +
   geom_hline(yintercept = c(0.35, 0.65), linetype = 2) +
@@ -436,9 +441,17 @@ aged_ase <- apply(aged_specific, 1, function(row) {
 })
 aged_ase <- bind_rows(aged_ase) 
 
-combined_aged <- merge(adult_ase, aged_ase, by = "name", suffixes = c("_adult", "_aged"))
+combined_aged <- unique(merge(adult_ase, aged_ase, by = "name", suffixes = c("_adult", "_aged")))
+
+subset(
+  combined_aged,
+  (allelic_ratio_aged < 0.35 | allelic_ratio_aged > 0.65) &
+  (allelic_ratio_adult >= 0.35 & allelic_ratio_adult <= 0.65)
+)
+
+
 pdf('LINKS_study/figures/scatter_adult_aged_bodymap_He_ASE_aged_specific_links_no_predicted_65.pdf')
-ggplot(unique(combined_aged), aes(x=allelic_ratio_adult, y=allelic_ratio_aged, color=gene_type_aged)) +
+ggplot(combined_aged, aes(x=allelic_ratio_adult, y=allelic_ratio_aged, color=gene_type_aged)) +
   geom_point(size = 1.8) +
   geom_vline(xintercept = c(0.35, 0.65), linetype = 2) +
   geom_hline(yintercept = c(0.35, 0.65), linetype = 2) +
@@ -704,31 +717,29 @@ adult_heart_enhancing <- unique(link_key(subset(bodymap[['He_9w']], mechanism ==
 aged_heart_repressive  <- unique(link_key(subset(bodymap[['He_78w']], mechanism == "repressing")))
 aged_heart_enhancing  <- unique(link_key(subset(bodymap[['He_78w']], mechanism == "enhancing")))
 
-adult_aged_tac_sham_enhancing <- euler(list(
+adult_aged_tac_enhancing <- euler(list(
   Adult = adult_heart_enhancing,
   Aged  = aged_heart_enhancing,
-  TAC   = tac_unique_enhancing,
-  Sham  = sham_unique_enhancing
+  TAC   = tac_enhancing
 ))
-adult_aged_tac_sham_enhancing <- plot(adult_aged_tac_sham_enhancing, quantities = TRUE, fill = sample_colours, main='Enhancing Links in Heart')
+adult_aged_tac_enhancing_plot <- plot(adult_aged_tac_enhancing, quantities = TRUE, fill = sample_colours[c("adult", "aged", "TAC")], main='Enhancing Links in Heart')
 
-adult_aged_tac_sham_repressive <- euler(list(
+adult_aged_tac_repressive <- euler(list(
   Adult = adult_heart_repressive,
   Aged  = aged_heart_repressive,
-  TAC   = tac_unique_repressive,
-  Sham  = sham_unique_repressive
+  TAC   = tac_repressive
 ))
-adult_aged_tac_sham_repressive <- plot(adult_aged_tac_sham_repressive, quantities=TRUE, fill=sample_colours, main='Repressive Links in Heart')
-plot_list <- list(adult_aged_tac_sham_enhancing, adult_aged_tac_sham_repressive)
-pdf('LINKS_study/figures/venn_adult_aged_TAC_Sham_links_no_predicted_65.pdf')
-grid.arrange(grobs = plot_list, nrow = 2)
+adult_aged_tac_repressive_plot <- plot(adult_aged_tac_repressive, quantities=TRUE, fill=sample_colours[c("adult", "aged", "TAC")], main='Repressive Links in Heart')
+
+pdf('LINKS_study/figures/venn_adult_aged_TAC_links_no_predicted_65.pdf')
+grid.arrange(grobs = list(adult_aged_tac_enhancing_plot, adult_aged_tac_repressive_plot), ncol = 2)
 dev.off()
 
 enhancing_list <- list(
   adult_heart_enhancing = adult_heart_enhancing,
   aged_heart_enhancing  = aged_heart_enhancing,
-  tac_unique_enhancing  = tac_unique_enhancing,
-  sham_unique_enhancing = sham_unique_enhancing
+  tac_enhancing  = tac_enhancing,
+  sham_enhancing = sham_enhancing
 )
 enhancing_mtx <- fromList(enhancing_list)
 
@@ -747,8 +758,8 @@ dev.off()
 repressive_list <- list(
   adult_heart_repressive = adult_heart_repressive,
   aged_heart_repressive  = aged_heart_repressive,
-  tac_unique_repressive  = tac_unique_repressive,
-  sham_unique_repressive = sham_unique_repressive
+  tac_repressive  = tac_repressive,
+  sham_repressive = sham_repressive
 )
 repressive_mtx <- fromList(repressive_list)
 pdf('LINKS_study/figures/upset_adult_aged_TAC_Sham_repressive_links_no_predicted_65.pdf', onefile = FALSE)
@@ -764,14 +775,14 @@ dev.off()
 
 
 # Aged ∩ TAC but not Adult
-aged_tac_only_rep <- setdiff(intersect(aged_heart_repressive, tac_unique_repressive), adult_heart_repressive)
-aged_tac_only_enh <- setdiff(intersect(aged_heart_enhancing, tac_unique_enhancing), adult_heart_enhancing)
+aged_tac_only_rep <- setdiff(intersect(aged_heart_repressive, tac_repressive), adult_heart_repressive)
+aged_tac_only_enh <- setdiff(intersect(aged_heart_enhancing, tac_enhancing), adult_heart_enhancing)
 # Adult ∩ Aged but not TAC
-adult_aged_only_rep <- setdiff(intersect(adult_heart_repressive, aged_heart_repressive), tac_unique_repressive)
-adult_aged_only_enh <- setdiff(intersect(adult_heart_enhancing, aged_heart_enhancing), tac_unique_enhancing)
+adult_aged_only_rep <- setdiff(intersect(adult_heart_repressive, aged_heart_repressive), tac_repressive)
+adult_aged_only_enh <- setdiff(intersect(adult_heart_enhancing, aged_heart_enhancing), tac_enhancing)
 # Adult ∩ TAC but not Aged
-adult_tac_only_rep <- setdiff(intersect(adult_heart_repressive, tac_unique_repressive), aged_heart_repressive)
-adult_tac_only_enh <- setdiff(intersect(adult_heart_enhancing, tac_unique_enhancing), aged_heart_enhancing)
+adult_tac_only_rep <- setdiff(intersect(adult_heart_repressive, tac_repressive), aged_heart_repressive)
+adult_tac_only_enh <- setdiff(intersect(adult_heart_enhancing, tac_enhancing), aged_heart_enhancing)
 
 overlap_lists <- list(
   aged_tac_only_rep = aged_tac_only_rep,
@@ -782,7 +793,7 @@ overlap_lists <- list(
   adult_tac_only_enh = adult_tac_only_enh
 )
 save(overlap_lists, file = 'LINKS_study/adult_aged_TAC_link_overlaps_no_predicted_65.RData')
-load('LINKS_study/adult_aged_TAC_link_overlaps_no_predicted_65.RData')
+load('~/cluster/LINKS_study/adult_aged_TAC_link_overlaps_no_predicted_65.RData')
 
 ##################################################
 # Compare link between adult, aged and Sham heart #
@@ -802,6 +813,7 @@ plot_list <- list(adult_aged_sham_enhancing, adult_aged_sham_repressive)
 pdf('LINKS_study/figures/venn_adult_aged_Sham_links_no_predicted_65.pdf')
 grid.arrange(grobs = plot_list, nrow = 2)
 dev.off()
+
 
 ################################
 # Analysis of repressive links #

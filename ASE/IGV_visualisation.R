@@ -22,9 +22,10 @@ library(dplyr)
 # # make gtf data.tables
 # dt_gtf <- data.table(gtf_transcripts)[, .(transcript_id = transcript_ids, gene_ids, biotype_ids)]
 
+sample <- basename(getwd())
+
 # Read in links table
-link_file <- list.files(pattern = "links_full_table.txt", full.names = TRUE, recursive = TRUE)
-link_file <- grep("2025-10-27", link_file, value=TRUE)
+link_file <- list.files(pattern = "no_predicted_65_links_full_table.txt", full.names = TRUE, recursive = TRUE)
 links_table <- fread(link_file, data.table=FALSE)
 
 # Add gene name and biotype
@@ -47,16 +48,16 @@ bedpe <- links_table %>%
   select(chr_base, start_base, end_base, chr_target, start_target, end_target,
          name, score, strand1, strand2, color)
 
-write.table(bedpe, "links.bedpe", sep = "\t", quote = FALSE, row.names = FALSE, col.names=FALSE)
+write.table(bedpe, paste0(sample, "_links.bedpe"), sep = "\t", quote = FALSE, row.names = FALSE, col.names=FALSE)
 
 # Create IGV-compatible bedpe with header, then append the bedpe contents
 header <- 'track type=interact name="lncRNA-pcGene_links" description="Enhancing and Repressive" useScore=1'
-writeLines(header, con = "links_IGV.bedpe")
-if (!file.exists("links.bedpe")) stop("links.bedpe not found")
-cat(readLines("links.bedpe"), file = "links_IGV.bedpe", sep = "\n", append = TRUE)
+writeLines(header, con = paste0(sample, "_links_IGV.bedpe"))
+if (!file.exists(paste0(sample, "_links.bedpe"))) stop("links.bedpe not found")
+cat(readLines(paste0(sample, "_links.bedpe")), file = paste0(sample, "_links_IGV.bedpe"), sep = "\n", append = TRUE)
 
 
-locus_tab <- fread('locus_table_reps.txt', data.table=FALSE)
+locus_tab <- fread('annotation_no_predicted_locus_table_reps.txt', data.table=FALSE)
 # make bedfile
 bed <- data.frame(V1=locus_tab$chr,V2=locus_tab$start,V3=locus_tab$end,V4=paste0(locus_tab$name,"_median_reads:",locus_tab$A1_reads,"/",locus_tab$A2_reads,"_min_score:",round(locus_tab$allelic_score, 2),"_median_ratio:",locus_tab$allelic_ratio),V5=1000,V6=".",V7=locus_tab$start,V8=locus_tab$end,V9=locus_tab$allelic_ratio)
 # assign color
@@ -72,4 +73,4 @@ bed$itemRgb[bed$V9 > 0.35 &
             bed$V9 < 0.65] <- "28,100,45"
 bed <- bed%>%dplyr::select(-V9)
 
-write.table(bed, 'locus_table_reps.bed', row.names=FALSE, col.names=FALSE, quote=FALSE, sep='\t')
+write.table(bed, paste0(sample, '_locus_table_reps.bed'), row.names=FALSE, col.names=FALSE, quote=FALSE, sep='\t')

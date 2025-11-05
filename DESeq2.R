@@ -1,6 +1,7 @@
 library(dplyr)
 library(tidyr)
 library(DESeq2)
+library(apeglm)
 
 
 gencode <- read.delim('/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.gtf', header=FALSE, comment.char='#')
@@ -106,14 +107,78 @@ write.table(resOrdered, file="DESeq2/He_9w_vs_78w.txt", sep="\t", quote=FALSE, r
 ####################
 # Read in TAC data #
 ####################
+metadata <- read.delim('metadata.csv', sep=',' )
+
+count_files <- list.files('.', pattern='_stranded_reverse.count', recursive=TRUE, full.names=TRUE)
+
+GEM <- lapply(count_files, function(x) {
+  sample_name <- gsub('_stranded_reverse.count', '', basename(x))
+  df <- read.delim(x, header=FALSE, col.names=c('geneID', paste0('Sample_', sample_name)))
+  return(df)
+})
+GEM <- Reduce(function(x, y) merge(x, y, by='geneID', all=TRUE), GEM)
+GEM <- GEM[grep('^ENS', GEM$geneID), ]
 
 
-foo <- read.delim('adult/Sample_22L011981/22L011981_stranded_reverse.count', header=FALSE,
-                         col.names=c('geneID', 'adult_1'),
-                         stringsAsFactors=FALSE)
-foo <- foo[grep('^ENS', foo$V1), ]
-sum(foo$V2)
+metadata <- metadata[grep('_XX', metadata$FID_comment), ]
 
-conda activate RNAseq
-cd adult/Sample_22L011981
-htseq-count -s no -r pos -f bam 22L011981_Aligned.sortedByCoord.out.bam ../../../GRCm39/gencode.vM37.primary_assembly.annotation.gtf > test_noStrand.count
+GEM <- GEM[, c(1, which(colnames(GEM) %in% metadata$Sample_ID))]
+
+metadata <- metadata[match(colnames(GEM[,-1]), metadata$Sample_ID), ]
+
+write.table(GEM, file='DEG/TAC_GEM.txt', sep='\t', quote=FALSE, row.names=FALSE)
+
+rownames(GEM) <- GEM$geneID
+GEM <- GEM[, -1]
+
+metadata2 <- data.frame(
+  sample    = colnames(GEM),
+  condition = c('TAC', 'TAC', 'TAC', 'sham', 'sham', 'sham')
+)
+metadata2$condition <- factor(metadata2$condition, levels=c('TAC', 'sham'))
+
+# DESeq2
+dds <- DESeqDataSetFromMatrix(
+  countData = GEM,
+  colData   = metadata2,
+  design    = ~ condition
+)
+
+# Pre-filter low-count genes
+dds <- dds[rowSums(counts(dds) >= 10) >= 3, ]
+# Run DESeq2 pipeline
+dds <- DESeq(dds)
+# Extract results
+res <- results(dds, alpha=0.05)
+res <- lfcShrink(dds, coef="condition_sham_vs_TAC", type="apeglm")
+# Order by adjusted p-value
+resOrdered <- as.data.frame(res[order(res$padj), ])
+# Map ENSMUSG to gene names with biomaRt
+ensembl_values <- rownames(resOrdered)
+gene_map <- getBM(
+    attributes = c('ensembl_gene_id_version', 'mgi_symbol'),
+    filters    = 'ensembl_gene_id_version',
+    values     = ensembl_values,
+    mart       = mart
+)
+# rename to match downstream merge by.y='ensembl_gene_id_version'
+resOrdered <- merge(resOrdered, gene_map, by.x='row.names', by.y='ensembl_gene_id_version', all.x=TRUE)
+colnames(resOrdered)[1] <- 'ensembl_gene_id_version'
+colnames(resOrdered)[ncol(resOrdered)] <- 'gene_name'
+# Write results to file
+write.table(resOrdered, file="DEG/TAC_vs_sham.txt", sep="\t", quote=FALSE, row.names=FALSE)
+
+
+adult_aged <- read.delim('../adult_aged_bodymap/DESeq2/He_9w_vs_78w.txt', header=TRUE)
+
+combined <- merge(adult_aged, resOrdered, by='gene_name', suffixes=c('_adult_aged', '_TAC_sham'))
+
+combined_sig <- subset(combined, padj_adult_aged < 0.05 & padj_TAC_sham < 0.05)
+
+# Correlate on -log10(padj)
+pdf('../LINKS_study/figures/DEG_correlation_adult_aged_vs_TAC_sham.pdf')
+plot(-log10(combined_sig$padj_adult_aged), -log10(combined_sig$padj_TAC_sham),
+     xlab='-log10(padj) Adult Aged', ylab='-log10(padj) TAC Sham',
+     main='DEG Correlation: Adult Aged vs TAC Sham')
+abline(0, 1, col='red', lty=2)
+dev.off()
