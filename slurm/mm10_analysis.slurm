@@ -73,19 +73,19 @@ run_one() {
 
 SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" adult_path.txt)
 filename=$(echo "$SAMPLE" | cut -d'_' -f2)
-run_one "$SAMPLE"
+# run_one "$SAMPLE"
 
 
-# # Separate BAM files into forward and reverse reads
-# BAM="adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
-# ANNOTATION=../GRCm39/gencode.vM37.primary_assembly.annotation.gtf
-# #awk '{ if ($0 ~ "transcript_id") print $0; else print $0" transcript_id \"\";"; }' $ANNOTATION | gtf2bed - > ../GRCm39/gencode.vM37.primary_assembly.annotation.bed
-# BED=../GRCm39/gencode.vM37.primary_assembly.annotation.bed
+# # # Separate BAM files into forward and reverse reads
+# # BAM="adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
+# # ANNOTATION=../GRCm39/gencode.vM37.primary_assembly.annotation.gtf
+# # #awk '{ if ($0 ~ "transcript_id") print $0; else print $0" transcript_id \"\";"; }' $ANNOTATION | gtf2bed - > ../GRCm39/gencode.vM37.primary_assembly.annotation.bed
+# # BED=../GRCm39/gencode.vM37.primary_assembly.annotation.bed
 
-# ../Postdoc/infer_experiment.py -i $BAM -r $BED
+# # ../Postdoc/infer_experiment.py -i $BAM -r $BED
 
-strandrule="1+-,1-+,2++,2--"
-perl /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/separate_BAM_strand.pl "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule adult/${SAMPLE}
+# strandrule="1+-,1-+,2++,2--"
+# perl /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/separate_BAM_strand.pl "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule adult/${SAMPLE}
  
 # Split RefSeq into forward and reverse strands
 #awk '$6 == "+" {print > "../GRCm39/forward_20250512_RefSeq.bed"} $6 == "-" {print > "../GRCm39/reverse_20250512_RefSeq.bed"}' ../GRCm39/20250512_RefSeq.bed
@@ -95,12 +95,16 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
   -a $annotation_f \
   -s $SNPfile \
+  -r 1 \
+  -t 1 \
   -o "adult/${SAMPLE}"
 
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
   -a $annotation_r \
   -s $SNPfile \
+  -r 2 \
+  -t 1 \
   -o "adult/${SAMPLE}"
 
 # Merge locus_table from forward and reverse strands
