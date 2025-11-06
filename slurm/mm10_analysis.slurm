@@ -103,7 +103,7 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
   -a $annotation_r \
   -s $SNPfile \
-  -r 2 \
+  -r 1 \
   -t 1 \
   -o "adult/${SAMPLE}"
 
