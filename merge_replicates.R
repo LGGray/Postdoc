@@ -3,7 +3,7 @@ library(data.table)
 
 ### ------ merge replicates for adult bodymap ------- ###
 
-adult_metadata <- read.csv('adult_metadata.csv', sep=';')
+adult_metadata <- read.csv('adult_metadata.csv', sep=',')
 
 sample_dirs <- list.dirs('adult', recursive=FALSE)
 sample_dirs <- gsub('adult/', '', sample_dirs)

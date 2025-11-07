@@ -107,6 +107,12 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
 DATE=$(date +%Y_%m_%d)
 Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
 
+for i in {1..24}; do
+  SAMPLE=$(sed -n "${i}p" adult_path.txt)
+  DATE=$(date +%Y_%m_%d)
+  Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
+done
+
 
 # # Allelome Pro with no predicted genes
 # bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
