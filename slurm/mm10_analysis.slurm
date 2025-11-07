@@ -110,3 +110,14 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
 # Merge locus_table from forward and reverse strands
 DATE=$(date +%Y_%m_%d)
 Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
+
+for i in {1..27}; do
+  SAMPLE=$(sed -n "${i}p" adult_path.txt)
+  filename=$(echo "$SAMPLE" | cut -d'_' -f2)
+  # Merge locus_table from forward and reverse strands
+  if [ "$SAMPLE" == "Sample_22L011987" ]; then
+    continue
+  fi
+  DATE=$(date +%Y_%m_%d)
+  Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
+done
