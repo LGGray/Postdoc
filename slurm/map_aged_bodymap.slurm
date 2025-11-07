@@ -43,13 +43,7 @@ run_one() {
     R2=($(printf "%s\n" ${SAMPLE}/${filename}_S*_L*_R2_001.fastq.gz | sort))
     IFS=, R1j="${R1[*]}"; unset IFS
     IFS=, R2j="${R2[*]}"; unset IFS
-  else
-    R1j="${SAMPLE}/${filename}_S*_L*_R1_001.fastq.gz"
-    R2j="${SAMPLE}/${filename}_S*_L*_R2_001.fastq.gz"
-  fi
 
-  # One STAR per srun; --exclusive ensures each gets its own CPU set
-  srun --exclusive -n 1 -c "${SLURM_CPUS_PER_TASK}" \
     STAR \
       --genomeDir $genome_dir \
       --readFilesIn "$R1j" "$R2j" \
@@ -61,6 +55,22 @@ run_one() {
       --outFilterIntronMotifs RemoveNoncanonical \
       --outFileNamePrefix "aged/${tmp}/${filename}_" \
       --outFilterMultimapNmax 1
+  else
+    R1j="${SAMPLE}/${filename}_S*_L*_R1_001.fastq.gz"
+    R2j="${SAMPLE}/${filename}_S*_L*_R2_001.fastq.gz"
+
+        STAR \
+      --genomeDir $genome_dir \
+      --readFilesIn $R1j $R2j \
+      --readFilesCommand gunzip -c \
+      --runThreadN 16 \
+      --outStd Log \
+      --outSAMtype BAM SortedByCoordinate \
+      --alignIntronMax 100000 \
+      --outFilterIntronMotifs RemoveNoncanonical \
+      --outFileNamePrefix "aged/${tmp}/${filename}_" \
+      --outFilterMultimapNmax 1
+  fi
 
   samtools index "aged/${tmp}/${filename}_Aligned.sortedByCoord.out.bam"
 
