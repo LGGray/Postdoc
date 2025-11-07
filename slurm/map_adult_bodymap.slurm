@@ -11,7 +11,7 @@
 #SBATCH --partition=serial_std
 #SBATCH --nodes=1   
 #SBATCH --cpus-per-task=18
-#SBATCH --mem=20G
+#SBATCH --mem=50G
 #SBATCH --time=8:00:00
 #SBATCH --array=1-27
 
@@ -46,7 +46,7 @@ run_one() {
     STAR \
       --genomeDir $genome_dir \
       --readFilesIn "$R1j" "$R2j" \
-      --readFilesCommand zcat \
+      --readFilesCommand gunzip -c \
       --runThreadN 12 \
       --outStd Log \
       --outSAMtype BAM SortedByCoordinate \
@@ -91,12 +91,16 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
   -a $annotation_f \
   -s $SNPfile \
+  -r 1 \
+  -t 1 \
   -o "adult/${SAMPLE}"
 
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
   -a $annotation_r \
   -s $SNPfile \
+  -r 1 \
+  -t 1 \
   -o "adult/${SAMPLE}"
 
 # Merge locus_table from forward and reverse strands
