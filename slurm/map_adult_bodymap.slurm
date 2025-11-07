@@ -35,8 +35,8 @@ run_one() {
   mkdir -p "adult/${SAMPLE}"
 
   shopt -s nullglob
-  R1=($(printf "%s\n" ${adult_dir}/${SAMPLE}/${filename}_S*_L*_R1_001.fastq.gz | sort))
-  R2=($(printf "%s\n" ${adult_dir}/${SAMPLE}/${filename}_S*_L*_R2_001.fastq.gz | sort))
+  R1=($(printf "%s\n" ${sample_dir}/${SAMPLE}/${filename}_S*_L*_R1_001.fastq.gz | sort))
+  R2=($(printf "%s\n" ${sample_dir}/${SAMPLE}/${filename}_S*_L*_R2_001.fastq.gz | sort))
   shopt -u nullglob
   IFS=, R1j="${R1[*]}"; unset IFS
   IFS=, R2j="${R2[*]}"; unset IFS
