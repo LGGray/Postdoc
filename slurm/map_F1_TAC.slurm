@@ -32,22 +32,26 @@ run_one() {
   SAMPLE="$1"
   filename=$(echo "$SAMPLE" | cut -d'_' -f2)
 
+  # Remove __STARtmp directory if it exists to avoid temp file conflicts
+  if [ -d "${SAMPLE}/${filename}__STARtmp" ]; then
+    rm -rf "${SAMPLE}/${filename}__STARtmp"
+  fi
+
   R1_files=(${SAMPLE}/${filename}_S*_L*_R1_001.fastq.gz)
   R2_files=(${SAMPLE}/${filename}_S*_L*_R2_001.fastq.gz)
 
 # One STAR per srun; --exclusive ensures each gets its own CPU set
-  srun --exclusive -n 1 -c "${SLURM_CPUS_PER_TASK}" \
-    STAR \
-      --genomeDir $genome_dir \
-      --readFilesIn $R1_files $R2_files \
-      --readFilesCommand gunzip -c \
-      --runThreadN 12 \
-      --outStd Log \
-      --outSAMtype BAM SortedByCoordinate \
-      --alignIntronMax 100000 \
-      --outFilterIntronMotifs RemoveNoncanonical \
-      --outFileNamePrefix "${SAMPLE}/${filename}_" \
-      --outFilterMultimapNmax 1
+  STAR \
+    --genomeDir $genome_dir \
+    --readFilesIn $R1_files $R2_files \
+    --readFilesCommand gunzip -c \
+    --runThreadN 12 \
+    --outStd Log \
+    --outSAMtype BAM SortedByCoordinate \
+    --alignIntronMax 100000 \
+    --outFilterIntronMotifs RemoveNoncanonical \
+    --outFileNamePrefix "${SAMPLE}/${filename}_" \
+    --outFilterMultimapNmax 1
 
   samtools index "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
 
