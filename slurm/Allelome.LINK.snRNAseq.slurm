@@ -11,7 +11,7 @@
 #SBATCH --partition=serial_std
 #SBATCH --nodes=1   
 #SBATCH --cpus-per-task=18
-#SBATCH --mem=100qG
+#SBATCH --mem=100G
 #SBATCH --time=8:00:00
 #SBATCH --array=1-6
 
