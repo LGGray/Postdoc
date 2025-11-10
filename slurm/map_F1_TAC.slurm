@@ -39,7 +39,7 @@ run_one() {
   srun --exclusive -n 1 -c "${SLURM_CPUS_PER_TASK}" \
     STAR \
       --genomeDir $genome_dir \
-      --readFilesIn "$R1_files" "$R2_files" \
+      --readFilesIn $R1_files $R2_files \
       --readFilesCommand gunzip -c \
       --runThreadN 12 \
       --outStd Log \
