@@ -1,27 +1,32 @@
-
-### Import required libraries ###
 import sys
+import pickle
 import os.path
-import time
 import pandas as pd
 import numpy as np
 import pyreadr
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import GridSearchCV, RepeatedKFold, GroupShuffleSplit
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc, roc_auc_score, precision_recall_curve, PrecisionRecallDisplay, average_precision_score, cohen_kappa_score, ConfusionMatrixDisplay, matthews_corrcoef
-from sklearn.feature_selection import RFECV
-from sklearn.inspection import permutation_importance
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc, roc_auc_score, precision_recall_curve, PrecisionRecallDisplay, average_precision_score, cohen_kappa_score, matthews_corrcoef
 import matplotlib.pyplot as plt
+from sklearn.ensemble import VotingClassifier
+from sklearn.inspection import permutation_importance
 from sklearn.utils import resample
 
-start_time = time.time()
-
-# Get the file name from the command line
 file = sys.argv[1]
-print(os.path.basename(file))
+
+# Read in expression RDS file
+df = pyreadr.read_r(file)
+df = df[None]
+print(df.head())
+
+cell = file.replace('pseudobulk_update/', '').replace('.RDS', '')
+
+# load the model from disk
+logit = pickle.load(open(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/logit_model_'+cell+'.sav', 'rb'))
+RF = pickle.load(open(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/RF_model_'+cell+'.sav', 'rb'))
+SVM = pickle.load(open(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/SVM_model_'+cell+'.sav', 'rb'))
+GBM = pickle.load(open(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/GBM_model_'+cell+'.sav', 'rb'))
+MLP = pickle.load(open(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/MLP_model_'+cell+'.sav', 'rb'))
 
 # Read in tune, train, test and features
 X_train = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/X_train.'+os.path.basename(file).replace('.RDS', '')+'.csv', index_col=0)
@@ -52,21 +57,15 @@ elif sys.argv[3] == 'boruta':
 elif sys.argv[3] == 'enet':
     features = enet_features['Feature']
 
-# Tune the model to find the optimal C and L1 ratio parameters: 
-# L1=0 is L2, L1=1 is L1, L1 in between is elastic net
-param_grid = {'C': [0.01, 0.1, 1, 10],
-              'l1_ratio': [0, 0.5, 1]}
-clf = LogisticRegression(solver='saga', penalty='elasticnet', max_iter=10000, random_state=42, n_jobs=16, class_weight='balanced')
-grid_search = GridSearchCV(clf, param_grid, scoring='f1_weighted',
-                           cv=RepeatedKFold(n_splits=10, n_repeats=3, random_state=42), n_jobs=16, verbose=1)
-grid_search.fit(X_train.loc[:, features], y_train['class'])
+# Create a voting classifier
+voting_clf = VotingClassifier(estimators=[('logit', logit), ('RF', RF), ('SVM', SVM), ('GBM', GBM), ('MLP', MLP)], voting='soft')
 
-# Return estimator with best parameter combination
-clf = grid_search.best_estimator_
+# Fit the voting classifier
+voting_clf.fit(X_train.loc[:, features], y_train['class'])
 
 # Predict the test set
-y_pred = clf.predict(X_test.loc[:, features])
-y_pred_proba = clf.predict_proba(X_test.loc[:, features])[:, 1]
+y_pred = voting_clf.predict(X_test.loc[:, features])
+y_pred_proba = voting_clf.predict_proba(X_test.loc[:, features])[:, 1]
 
 # Calculate Youden's J statistic to find the optimal threshold
 fpr, tpr, thresholds = roc_curve(y_test, y_pred_proba)
@@ -148,11 +147,11 @@ metrics = pd.DataFrame({'Accuracy': [accuracy],
                         'MCC_lower': [mcc_lower_bound],
                         'MCC_upper': [mcc_upper_bound],
                         'n_features': [len(features)]})
-metrics.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/metrics/logit_metrics_'+os.path.basename(file).replace('.RDS', '')+'.csv', index=False)
+metrics.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ensemble/metrics_'+os.path.basename(file).replace('.RDS', '')+'.csv', index=False)
 
 # Save confusion matrix to file
 confusion = pd.DataFrame(confusion_matrix(y_test, y_pred))
-confusion.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/metrics/logit_confusion_'+os.path.basename(file).replace('.RDS', '')+'.csv', index=False)
+confusion.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ensemble/confusion_'+os.path.basename(file).replace('.RDS', '')+'.csv', index=False)
 
 # Define class names
 classes = ['Control', 'Disease']
@@ -166,7 +165,7 @@ plt.colorbar(cax)
 # Add counts to the confusion matrix cells
 confusion_values = confusion.values
 for (i, j), val in np.ndenumerate(confusion_values):
-    ax.text(j, i, f'{val}', ha='center', va='center', color='black')
+    ax.text(j, i, f'{val}', ha='center', va='center', color='white')
 # Set axis labels
 ax.set_xlabel('Predicted labels')
 ax.set_ylabel('True labels')
@@ -175,39 +174,31 @@ ax.set_yticks(range(len(classes)))
 ax.set_xticklabels(classes)
 ax.set_yticklabels(classes)
 # Set the title
-ax.set_title('LR: ' + os.path.basename(file).replace('.RDS', '').replace('.', ' '))
-# Annotate with MCC
+ax.set_title('Ensemble: ' + os.path.basename(file).replace('.RDS', '').replace('.', ' '))
+# Annotate with F1 score
 plt.annotate(f'MCC: {mcc:.2f}', xy=(0.5, -0.1), xycoords='axes fraction', 
              ha='center', va='center', fontsize=12, color='black')
 # Adjust layout for visibility
 plt.tight_layout()
 # Save the figure
-plt.savefig(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/confusion/logit_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
+plt.savefig(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ensemble/confusion_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
 plt.close()
-
-# Print the AUROC curve
-fpr, tpr, thresholds = roc_curve(y_test, y_pred_proba)
-plt.plot(fpr, tpr, label='AUC-ROC (area = %0.2f)' % auroc)
-plt.xlabel('False Positive Rate')
-plt.ylabel('True Positive Rate')
-plt.title('logit: ' + os.path.basename(file).replace('.RDS', '').replace('.', ' '))
-plt.legend(loc="lower right")
-plt.savefig(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/AUROC/logit_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
 
 # Print the PR curve
 precision, recall, thresholds = precision_recall_curve(y_test, y_pred_proba)
 average_precision = average_precision_score(y_test, y_pred_proba)
 disp = PrecisionRecallDisplay(precision=precision, recall=recall, average_precision=average_precision)
 disp.plot()
-disp.ax_.set_title('logit: ' + os.path.basename(file).replace('.RDS', '').replace('.', ' '))
-plt.savefig(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/PRC/logit_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
+disp.ax_.set_title('Ensemble: ' + os.path.basename(file).replace('.RDS', '').replace('.', ' '))
+plt.savefig(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ensemble/PRcurve_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
 
 # Save the model
 import pickle
-filename = f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/logit_model_'+os.path.basename(file).replace('.RDS', '')+'.sav'
-pickle.dump(clf, open(filename, 'wb'))
+filename = f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ensemble/'+os.path.basename(file).replace('.RDS', '')+'.sav'
+pickle.dump(voting_clf, open(filename, 'wb'))
 
-end_time = time.time()
-cpu_time = end_time - start_time
-
-print(f"CPU time used: {cpu_time:.2f} seconds")
+# Save features to file
+if sys.argv[3] == 'intersection':
+    features.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/intersection_'+os.path.basename(file).replace('.RDS', '')+'.csv', index=False)
+elif sys.argv[3] == 'combined':
+    features.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/combined_'+os.path.basename(file).replace('.RDS', '')+'.csv', index=False)

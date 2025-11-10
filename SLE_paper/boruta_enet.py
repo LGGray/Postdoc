@@ -37,9 +37,9 @@ train = pd.read_csv(f'pseudobulk/split_{sys.argv[2]}/train_index.csv')
 test = pd.read_csv(f'pseudobulk/split_{sys.argv[2]}/test_index.csv')
 
 # Get the training and testing data
-X_train = df[df['individual'].isin(train['rownames'])].drop(['class', 'individual', 'ancestry'], axis=1)
+X_train = df[df['individual'].isin(train['rownames'])].drop(['class', 'individual'], axis=1)
 y_train = df[df['individual'].isin(train['rownames'])]['class']
-X_test = df[df['individual'].isin(test['rownames'])].drop(['class', 'individual', 'ancestry'], axis=1)
+X_test = df[df['individual'].isin(test['rownames'])].drop(['class', 'individual'], axis=1)
 y_test = df[df['individual'].isin(test['rownames'])]['class']
 
 # Standard scale the data - z-scores
@@ -48,14 +48,14 @@ X_train = pd.DataFrame(scaler.fit_transform(X_train), columns=X_train.columns, i
 X_test = pd.DataFrame(scaler.fit_transform(X_test), columns=X_test.columns, index=X_test.index)
 
 # Save data splits
-X_train.to_csv(f'pseudobulk/split_{sys.argv[2]}/data.splits/X_train.'+cell+'.csv', index=True)
-y_train.to_csv(f'pseudobulk/split_{sys.argv[2]}/data.splits/y_train.'+cell+'.csv', index=True)
-X_test.to_csv(f'pseudobulk/split_{sys.argv[2]}/data.splits/X_test.'+cell+'.csv', index=True)
-y_test.to_csv(f'pseudobulk/split_{sys.argv[2]}/data.splits/y_test.'+cell+'.csv', index=True)
+X_train.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/X_train.'+cell+'.csv', index=True)
+y_train.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/y_train.'+cell+'.csv', index=True)
+X_test.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/X_test.'+cell+'.csv', index=True)
+y_test.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/y_test.'+cell+'.csv', index=True)
 
 ### Boruta feature selection ###
 X = X_train.values
-y = y_train.ravel()
+y = y_train.values.ravel()
 
 # random forest classifier
 param_grid = {'n_estimators': [100, 200, 300],
@@ -77,7 +77,7 @@ feat_selector = BorutaPy(rf, n_estimators='auto', verbose=2, random_state=42)
 feat_selector.fit(X, y)
 
 # Save the model
-filename = f'pseudobulk/split_{sys.argv[2]}/feature.select.model/boruta_'+os.path.basename(file).replace('.RDS', '')+'.sav'
+filename = f'pseudobulk_update/split_{sys.argv[2]}/feature.select.model/boruta_'+os.path.basename(file).replace('.RDS', '')+'.sav'
 pickle.dump(feat_selector, open(filename, 'wb'))
 
 # Get feature rankings
@@ -90,7 +90,7 @@ feature_df = pd.DataFrame({
 # Sort the DataFrame based on feature ranks
 feature_df.sort_values(by='Rank', ascending=True, inplace=True)
 # Save the feature importance to file
-feature_df.to_csv(f'pseudobulk/split_{sys.argv[2]}/features/boruta_features.'+cell+'.csv', index=False)
+feature_df.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/boruta_features.'+cell+'.csv', index=False)
 
 ### Elastic net feature selection ###
 ratios = [.1, .5, .7, .9, .95, .99, 1]
@@ -103,10 +103,10 @@ print(enet)
 # Create a dataframe of the features and their coefficients
 enet_features = pd.DataFrame({'Feature': enet.feature_names_in_, 'coef': enet.coef_})
 # Save the features to file
-enet_features.to_csv(f'pseudobulk/split_{sys.argv[2]}/features/enet_features.'+cell+'.csv', index=False)
+enet_features.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/enet_features.'+cell+'.csv', index=False)
 
 # Save the model
-filename = f'pseudobulk/split_{sys.argv[2]}/feature.select.model/enet_'+os.path.basename(file).replace('.RDS', '')+'.sav'
+filename = f'pseudobulk_update/split_{sys.argv[2]}/feature.select.model/enet_'+os.path.basename(file).replace('.RDS', '')+'.sav'
 pickle.dump(enet, open(filename, 'wb'))
 
 end_time = time.time()

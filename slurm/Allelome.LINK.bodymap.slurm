@@ -32,10 +32,10 @@ for i in {1..4}; do
   Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
   -i ${SAMPLE}/annotation_locus_table_reps.txt \
   -o ${SAMPLE} \
-  --allelic-bias 0.7 \
+  --allelic-bias 0.65 \
   -r 20 \
   -w 100 \
-  -n AL \
+  -n AL_65 \
   -d FALSE
 done
 

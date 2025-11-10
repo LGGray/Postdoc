@@ -21,12 +21,12 @@ file = sys.argv[1]
 print(os.path.basename(file))
 
 # Read in tune, train, test and features
-X_train = pd.read_csv(f'pseudobulk/split_{sys.argv[2]}/data.splits/X_train.'+os.path.basename(file).replace('.RDS', '')+'.csv', index_col=0)
-y_train = pd.read_csv(f'pseudobulk/split_{sys.argv[2]}/data.splits/y_train.'+os.path.basename(file).replace('.RDS', '')+'.csv', index_col=0)
-X_test = pd.read_csv(f'pseudobulk/split_{sys.argv[2]}/data.splits/X_test.'+os.path.basename(file).replace('.RDS', '')+'.csv', index_col=0)
-y_test = pd.read_csv(f'pseudobulk/split_{sys.argv[2]}/data.splits/y_test.'+os.path.basename(file).replace('.RDS', '')+'.csv', index_col=0)
-enet_features = pd.read_csv(f'pseudobulk/split_{sys.argv[2]}/features/enet_features.'+os.path.basename(file).replace('.RDS', '')+'.csv')
-boruta_features = pd.read_csv(f'pseudobulk/split_{sys.argv[2]}/features/boruta_features.'+os.path.basename(file).replace('.RDS', '')+'.csv')
+X_train = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/X_train.'+os.path.basename(file).replace('.RDS', '')+'.csv', index_col=0)
+y_train = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/y_train.'+os.path.basename(file).replace('.RDS', '')+'.csv', index_col=0)
+X_test = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/X_test.'+os.path.basename(file).replace('.RDS', '')+'.csv', index_col=0)
+y_test = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/y_test.'+os.path.basename(file).replace('.RDS', '')+'.csv', index_col=0)
+enet_features = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/enet_features.'+os.path.basename(file).replace('.RDS', '')+'.csv')
+boruta_features = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/boruta_features.'+os.path.basename(file).replace('.RDS', '')+'.csv')
 
 # Subset for selected and tentitive features from boruta
 boruta_features = boruta_features[boruta_features['Rank'] == 1]
@@ -150,11 +150,11 @@ metrics = pd.DataFrame({'Accuracy': [accuracy],
                         'MCC_lower': [mcc_lower_bound],
                         'MCC_upper': [mcc_upper_bound],
                         'n_features': [len(features)]})
-metrics.to_csv(f'pseudobulk/split_{sys.argv[2]}/{sys.argv[3]}/metrics/RF_metrics_'+os.path.basename(file).replace('.RDS', '')+'.csv', index=False)
+metrics.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/metrics/RF_metrics_'+os.path.basename(file).replace('.RDS', '')+'.csv', index=False)
 
 # Save confusion matrix to file
 confusion = pd.DataFrame(confusion_matrix(y_test, y_pred))
-confusion.to_csv(f'pseudobulk/split_{sys.argv[2]}/{sys.argv[3]}/metrics/RF_confusion_'+os.path.basename(file).replace('.RDS', '')+'.csv', index=False)
+confusion.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/metrics/RF_confusion_'+os.path.basename(file).replace('.RDS', '')+'.csv', index=False)
 
 # Define class names
 classes = ['Control', 'Disease']
@@ -184,7 +184,7 @@ plt.annotate(f'MCC: {mcc:.2f}', xy=(0.5, -0.1), xycoords='axes fraction',
 # Adjust layout for visibility
 plt.tight_layout()
 # Save the figure
-plt.savefig(f'pseudobulk/split_{sys.argv[2]}/{sys.argv[3]}/confusion/RF_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
+plt.savefig(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/confusion/RF_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
 plt.close()
 
 # Print the AUROC curve
@@ -195,7 +195,7 @@ plt.xlabel('False Positive Rate')
 plt.ylabel('True Positive Rate')
 plt.title('RF: ' + os.path.basename(file).replace('.RDS', '').replace('.', ' '))
 plt.legend(loc="lower right")
-plt.savefig(f'pseudobulk/split_{sys.argv[2]}/{sys.argv[3]}/AUROC/RF_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
+plt.savefig(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/AUROC/RF_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
 
 # Print the PR curve
 precision, recall, thresholds = precision_recall_curve(y_test, y_pred_proba)
@@ -203,11 +203,11 @@ average_precision = average_precision_score(y_test, y_pred)
 disp = PrecisionRecallDisplay(precision=precision, recall=recall, average_precision=average_precision)
 disp.plot()
 disp.ax_.set_title('RF: ' + os.path.basename(file).replace('.RDS', '').replace('.', ' '))
-plt.savefig(f'pseudobulk/split_{sys.argv[2]}/{sys.argv[3]}/PRC/RF_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
+plt.savefig(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/PRC/RF_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
 
 # Save the model
 import pickle
-filename = f'pseudobulk/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/RF_model_'+os.path.basename(file).replace('.RDS', '')+'.sav'
+filename = f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/RF_model_'+os.path.basename(file).replace('.RDS', '')+'.sav'
 pickle.dump(clf, open(filename, 'wb'))
 
 end_time = time.time()
