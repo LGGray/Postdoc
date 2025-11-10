@@ -27,8 +27,8 @@ Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src
    -i ${SAMPLE}/locus_table_reps.txt \
    -o $SAMPLE
 
-for i in {1..8}; do
-  SAMPLE=$(sed -n "${i}p" dir_path.txt)
+for i in {1..4}; do
+  SAMPLE=$(sed -n "${i}p" dir_names.txt)
   Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
   -i ${SAMPLE}/annotation_locus_table_reps.txt \
   -o ${SAMPLE} \
