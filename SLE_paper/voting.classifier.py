@@ -19,7 +19,7 @@ df = pyreadr.read_r(file)
 df = df[None]
 print(df.head())
 
-cell = file.replace('pseudobulk', '').replace('.RDS', '')
+cell = os.path.basename(file).replace('.RDS', '')
 
 # load the model from disk
 logit = pickle.load(open(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/logit_model_'+cell+'.sav', 'rb'))
