@@ -36,7 +36,7 @@ for i in {1..10}; do
   python3 $script_dir/random.forest.py $celltype $i combined
 # GBM
   python3 $script_dir/gradient.boosting.machine.py $celltype $i combined
-# SVMpython3 $script_dir/support.vector.machine.py $celltype $i combined
+# SVM
   python3 $script_dir/support.vector.machine.py $celltype $i combined
 # MLP
   python3 $script_dir/multilayer.perceptron.py $celltype $i combined
@@ -44,6 +44,6 @@ for i in {1..10}; do
   python3 $script_dir/voting.classifier.py $celltype $i combined
 # Plot all curves
   python3 $script_dir/plot.all.curves.py $celltype $i combined
-
-echo "Completed run $i for cell type $celltype"
+# print completion message
+  echo "Completed run $i for cell type $celltype"
 done
