@@ -17,6 +17,7 @@ RF = pickle.load(open(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.m
 SVM = pickle.load(open(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/SVM_model_'+cell+'.sav', 'rb'))
 GBM = pickle.load(open(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/GBM_model_'+cell+'.sav', 'rb'))
 MLP = pickle.load(open(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/MLP_model_'+cell+'.sav', 'rb'))
+VCL = pickle.load(open(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ensemble/'+cell+'.sav', 'rb'))
 
 # Read in tune, train, test and features
 X_train = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/X_train.'+os.path.basename(file).replace('.RDS', '')+'.csv', index_col=0)
@@ -53,13 +54,16 @@ RF_pred_proba = RF.predict_proba(X_test.loc[:, features])[:, 1]
 SVM_pred_proba = SVM.predict_proba(X_test.loc[:, features])[:, 1]
 GBM_pred_proba = GBM.predict_proba(X_test.loc[:, features])[:, 1]
 MLP_pred_proba = MLP.predict_proba(X_test.loc[:, features])[:, 1]
+VCL_pred_proba = VCL.predict_proba(X_test.loc[:, features])[:, 1]
 
 # Create a dictionary of model names and predicted probabilities
 models = {'logit': logit_pred_proba,
           'RF': RF_pred_proba,
           'SVM': SVM_pred_proba,
           'GBM': GBM_pred_proba,
-          'MLP': MLP_pred_proba}
+          'MLP': MLP_pred_proba,
+          'VCL': VCL_pred_proba
+          }
 # Loop through the dictionary and plot models
 for name, proba in models.items():
     # Calculate the precision and recall for each model
