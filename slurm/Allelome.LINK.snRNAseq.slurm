@@ -51,6 +51,8 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_sr
   -i $SAMPLE\
   -a $annotation \
   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
+  -r 1 \
+  -t 1 \
   -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/$AGE/Allelome.LINK
 
 # # Allelome Pro with predicted genes
