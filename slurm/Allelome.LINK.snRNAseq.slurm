@@ -13,7 +13,7 @@
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=100G
 #SBATCH --time=8:00:00
-#SBATCH --array=1-6
+#SBATCH --array=1-20
 
 module load slurm_setup
 
@@ -68,12 +68,11 @@ out_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snR
 Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
   -i ${out_dir}/locus_table.txt \
   -o ${out_dir} \
-  --allelic-bias 0.7 \
+  --allelic-bias 0.65 \
   -r 20 \
   -w 100 \
   -n AL \
   -d FALSE
-
 
 # Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
 #   -i ${out_dir}/locus_table.txt \
