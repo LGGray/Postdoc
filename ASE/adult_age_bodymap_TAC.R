@@ -68,7 +68,7 @@ names(bodymap) <- bodymap_dirs
 
 
 # Subset for noncoding-coding link
-noncoding_coding <- read.delim('GRCm39/Refseq_coding_noncoding.txt', header = TRUE)
+noncoding_coding <- read.delim('LINKS_study/Refseq_coding_noncoding.txt', header = TRUE)
 coding <- subset(noncoding_coding, coding_noncoding == "coding")$name
 noncoding <- subset(noncoding_coding, coding_noncoding == "noncoding")$name
 
@@ -460,15 +460,15 @@ dev.off()
 ############################################################################
 # Overlap with snRNAseq cell-type specific links from adult and aged heart #
 ############################################################################
-adult.files <- list.files('adult_aged_heart_snRNAseq/9w/Allelome.LINK', pattern = 'no_predicted_65_links_full_table.txt', full.names = TRUE, recursive = TRUE)
-adult.files <- grep('2025_10_31', adult.files, value = TRUE)
+adult.files <- list.files('adult_aged_heart_snRNAseq/9w/Allelome.LINK', pattern = 'AL_links_full_table.txt', full.names = TRUE, recursive = TRUE)
+adult.files <- grep('2025_11_12', adult.files, value = TRUE)
 adult_link <- lapply(adult.files, function(f) {
     tmp <- read.delim(f)
     return(tmp)
 })
 names(adult_link) <- lapply(adult.files, function(f) {
-    ct <- strsplit(f, '/')[[1]][5]
-    ct <- gsub('_no_predicted_65', '', ct)
+    ct <- strsplit(f, '/')[[1]][4]
+    ct <- gsub('2025_11_1\\d_|_annotation_us.bed_1', '', ct)
     return(ct)
 })
 
@@ -477,18 +477,18 @@ adult_link <- lapply(adult_link, function(df) {
   subset(df, name_base %in% noncoding & name_target %in% coding)
 })
 
-save(adult_link, file = 'adult_aged_heart_snRNAseq/adult.Allelome.LINK_no_predicted_65.RData')
-load('adult_aged_heart_snRNAseq/adult.Allelome.LINK_no_predicted_65.RData')
+save(adult_link, file = 'adult_aged_heart_snRNAseq/adult.Allelome.LINK.RData')
+load('adult_aged_heart_snRNAseq/adult.Allelome.LINK.RData')
 
-aged.files <- list.files('adult_aged_heart_snRNAseq/78w/Allelome.LINK', pattern = 'no_predicted_65_links_full_table.txt', full.names = TRUE, recursive = TRUE)
-aged.files <- grep('2025_10_31', aged.files, value = TRUE)
+aged.files <- list.files('adult_aged_heart_snRNAseq/78w/Allelome.LINK', pattern = 'AL_links_full_table.txt', full.names = TRUE, recursive = TRUE)
+aged.files <- grep('2025_11_12', aged.files, value = TRUE)
 aged_link <- lapply(aged.files, function(f) {
     tmp <- read.delim(f)
     return(tmp)
 })
 names(aged_link) <- lapply(aged.files, function(f) {
-    ct <- strsplit(f, '/')[[1]][5]
-    ct <- gsub('_no_predicted_65', '', ct)
+    ct <- strsplit(f, '/')[[1]][4]
+    ct <- gsub('2025_11_1\\d_|_annotation_us.bed_1', '', ct)
     return(ct)
 })
 
@@ -497,9 +497,8 @@ aged_link <- lapply(aged_link, function(df) {
   subset(df, name_base %in% noncoding & name_target %in% coding)
 })
 
-save(aged_link, file = 'adult_aged_heart_snRNAseq/aged.Allelome.LINK_no_predicted_65.RData')
-load('adult_aged_heart_snRNAseq/aged.Allelome.LINK_no_predicted_65.RData')
-
+save(aged_link, file = 'adult_aged_heart_snRNAseq/aged.Allelome.LINK.RData')
+load('adult_aged_heart_snRNAseq/aged.Allelome.LINK.RData')
 
 # Visualise cell type specific links
 adult_mtx <- fromList(lapply(adult_link, function(x) { unique(link_key(x)) }))
@@ -514,7 +513,7 @@ rownames(combined_mtx) <- combined_mtx$Row.names
 combined_mtx <- combined_mtx[, -1]
 combined_mtx[is.na(combined_mtx)] <- 0
 
-pdf('LINKS_study/figures/heatmap_adult_aged_heart_snRNAseq_links_no_predicted_65.pdf')
+pdf('LINKS_study/figures/heatmap_adult_aged_heart_snRNAseq_links.pdf')
 Heatmap(as.matrix(combined_mtx),
         name = "Link",
         col = c("white", "red"),
@@ -531,7 +530,7 @@ Heatmap(as.matrix(combined_mtx),
 )
 dev.off()
 
-pdf('LINKS_study/figures/UpSet_adult_aged_heart_snRNAseq_links_no_predicted_65.pdf', onefile = FALSE, width = 10, height = 10)
+pdf('LINKS_study/figures/UpSet_adult_aged_heart_snRNAseq_links.pdf', onefile = FALSE, width = 10, height = 10)
 upset(combined_mtx,
       nsets = ncol(combined_mtx),
       order.by = "freq",
@@ -552,10 +551,10 @@ plot_list <- lapply(names(adult_link), function(ct) {
       'Adult' = adult_sets,
       'Aged'  = aged_sets
     ))
-  plot(fit, quantities = TRUE, fill = age.colours, main=ct)
+  plot(fit, quantities = TRUE, fill = sample_colours[c('adult', 'aged')], main=ct)
 })
-pdf('LINKS_study/figures/venn_adult_aged_heart_snRNAseq_links_no_predicted_65.pdf', width = 12, height = 6)
-grid.arrange(grobs = plot_list, ncol = 6, nrow = 2)
+pdf('LINKS_study/figures/venn_adult_aged_heart_snRNAseq_links.pdf', width = 12, height = 6)
+grid.arrange(grobs = plot_list, ncol = 5, nrow = 2)
 dev.off()
 
 # Plot heatmap of the overlap between adult and aged heart cell-type specific links
@@ -612,20 +611,19 @@ aged_jaccard <- lapply(aged_link, function(ct){
     jaccard_index(aged_He, ct_links)
     # print(length(intersect(aged_He, ct_links)))
 })
-aged_jaccard['Epicard'] <- 0
 
 aged_jaccard <- aged_jaccard[names(adult_jaccard)]
 
-plot_data <- data.frame(
-  Cell_Type = names(adult_jaccard),
-  Adult = unlist(adult_jaccard),
-  Aged = unlist(aged_jaccard)
-)
+  plot_data <- data.frame(
+    Cell_Type = names(adult_jaccard),
+    Adult = unlist(adult_jaccard),
+    Aged = unlist(aged_jaccard)
+  )
 
-pdf('LINKS_study/figures/heatmap_jaccard_adult_aged_heart_snRNAseq_links_no_predicted_65.pdf')
+pdf('LINKS_study/figures/heatmap_jaccard_adult_aged_heart_snRNAseq_links.pdf')
 Heatmap(as.matrix(plot_data[, -1]),
         name = "Jaccard Index",
-        col = colorRamp2(c(0, max(plot_data[, -1], na.rm=TRUE)), c("white", "red")),
+        col = colorRamp2(c(0, 0.1), c("white", "red")),
         show_row_names = TRUE,
         show_column_names = TRUE,
         cluster_rows = FALSE,
@@ -731,6 +729,68 @@ pdf('LINKS_study/figures/venn_adult_aged_TAC_links.pdf')
 grid.arrange(grobs = list(adult_aged_tac_enhancing_plot, adult_aged_tac_repressive_plot), ncol = 2)
 dev.off()
 
+# Aged ∩ TAC but not Adult
+aged_tac_only_rep <- setdiff(intersect(aged_heart_repressive, tac_repressive), adult_heart_repressive)
+aged_tac_only_enh <- setdiff(intersect(aged_heart_enhancing, tac_enhancing), adult_heart_enhancing)
+# Adult ∩ Aged but not TAC
+adult_aged_only_rep <- setdiff(intersect(adult_heart_repressive, aged_heart_repressive), tac_repressive)
+adult_aged_only_enh <- setdiff(intersect(adult_heart_enhancing, aged_heart_enhancing), tac_enhancing)
+# Adult ∩ TAC but not Aged
+adult_tac_only_rep <- setdiff(intersect(adult_heart_repressive, tac_repressive), aged_heart_repressive)
+adult_tac_only_enh <- setdiff(intersect(adult_heart_enhancing, tac_enhancing), aged_heart_enhancing)
+
+overlap_lists <- list(
+  aged_tac_only_rep = aged_tac_only_rep,
+  aged_tac_only_enh = aged_tac_only_enh,
+  adult_aged_only_rep = adult_aged_only_rep,
+  adult_aged_only_enh = adult_aged_only_enh,
+  adult_tac_only_rep = adult_tac_only_rep,
+  adult_tac_only_enh = adult_tac_only_enh
+)
+save(overlap_lists, file = 'LINKS_study/adult_aged_TAC_link_overlaps.RData')
+load('LINKS_study/adult_aged_TAC_link_overlaps.RData')
+
+# Separate for TAC specific links
+adult_aged_tac_enhancing <- euler(list(
+  Adult = adult_heart_enhancing,
+  Aged  = aged_heart_enhancing,
+  TAC   = tac_unique_enhancing
+))
+adult_aged_tac_enhancing_plot <- plot(adult_aged_tac_enhancing, quantities = TRUE, fill = sample_colours[c("adult", "aged", "TAC")], main='Enhancing Links in Heart')
+
+adult_aged_tac_repressive <- euler(list(
+  Adult = adult_heart_repressive,
+  Aged  = aged_heart_repressive,
+  TAC   = tac_unique_repressive
+))
+adult_aged_tac_repressive_plot <- plot(adult_aged_tac_repressive, quantities=TRUE, fill=sample_colours[c("adult", "aged", "TAC")], main='Repressive Links in Heart')
+
+pdf('LINKS_study/figures/venn_adult_aged_TAC_unique_links.pdf')
+grid.arrange(grobs = list(adult_aged_tac_enhancing_plot, adult_aged_tac_repressive_plot), ncol = 2)
+dev.off()
+
+# Aged ∩ TAC unique but not Adult
+aged_tac_only_rep <- setdiff(intersect(aged_heart_repressive, tac_unique_repressive), adult_heart_repressive)
+aged_tac_only_enh <- setdiff(intersect(aged_heart_enhancing, tac_unique_enhancing), adult_heart_enhancing)
+# Adult ∩ Aged but not TAC unique
+adult_aged_only_rep <- setdiff(intersect(adult_heart_repressive, aged_heart_repressive), tac_unique_repressive)
+adult_aged_only_enh <- setdiff(intersect(adult_heart_enhancing, aged_heart_enhancing), tac_unique_enhancing)
+# Adult ∩ TAC unique but not Aged
+adult_tac_only_rep <- setdiff(intersect(adult_heart_repressive, tac_unique_repressive), aged_heart_repressive)
+adult_tac_only_enh <- setdiff(intersect(adult_heart_enhancing, tac_unique_enhancing), aged_heart_enhancing)
+
+overlap_lists <- list(
+  aged_tac_only_rep = aged_tac_only_rep,
+  aged_tac_only_enh = aged_tac_only_enh,
+  adult_aged_only_rep = adult_aged_only_rep,
+  adult_aged_only_enh = adult_aged_only_enh,
+  adult_tac_only_rep = adult_tac_only_rep,
+  adult_tac_only_enh = adult_tac_only_enh
+)
+save(overlap_lists, file = 'LINKS_study/adult_aged_TAC_unique_link_overlaps.RData')
+load('LINKS_study/adult_aged_TAC_unique_link_overlaps.RData')
+
+
 enhancing_list <- list(
   adult_heart_enhancing = adult_heart_enhancing,
   aged_heart_enhancing  = aged_heart_enhancing,
@@ -770,27 +830,32 @@ upset(repressive_mtx,
 dev.off()
 
 
-# Aged ∩ TAC but not Adult
-aged_tac_only_rep <- setdiff(intersect(aged_heart_repressive, tac_repressive), adult_heart_repressive)
-aged_tac_only_enh <- setdiff(intersect(aged_heart_enhancing, tac_enhancing), adult_heart_enhancing)
-# Adult ∩ Aged but not TAC
-adult_aged_only_rep <- setdiff(intersect(adult_heart_repressive, aged_heart_repressive), tac_repressive)
-adult_aged_only_enh <- setdiff(intersect(adult_heart_enhancing, aged_heart_enhancing), tac_enhancing)
-# Adult ∩ TAC but not Aged
-adult_tac_only_rep <- setdiff(intersect(adult_heart_repressive, tac_repressive), aged_heart_repressive)
-adult_tac_only_enh <- setdiff(intersect(adult_heart_enhancing, tac_enhancing), aged_heart_enhancing)
 
-overlap_lists <- list(
-  aged_tac_only_rep = aged_tac_only_rep,
-  aged_tac_only_enh = aged_tac_only_enh,
-  adult_aged_only_rep = adult_aged_only_rep,
-  adult_aged_only_enh = adult_aged_only_enh,
-  adult_tac_only_rep = adult_tac_only_rep,
-  adult_tac_only_enh = adult_tac_only_enh
-)
-save(overlap_lists, file = 'LINKS_study/adult_aged_TAC_link_overlaps.RData')
-load('/LINKS_study/adult_aged_TAC_link_overlaps.RData')
-  
+# Links unique to He_9w (present in He_9w but not in any other sample)
+he_9w_only <- rownames(links_mtx[links_mtx[, "He_9w"] == 1 & rowSums(links_mtx[, colnames(links_mtx) != "He_9w"]) == 0, ])
+he_9w_only[he_9w_only %in% overlap_lists$adult_tac_only_rep]
+
+he_78w_only <- rownames(links_mtx[links_mtx[, "He_78w"] == 1 & rowSums(links_mtx[, colnames(links_mtx) != "He_78w"]) == 0, ])
+he_78w_only[he_78w_only %in% overlap_lists$aged_tac_only_rep]
+
+c(he_9w_only, he_78w_only)[c(he_9w_only, he_78w_only) %in% overlap_lists$adult_aged_only_enh]
+
+
+
+He_9w_vs78w <- read.delim('adult_aged_bodymap/DESeq2/He_9w_vs_78w.txt', header = TRUE)
+base <- unlist(lapply(unlist(overlap_lists), function(x){
+  strsplit(x, '\\|')[[1]][1]
+}))
+target <- unlist(lapply(unlist(overlap_lists), function(x){
+  strsplit(x, '\\|')[[1]][2]
+}))
+
+subset(He_9w_vs78w, gene_symbol %in% unique(c(base, target)))
+
+
+TAC_vs_SHAM <- read.delim('F1_TAC_Sarah/DEG/TAC_vs_sham.txt', header = TRUE)
+subset(TAC_vs_SHAM, gene_symbol %in% unique(c(base, target)) & padj < 0.05)
+
 
 # Filter for links where target does not have ASE 
 bodymap_flt <- lapply(bodymap, function(df) {
@@ -919,8 +984,12 @@ gtex_link <- read.delim('LINKS_study/GTEx_ASE_links.txt')
 
 gtex_link_flt <- subset(gtex_link, SEX == 'Female' & Tissue %in% c('Heart - Left Ventricle', 'Heart - Atrial Appendage') & Mechanism == 'repressing')
 
-human_links <- toupper(unlist(overlap_lists))
+mouse_link <- unique(unlist(lapply(bodymap, function(sample) {
+  link_key(sample)
+})))
+
+human_links <- toupper(unlist(mouse_link))
 human_links <- gsub('REPRESSING', 'repressing', human_links)
 human_links <- gsub('ENHANCING', 'enhancing', human_links)
 
-paste0(gtex_link_flt$ncRNA, "|", gtex_link_flt$Name_pcGene, "|", gtex_link_flt$Mechanism) %in% human_links
+sum(paste0(gtex_link$ncRNA, "|", gtex_link$Name_pcGene, "|", gtex_link$Mechanism) %in% human_links)

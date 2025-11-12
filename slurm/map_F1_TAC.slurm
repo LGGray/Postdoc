@@ -13,7 +13,7 @@
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=100G
 #SBATCH --time=8:00:00
-#SBATCH --array=1-6
+#SBATCH --array=1-12
 
 module load slurm_setup
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
@@ -22,7 +22,7 @@ conda activate RNAseq
 cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/F1_TAC_Sarah
 
 genome_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/STAR2.7.11b_genome_index/genome_dir_gencodeM36_mm39.202410
-annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/20250512_RefSeq.gtf
+annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation.gtf
 annotation_f=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation_f.bed
 annotation_r=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation_r.bed
 SNPfile=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed
@@ -32,28 +32,28 @@ run_one() {
   SAMPLE="$1"
   filename=$(echo "$SAMPLE" | cut -d'_' -f2)
 
-  # Remove __STARtmp directory if it exists to avoid temp file conflicts
-  if [ -d "${SAMPLE}/${filename}__STARtmp" ]; then
-    rm -rf "${SAMPLE}/${filename}__STARtmp"
-  fi
+#   # Remove __STARtmp directory if it exists to avoid temp file conflicts
+#   if [ -d "${SAMPLE}/${filename}__STARtmp" ]; then
+#     rm -rf "${SAMPLE}/${filename}__STARtmp"
+#   fi
 
-  R1_files=(${SAMPLE}/${filename}_S*_L*_R1_001.fastq.gz)
-  R2_files=(${SAMPLE}/${filename}_S*_L*_R2_001.fastq.gz)
+#   R1_files=(${SAMPLE}/${filename}_S*_L*_R1_001.fastq.gz)
+#   R2_files=(${SAMPLE}/${filename}_S*_L*_R2_001.fastq.gz)
 
-# One STAR per srun; --exclusive ensures each gets its own CPU set
-  STAR \
-    --genomeDir $genome_dir \
-    --readFilesIn $R1_files $R2_files \
-    --readFilesCommand gunzip -c \
-    --runThreadN 12 \
-    --outStd Log \
-    --outSAMtype BAM SortedByCoordinate \
-    --alignIntronMax 100000 \
-    --outFilterIntronMotifs RemoveNoncanonical \
-    --outFileNamePrefix "${SAMPLE}/${filename}_" \
-    --outFilterMultimapNmax 1
+# # One STAR per srun; --exclusive ensures each gets its own CPU set
+#   STAR \
+#     --genomeDir $genome_dir \
+#     --readFilesIn $R1_files $R2_files \
+#     --readFilesCommand gunzip -c \
+#     --runThreadN 12 \
+#     --outStd Log \
+#     --outSAMtype BAM SortedByCoordinate \
+#     --alignIntronMax 100000 \
+#     --outFilterIntronMotifs RemoveNoncanonical \
+#     --outFileNamePrefix "${SAMPLE}/${filename}_" \
+#     --outFilterMultimapNmax 1
 
-  samtools index "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
+#   samtools index "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
 
   STRAND=reverse
   htseq-count -s $STRAND -r pos -f bam \
@@ -69,29 +69,29 @@ SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" sample_names.txt)
 filename=$(echo "$SAMPLE" | cut -d'_' -f2)
 run_one "$SAMPLE"
 
-strandrule="1+-,1-+,2++,2--"
-perl /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/separate_BAM_strand.pl "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule ${SAMPLE}
+# strandrule="1+-,1-+,2++,2--"
+# perl /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/separate_BAM_strand.pl "${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule ${SAMPLE}
 
-# Run Allelome.PRO
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-  -i ${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
-  -a $annotation_f \
-  -s $SNPfile \
-  -r 1 \
-  -t 1 \
-  -o "${SAMPLE}"
+# # Run Allelome.PRO
+# bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+#   -i ${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
+#   -a $annotation_f \
+#   -s $SNPfile \
+#   -r 1 \
+#   -t 1 \
+#   -o "${SAMPLE}"
 
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-  -i ${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
-  -a $annotation_r \
-  -s $SNPfile \
-  -r 1 \
-  -t 1 \
-  -o "${SAMPLE}"
+# bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+#   -i ${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
+#   -a $annotation_r \
+#   -s $SNPfile \
+#   -r 1 \
+#   -t 1 \
+#   -o "${SAMPLE}"
 
-# Merge locus_table from forward and reverse strands
-DATE=$(date +%Y_%m_%d)
-Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R ${SAMPLE} $DATE annotation
+# # Merge locus_table from forward and reverse strands
+# DATE=$(date +%Y_%m_%d)
+# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R ${SAMPLE} $DATE annotation
 
 
 # ref_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39

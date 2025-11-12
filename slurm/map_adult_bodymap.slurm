@@ -23,7 +23,7 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_bodymap
 
 sample_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/01_aging_TH_for_LG/00_rawdata/01_adult
 genome_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/STAR2.7.11b_genome_index/genome_dir_gencodeM36_mm39.202410
-annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/20250512_RefSeq.gtf
+annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation.gtf
 annotation_f=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation_f.bed
 annotation_r=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation_r.bed
 SNPfile=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed
@@ -32,30 +32,29 @@ run_one() {
   SAMPLE="$1"
   filename=$(echo "$SAMPLE" | cut -d'_' -f2)
 
-  mkdir -p "adult/${SAMPLE}"
+  # mkdir -p "adult/${SAMPLE}"
 
-  shopt -s nullglob
-  R1=($(printf "%s\n" ${sample_dir}/${SAMPLE}/${filename}_S*_L*_R1_001.fastq.gz | sort))
-  R2=($(printf "%s\n" ${sample_dir}/${SAMPLE}/${filename}_S*_L*_R2_001.fastq.gz | sort))
-  shopt -u nullglob
-  IFS=, R1j="${R1[*]}"; unset IFS
-  IFS=, R2j="${R2[*]}"; unset IFS
+  # shopt -s nullglob
+  # R1=($(printf "%s\n" ${sample_dir}/${SAMPLE}/${filename}_S*_L*_R1_001.fastq.gz | sort))
+  # R2=($(printf "%s\n" ${sample_dir}/${SAMPLE}/${filename}_S*_L*_R2_001.fastq.gz | sort))
+  # shopt -u nullglob
+  # IFS=, R1j="${R1[*]}"; unset IFS
+  # IFS=, R2j="${R2[*]}"; unset IFS
 
-  # One STAR per srun; --exclusive ensures each gets its own CPU set
-  srun --exclusive -n 1 -c "${SLURM_CPUS_PER_TASK}" \
-    STAR \
-      --genomeDir $genome_dir \
-      --readFilesIn "$R1j" "$R2j" \
-      --readFilesCommand gunzip -c \
-      --runThreadN 12 \
-      --outStd Log \
-      --outSAMtype BAM SortedByCoordinate \
-      --alignIntronMax 100000 \
-      --outFilterIntronMotifs RemoveNoncanonical \
-      --outFileNamePrefix "adult/${SAMPLE}/${filename}_" \
-      --outFilterMultimapNmax 1
+  # # One STAR per srun; --exclusive ensures each gets its own CPU set
+  # STAR \
+  #   --genomeDir $genome_dir \
+  #   --readFilesIn "$R1j" "$R2j" \
+  #   --readFilesCommand gunzip -c \
+  #   --runThreadN 12 \
+  #   --outStd Log \
+  #   --outSAMtype BAM SortedByCoordinate \
+  #   --alignIntronMax 100000 \
+  #   --outFilterIntronMotifs RemoveNoncanonical \
+  #   --outFileNamePrefix "adult/${SAMPLE}/${filename}_" \
+  #   --outFilterMultimapNmax 1
 
-  samtools index "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
+  # samtools index "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
 
   STRAND=reverse
   htseq-count -s $STRAND -r pos -f bam \
@@ -80,38 +79,38 @@ run_one "$SAMPLE"
 
 # ../Postdoc/infer_experiment.py -i $BAM -r $BED
 
-strandrule="1+-,1-+,2++,2--"
-perl /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/separate_BAM_strand.pl "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule adult/${SAMPLE}
+# strandrule="1+-,1-+,2++,2--"
+# perl /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/separate_BAM_strand.pl "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule adult/${SAMPLE}
 
-# Split RefSeq into forward and reverse strands
-#awk '$6 == "+" {print > "../GRCm39/forward_20250512_RefSeq.bed"} $6 == "-" {print > "../GRCm39/reverse_20250512_RefSeq.bed"}' ../GRCm39/20250512_RefSeq.bed
+# # Split RefSeq into forward and reverse strands
+# #awk '$6 == "+" {print > "../GRCm39/forward_20250512_RefSeq.bed"} $6 == "-" {print > "../GRCm39/reverse_20250512_RefSeq.bed"}' ../GRCm39/20250512_RefSeq.bed
 
-# Run Allelome.PRO
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-  -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
-  -a $annotation_f \
-  -s $SNPfile \
-  -r 1 \
-  -t 1 \
-  -o "adult/${SAMPLE}"
+# # Run Allelome.PRO
+# bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+#   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
+#   -a $annotation_f \
+#   -s $SNPfile \
+#   -r 1 \
+#   -t 1 \
+#   -o "adult/${SAMPLE}"
 
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-  -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
-  -a $annotation_r \
-  -s $SNPfile \
-  -r 1 \
-  -t 1 \
-  -o "adult/${SAMPLE}"
+# bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+#   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
+#   -a $annotation_r \
+#   -s $SNPfile \
+#   -r 1 \
+#   -t 1 \
+#   -o "adult/${SAMPLE}"
 
-# Merge locus_table from forward and reverse strands
-DATE=$(date +%Y_%m_%d)
-Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
+# # Merge locus_table from forward and reverse strands
+# DATE=$(date +%Y_%m_%d)
+# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
 
-for i in {1..24}; do
-  SAMPLE=$(sed -n "${i}p" adult_path.txt)
-  DATE=$(date +%Y_%m_%d)
-  Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
-done
+# for i in {1..24}; do
+#   SAMPLE=$(sed -n "${i}p" adult_path.txt)
+#   DATE=$(date +%Y_%m_%d)
+#   Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
+# done
 
 
 # # Allelome Pro with no predicted genes
