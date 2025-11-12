@@ -47,7 +47,7 @@ celltype=$(echo $SAMPLE | cut -d/ -f3 | sed 's/\.bam$//')
 annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation_us.bed
 
 # Allelome Pro with no predicted genes
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_src/Allelome.PRO2.sh \
   -i $SAMPLE\
   -a $annotation \
   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \

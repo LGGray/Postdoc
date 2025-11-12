@@ -49,7 +49,7 @@ bodymap_dirs <- list.dirs('adult_aged_bodymap', recursive = FALSE, full.names = 
 bodymap_dirs <- grep('_', bodymap_dirs, value = TRUE)
 
 bodymap <- lapply(bodymap_dirs, function(dir) {
-    tmp <- paste0('adult_aged_bodymap/', dir, '/no_predicted_65/no_predicted_65_links_full_table.txt')
+    tmp <- paste0('adult_aged_bodymap/', dir, '/AL_65/AL_65_links_full_table.txt')
     read.delim(tmp)
 })
 names(bodymap) <- bodymap_dirs
@@ -76,8 +76,8 @@ bodymap <- lapply(bodymap, function(df) {
   subset(df, name_base %in% noncoding & name_target %in% coding)
 })
 
-save(bodymap, file = 'adult_aged_bodymap/bodymap_links_no_predicted_65.RData')
-load('adult_aged_bodymap/bodymap_links_no_predicted_65.RData')
+save(bodymap, file = 'adult_aged_bodymap/bodymap_links.RData')
+load('adult_aged_bodymap/bodymap_links.RData')
 
 
 #######################################
@@ -93,7 +93,7 @@ links_mtx <- links_mtx[, c('Ao_9w', 'Br_9w', 'He_9w', 'Ki_9w', 'Li_9w', 'Lu_9w',
                            'Ao_78w', 'Br_78w', 'He_78w', 'Ki_78w', 'Li_78w', 'Lu_78w', 'Mu_78w', 'Sp_78w')]
 
 # Heatmap of links across all adult and aged bodymap samples
-pdf('LINKS_study/figures/heatmap_adult_aged_bodymap_links_no_predicted_65.pdf')
+pdf('LINKS_study/figures/heatmap_adult_aged_bodymap_links.pdf')
 ann <- HeatmapAnnotation(
   Age = c(rep("Adult", 8), rep("Aged", 8)),
   col = list(Age = c("Adult" = "#E69F00", "Aged" = "#56B4E9"))
@@ -107,17 +107,13 @@ Heatmap(links_mtx,
         cluster_rows = TRUE,
         cluster_columns = TRUE,
         column_title = "",
-        heatmap_legend_param = list(
-          title = "Link Presence",
-          at = c(0, 1),
-          labels = c("Absent", "Present")
-        ),
+        show_heatmap_legend = FALSE,
         top_annotation = ann
 )
 dev.off()
 
 # UpSet plot of links across all adult and aged bodymap samples
-pdf('LINKS_study/figures/UpSet_adult_aged_bodymap_links_no_predicted_65.pdf', onefile = FALSE, width = 10, height = 6)
+pdf('LINKS_study/figures/UpSet_adult_aged_bodymap_links.pdf', onefile = FALSE, width = 10, height = 6)
 upset(links_mtx,
       nsets = ncol(links_mtx),
       order.by = "freq",
@@ -153,7 +149,7 @@ plot_list <- lapply(tissues, function(tissue) {
   plot(fit, quantities = TRUE, fill = sample_colours[c("adult", "aged")], main=tissue_name[[tissue]])
 })
 
-pdf('LINKS_study/figures/venn_adult_aged_bodymap_links_no_predicted_65.pdf', width = 12, height = 6)
+pdf('LINKS_study/figures/venn_adult_aged_bodymap_links.pdf', width = 12, height = 6)
 grid.arrange(grobs = plot_list, ncol = 4, nrow = 2)
 dev.off()
 
@@ -175,7 +171,7 @@ summ_change <- lapply(tissues, function(tissue) {
   group_by(organ) |>
   mutate(frac = count / sum(count))
 
-pdf('LINKS_study/figures/barplot_adult_aged_bodymap_link_changes_no_predicted_65.pdf', width = 8, height = 6)
+pdf('LINKS_study/figures/barplot_adult_aged_bodymap_link_changes.pdf', width = 8, height = 6)
 ggplot(summ_change, aes(x=organ, y=frac, fill=status)) +
   geom_col() +
   scale_y_continuous(labels=scales::percent) +
@@ -651,7 +647,7 @@ TAC_dirs <- list.dirs('F1_TAC_Sarah', recursive = FALSE, full.names = FALSE)
 TAC_dirs <- grep('He', TAC_dirs, value = TRUE)
 
 TAC_SHAM <- lapply(TAC_dirs, function(dir) {
-    tmp <- paste0('F1_TAC_Sarah/', dir, '/no_predicted_65/no_predicted_65_links_full_table.txt')
+    tmp <- paste0('F1_TAC_Sarah/', dir, '/AL_65/AL_65_links_full_table.txt')
     read.delim(tmp)
 })
 names(TAC_SHAM) <- TAC_dirs
@@ -660,8 +656,8 @@ TAC_SHAM <- lapply(TAC_SHAM, function(df) {
   subset(df, name_base %in% noncoding & name_target %in% coding)
 })
 
-save(TAC_SHAM, file = 'F1_TAC_Sarah/TAC_SHAM_links_no_predicted_65.RData')
-load('F1_TAC_Sarah/TAC_SHAM_links_no_predicted_65.RData')
+save(TAC_SHAM, file = 'F1_TAC_Sarah/TAC_SHAM_links.RData')
+load('F1_TAC_Sarah/TAC_SHAM_links.RData')
 
 # # Loop over bodymap to annotate genes
 # TAC_SHAM <- lapply(TAC_SHAM, function(x) {
@@ -699,7 +695,7 @@ fit_repressive <- euler(list(
 fit_repressive <- plot(fit_repressive, quantities=TRUE, fill = sample_colours[c("TAC", "Sham")], main='Repressive Links')
 plot_list <- list(fit_enhancing, fit_repressive)
 
-pdf('LINKS_study/figures/venn_TAC_sham_links_no_predicted_65.pdf')
+pdf('LINKS_study/figures/venn_TAC_sham_links.pdf')
 grid.arrange(grobs = plot_list, ncol = 2)
 dev.off()
 
@@ -731,7 +727,7 @@ adult_aged_tac_repressive <- euler(list(
 ))
 adult_aged_tac_repressive_plot <- plot(adult_aged_tac_repressive, quantities=TRUE, fill=sample_colours[c("adult", "aged", "TAC")], main='Repressive Links in Heart')
 
-pdf('LINKS_study/figures/venn_adult_aged_TAC_links_no_predicted_65.pdf')
+pdf('LINKS_study/figures/venn_adult_aged_TAC_links.pdf')
 grid.arrange(grobs = list(adult_aged_tac_enhancing_plot, adult_aged_tac_repressive_plot), ncol = 2)
 dev.off()
 
@@ -743,7 +739,7 @@ enhancing_list <- list(
 )
 enhancing_mtx <- fromList(enhancing_list)
 
-pdf('LINKS_study/figures/upset_adult_aged_TAC_Sham_enhancing_links_no_predicted_65.pdf', onefile = FALSE)
+pdf('LINKS_study/figures/upset_adult_aged_TAC_Sham_enhancing.pdf', onefile = FALSE)
 upset(enhancing_mtx,
       nsets = ncol(enhancing_mtx),
       order.by = "freq",
@@ -762,7 +758,7 @@ repressive_list <- list(
   sham_repressive = sham_repressive
 )
 repressive_mtx <- fromList(repressive_list)
-pdf('LINKS_study/figures/upset_adult_aged_TAC_Sham_repressive_links_no_predicted_65.pdf', onefile = FALSE)
+pdf('LINKS_study/figures/upset_adult_aged_TAC_Sham_repressive.pdf', onefile = FALSE)
 upset(repressive_mtx,
       nsets = ncol(repressive_mtx),
       order.by = "freq",
@@ -792,8 +788,21 @@ overlap_lists <- list(
   adult_tac_only_rep = adult_tac_only_rep,
   adult_tac_only_enh = adult_tac_only_enh
 )
-save(overlap_lists, file = 'LINKS_study/adult_aged_TAC_link_overlaps_no_predicted_65.RData')
-load('~/cluster/LINKS_study/adult_aged_TAC_link_overlaps_no_predicted_65.RData')
+save(overlap_lists, file = 'LINKS_study/adult_aged_TAC_link_overlaps.RData')
+load('/LINKS_study/adult_aged_TAC_link_overlaps.RData')
+  
+
+# Filter for links where target does not have ASE 
+bodymap_flt <- lapply(bodymap, function(df) {
+  subset(df, allelic_ratio_target <= 0.65 & allelic_ratio_target >= 0.35)
+})
+bodymap_flt[['He_9w']]
+
+
+
+
+
+
 
 ##################################################
 # Compare link between adult, aged and Sham heart #

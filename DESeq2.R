@@ -2,6 +2,8 @@ library(dplyr)
 library(tidyr)
 library(DESeq2)
 library(apeglm)
+library(org.Mm.eg.db)
+library(AnnotationDbi)
 
 
 gencode <- read.delim('/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/gencode.vM37.primary_assembly.annotation.gtf', header=FALSE, comment.char='#')
@@ -18,7 +20,7 @@ gene_name <- bind_rows(gene_name)
 ########################
 samples <- c(list.dirs('adult', recursive=FALSE), list.dirs('aged', recursive=FALSE))
 samples <- gsub('^(adult|aged)/', '', samples)
-adult_metadata <- read.delim('adult_metadata.csv', sep=';')
+adult_metadata <- read.delim('adult_metadata.csv', sep=',')
 aged_metadata  <- read.delim('aged_metadata.csv', sep=',')
 metadata <- rbind(adult_metadata, aged_metadata)
 metadata <- metadata[metadata$Sample_ID %in% samples & metadata$FID_comment != "", ]
@@ -27,7 +29,7 @@ metadata$tissue <- unlist(lapply(metadata$FID_comment, function(x) strsplit(x, '
 metadata$age  <- lapply(metadata$FID_comment, function(x) strsplit(x, '_')[[1]][2])
 metadata$tissue_age <- paste0(metadata$tissue, '_', metadata$age)
 
-tissue_GEM <- lapply(unique(metadata$tissue), function(x) {
+lapply(unique(metadata$tissue), function(x) {
     tmp <- subset(metadata, tissue == x)
 
     adult_rep1 <- read.delim(paste0('adult/', tmp$Sample_ID[1], '/', tmp$Sample_Name[1], '_stranded_reverse.count'), header=FALSE, col.names=c('geneID', paste0(tmp$tissue_age[1], '_rep1')))
@@ -37,13 +39,12 @@ tissue_GEM <- lapply(unique(metadata$tissue), function(x) {
     aged_rep2  <- read.delim(paste0('aged/', tmp$Sample_ID[5], '/', tmp$Sample_Name[5], '_stranded_reverse.count'), header=FALSE, col.names=c('geneID', paste0(tmp$tissue_age[5], '_rep2')))
     aged_rep3  <- read.delim(paste0('aged/', tmp$Sample_ID[6], '/', tmp$Sample_Name[6], '_stranded_reverse.count'), header=FALSE, col.names=c('geneID', paste0(tmp$tissue_age[6], '_rep3')))
     merged <- Reduce(function(x, y) merge(x, y, by='geneID', all=FALSE), list(adult_rep1, adult_rep2, adult_rep3, aged_rep1, aged_rep2, aged_rep3))
-    merged <- merged[grep('^ENS', merged$geneID), ]
-    # # add gene names
-    # merged <- merge(merged, gene_name, by.x='geneID', by.y='ENSG', all.x=TRUE)
+    merged <- merged[grep('^_', merged$geneID, invert=TRUE), ]
     rownames(merged) <- merged$geneID
     merged <- merged[, 2:(ncol(merged))]
-    return(merged)
+    write.table(merged, file=paste0('DEG/', x, '_GEM.txt'), sep='\t', quote=FALSE)
 })
+names(tissue_GEM) <- unique(metadata$tissue)
 save(tissue_GEM, file='bodymap_tissue_GEM.Rdata')
 
 write.table(merged, file=paste0('DEG/', x, '_GEM.txt'), sep='\t', quote=FALSE)
@@ -65,7 +66,7 @@ metadata <- data.frame(
 )
 metadata$condition <- factor(metadata$condition, levels=c('adult', 'aged'))
 
-# 2️⃣ Construct DESeq2 object
+# Construct DESeq2 object
 dds <- DESeqDataSetFromMatrix(
   countData = exprMat,
   colData   = metadata,
@@ -85,18 +86,12 @@ res <- lfcShrink(dds, coef="condition_aged_vs_adult", type="apeglm")
 # Order by adjusted p-value
 resOrdered <- as.data.frame(res[order(res$padj), ])
 
-# Map ENSMUSG to gene names with biomaRt
-ensembl_values <- rownames(resOrdered)
-gene_map <- getBM(
-    attributes = c('ensembl_gene_id_version', 'mgi_symbol'),
-    filters    = 'ensembl_gene_id_version',
-    values     = ensembl_values,
-    mart       = mart
-)
-# rename to match downstream merge by.y='ensembl_gene_id_version'
-resOrdered <- merge(resOrdered, gene_map, by.x='row.names', by.y='ensembl_gene_id_version', all.x=TRUE)
-colnames(resOrdered)[1] <- 'ensembl_gene_id_version'
-colnames(resOrdered)[ncol(resOrdered)] <- 'gene_name'
+# Map REFSEQ to gene names with org.Mm.eg.db
+refseq_values <- sub("\\.\\d+$", "", rownames(resOrdered))
+
+sym <- mapIds(org.Mm.eg.db, keys = refseq_values, keytype = "REFSEQ",
+              column = "SYMBOL", multiVals = "first")
+resOrdered$gene_symbol <- unname(sym[refseq_values])
 
 # Write results to file
 write.table(resOrdered, file="DESeq2/He_9w_vs_78w.txt", sep="\t", quote=FALSE, row.names=FALSE)
@@ -117,19 +112,17 @@ GEM <- lapply(count_files, function(x) {
   return(df)
 })
 GEM <- Reduce(function(x, y) merge(x, y, by='geneID', all=TRUE), GEM)
-GEM <- GEM[grep('^ENS', GEM$geneID), ]
-
-
-metadata <- metadata[grep('_XX', metadata$FID_comment), ]
+GEM <- GEM[grep('^_', GEM$geneID, invert=TRUE), ]
+metadata <- metadata[grep('XistBxC_-\\+_XX', metadata$FID_comment), ]
 
 GEM <- GEM[, c(1, which(colnames(GEM) %in% metadata$Sample_ID))]
 
 metadata <- metadata[match(colnames(GEM[,-1]), metadata$Sample_ID), ]
-
-write.table(GEM, file='DEG/TAC_GEM.txt', sep='\t', quote=FALSE, row.names=FALSE)
-
 rownames(GEM) <- GEM$geneID
 GEM <- GEM[, -1]
+write.table(GEM, file='DEG/TAC_GEM.txt', sep='\t', quote=FALSE, row.names=FALSE)
+
+
 
 metadata2 <- data.frame(
   sample    = colnames(GEM),
@@ -153,18 +146,14 @@ res <- results(dds, alpha=0.05)
 res <- lfcShrink(dds, coef="condition_sham_vs_TAC", type="apeglm")
 # Order by adjusted p-value
 resOrdered <- as.data.frame(res[order(res$padj), ])
-# Map ENSMUSG to gene names with biomaRt
-ensembl_values <- rownames(resOrdered)
-gene_map <- getBM(
-    attributes = c('ensembl_gene_id_version', 'mgi_symbol'),
-    filters    = 'ensembl_gene_id_version',
-    values     = ensembl_values,
-    mart       = mart
-)
-# rename to match downstream merge by.y='ensembl_gene_id_version'
-resOrdered <- merge(resOrdered, gene_map, by.x='row.names', by.y='ensembl_gene_id_version', all.x=TRUE)
-colnames(resOrdered)[1] <- 'ensembl_gene_id_version'
-colnames(resOrdered)[ncol(resOrdered)] <- 'gene_name'
+# Map REFSEQ to gene names with org.Mm.eg.db
+refseq_values <- sub("\\.\\d+$", "", rownames(resOrdered))
+
+sym <- mapIds(org.Mm.eg.db, keys = refseq_values, keytype = "REFSEQ",
+              column = "SYMBOL", multiVals = "first")
+resOrdered$gene_symbol <- unname(sym[refseq_values])
+subset(resOrdered, padj < 0.05 & abs(log2FoldChange) > 1)
+
 # Write results to file
 write.table(resOrdered, file="DEG/TAC_vs_sham.txt", sep="\t", quote=FALSE, row.names=FALSE)
 
