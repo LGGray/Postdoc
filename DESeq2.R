@@ -44,14 +44,6 @@ lapply(unique(metadata$tissue), function(x) {
     merged <- merged[, 2:(ncol(merged))]
     write.table(merged, file=paste0('DEG/', x, '_GEM.txt'), sep='\t', quote=FALSE)
 })
-names(tissue_GEM) <- unique(metadata$tissue)
-save(tissue_GEM, file='bodymap_tissue_GEM.Rdata')
-
-write.table(merged, file=paste0('DEG/', x, '_GEM.txt'), sep='\t', quote=FALSE)
-
-# Set Up BiomaRt
-library(biomaRt)
-mart <- useMart("ensembl", dataset="mmusculus_gene_ensembl")
 
 ###########################################
 # DESeq2 differential expression analysis #
@@ -85,13 +77,8 @@ res <- lfcShrink(dds, coef="condition_aged_vs_adult", type="apeglm")
 
 # Order by adjusted p-value
 resOrdered <- as.data.frame(res[order(res$padj), ])
-
-# Map REFSEQ to gene names with org.Mm.eg.db
-refseq_values <- sub("\\.\\d+$", "", rownames(resOrdered))
-
-sym <- mapIds(org.Mm.eg.db, keys = refseq_values, keytype = "REFSEQ",
-              column = "SYMBOL", multiVals = "first")
-resOrdered$gene_symbol <- unname(sym[refseq_values])
+# Add gene
+resOrdered$gene <- rownames(resOrdered)
 
 # Write results to file
 write.table(resOrdered, file="DESeq2/He_9w_vs_78w.txt", sep="\t", quote=FALSE, row.names=FALSE)
@@ -128,7 +115,7 @@ metadata2 <- data.frame(
   sample    = colnames(GEM),
   condition = c('TAC', 'TAC', 'TAC', 'sham', 'sham', 'sham')
 )
-metadata2$condition <- factor(metadata2$condition, levels=c('TAC', 'sham'))
+metadata2$condition <- factor(metadata2$condition, levels=c('sham', 'TAC'))
 
 # DESeq2
 dds <- DESeqDataSetFromMatrix(
@@ -143,31 +130,61 @@ dds <- dds[rowSums(counts(dds) >= 10) >= 3, ]
 dds <- DESeq(dds)
 # Extract results
 res <- results(dds, alpha=0.05)
-res <- lfcShrink(dds, coef="condition_sham_vs_TAC", type="apeglm")
+res <- lfcShrink(dds, coef="condition_TAC_vs_sham", type="apeglm")
 # Order by adjusted p-value
 resOrdered <- as.data.frame(res[order(res$padj), ])
-# Map REFSEQ to gene names with org.Mm.eg.db
-refseq_values <- sub("\\.\\d+$", "", rownames(resOrdered))
-
-sym <- mapIds(org.Mm.eg.db, keys = refseq_values, keytype = "REFSEQ",
-              column = "SYMBOL", multiVals = "first")
-resOrdered$gene_symbol <- unname(sym[refseq_values])
-subset(resOrdered, padj < 0.05 & abs(log2FoldChange) > 1)
+# Add gene
+resOrdered$gene <- rownames(resOrdered)
 
 # Write results to file
 write.table(resOrdered, file="DEG/TAC_vs_sham.txt", sep="\t", quote=FALSE, row.names=FALSE)
 
+##################################################################
+# Correlation of sig genes between aged vs adult and TAC vs sham #
+##################################################################
 
 adult_aged <- read.delim('../adult_aged_bodymap/DESeq2/He_9w_vs_78w.txt', header=TRUE)
+adult_aged_sig <- subset(adult_aged, padj < 0.05)
+TAC_sham  <- read.delim('../F1_TAC_Sarah/DEG/TAC_vs_sham.txt', header=TRUE)
+TAC_sham_sig <- subset(TAC_sham, padj < 0.05)
 
-combined <- merge(adult_aged, resOrdered, by='gene_name', suffixes=c('_adult_aged', '_TAC_sham'))
-
-combined_sig <- subset(combined, padj_adult_aged < 0.05 & padj_TAC_sham < 0.05)
+combined <- merge(
+  adult_aged_sig[, c('gene', 'log2FoldChange', 'padj')],
+  TAC_sham_sig[, c('gene', 'log2FoldChange', 'padj')],
+  by='gene',
+  suffixes=c('_adult_aged', '_TAC_sham')
+)
+correlation_res <- cor.test(combined$log2FoldChange_adult_aged, combined$log2FoldChange_TAC_sham, method='spearman')
 
 # Correlate on -log10(padj)
 pdf('../LINKS_study/figures/DEG_correlation_adult_aged_vs_TAC_sham.pdf')
-plot(-log10(combined_sig$padj_adult_aged), -log10(combined_sig$padj_TAC_sham),
-     xlab='-log10(padj) Adult Aged', ylab='-log10(padj) TAC Sham',
-     main='DEG Correlation: Adult Aged vs TAC Sham')
+plot(combined$log2FoldChange_adult_aged, combined$log2FoldChange_TAC_sham,
+     xlab='Aged vs Adult log2FC', ylab='TAC vs Sham log2FC',
+     main='')
+legend('topright', legend=paste0('Spearman rho = ', round(correlation_res$estimate, 3), '\nP-value = ***'), bty='n')
 abline(0, 1, col='red', lty=2)
 dev.off()
+
+set.seed(42)
+clusters <- kmeans(combined[, c('log2FoldChange_adult_aged', 'log2FoldChange_TAC_sham')], centers=4)$cluster
+
+pdf('../LINKS_study/figures/DEG_adult_aged_vs_TAC_sham_clusters.pdf')
+ggplot(combined, aes(x=log2FoldChange_adult_aged, y=log2FoldChange_TAC_sham, colour = factor(clusters))) +
+  geom_point(alpha = 0.6) +
+  labs(colour = "Cluster")
+dev.off()
+
+genes_in_cluster <- split(combined$gene, clusters)
+
+lapply(genes_in_cluster, function(x){
+  x[x %in% c('Spaar', 'Lgr6', 'Lmh1', 'Hmgb1', 'Katnal1')]
+})
+
+library(fgsea)
+
+pathways <- gmtPathways('../pathways/m5.go.bp.v2025.1.Mm.symbols.gmt')
+overrepresentation <- lapply(genes_in_cluster, function(genes) {
+  fora(genes=genes, universe=combined$gene, pathways=pathways)
+})
+
+lapply(overrepresentation, function(x) subset(x, padj < 0.1)[, c('pathway', 'padj', 'overlapGenes')])
