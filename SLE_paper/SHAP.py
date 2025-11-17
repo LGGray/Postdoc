@@ -68,7 +68,7 @@ ensemble = VotingClassifier(
     voting='soft'
 )
 
-all_features = pd.read_csv('results_update/top_celltypes_all_features.csv')
+all_features = pd.read_csv('results_update/all_features.csv')
 features = all_features[all_features['celltype'] == cell]['feature'].tolist()
 
 # features = ["BEND2", "IL2RG","SH2D1A", "TSPYL2", "GPR82",  "ZRSR2",  "CD40LG",  "P2RY10"]
