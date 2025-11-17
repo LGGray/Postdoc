@@ -44,6 +44,7 @@ y_test = test[['class']]
 
 # Check which features are missing and fill with 0
 missing = np.setdiff1d(features, test.columns)
+print(f'Missing features in test set: {missing}')
 test[missing] = 0
 X_test = test[features]
 
