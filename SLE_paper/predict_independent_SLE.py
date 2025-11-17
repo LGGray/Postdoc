@@ -20,7 +20,7 @@ eclf = pickle.load(open(model_path, 'rb'))
 features = eclf.feature_names_in_
 
 ### Read in independent test set
-test = pyreadr.read_r(sys.argv[2])
+test = pyreadr.read_r(sys.argv[1])
 test = test[None]
 
 # Subset for adult, child or all
