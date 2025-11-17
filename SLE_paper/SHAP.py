@@ -71,8 +71,6 @@ ensemble = VotingClassifier(
 all_features = pd.read_csv('results_update/all_features.csv')
 features = all_features[all_features['celltype'] == cell]['feature'].tolist()
 
-# features = ["BEND2", "IL2RG","SH2D1A", "TSPYL2", "GPR82",  "ZRSR2",  "CD40LG",  "P2RY10"]
-
 X_train = pd.read_csv(f'pseudobulk_update/split_1/data.splits/X_train.'+cell+'.csv', index_col=0)
 y_train = pd.read_csv(f'pseudobulk_update/split_1/data.splits/y_train.'+cell+'.csv', index_col=0)
 X_test = pd.read_csv(f'pseudobulk_update/split_1/data.splits/X_test.'+cell+'.csv', index_col=0)
