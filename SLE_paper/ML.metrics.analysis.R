@@ -64,7 +64,12 @@ models_metrics_df$gene.set <- factor(models_metrics_df$gene.set, levels=c('chrX'
 models_metrics_df$split <- factor(models_metrics_df$split, levels=paste('split', 1:10, sep='_'))
 
 save(models_metrics_df, file='../results_update/models_metrics_df.RData')
-#load('../results_update/models_metrics_df.RData')
+load('../results_update/models_metrics_df.RData')
+
+lapply(split(models_metrics_df, models_metrics_df$gene.set), function(x){
+    # Mean and s.d of n_features
+    c(mean=round(mean(x$n_features), 2), sd=round(sd(x$n_features), 2))
+})
 
 pdf('../results_update/compare_method_across_splits.pdf')
 ggplot(models_metrics_df, aes(x=method, y=MCC, colour=method, group=method)) +
@@ -221,7 +226,26 @@ average_model_metrics_df$celltype <- format_celltypes(average_model_metrics_df$c
 ensemble_metrics_df$celltype <- format_celltypes(ensemble_metrics_df$celltype)
 
 write.csv(ensemble_metrics_df, '../results_update/ensemble_metrics.csv', row.names=FALSE)
-#ensemble_metrics_df <- read.csv('../results_update/ensemble_metrics.csv')
+ensemble_metrics_df <- read.csv('../results_update/ensemble_metrics.csv')
+ensemble_metrics_df$model <- 'ensemble'
+
+# Add ensemble model to model_metrics_df
+all_models <- rbind(models_metrics_df[,c('split', 'celltype', 'gene.set', 'model', 'MCC')], 
+ensemble_metrics_df[,c('split', 'celltype', 'gene.set', 'model', 'MCC')])
+all_models$model <- factor(all_models$model, levels=c('logit', 'RF', 'SVM', 'GBM', 'MLP', 'ensemble'))
+pairwise.wilcox.test(all_models$MCC, all_models$model, p.adjust.method='fdr')
+
+pdf('../results_update/all_models_boxplot.pdf')
+ggplot(all_models, aes(x=model, y=MCC, colour=model)) +
+    geom_jitter(width=0.2) +
+    geom_boxplot(outlier.shape = NA, color = 'black', fill = NA) +
+    theme_minimal() +
+    labs(x='Model', y='MCC') +
+    theme(axis.text.x=element_blank()) +
+    scale_colour_manual(values=model.colours, name='Model')
+dev.off()
+
+range(subset(ensemble_metrics_df, celltype == 'Progenitor cell' & gene.set == 'chrX')$MCC)
 
 write.csv(average_model_metrics_df,'../results_update/average_model_metrics.csv')
 #average_model_metrics_df <- read.csv('../results_update/average_model_metrics.csv')
@@ -267,7 +291,26 @@ compare_celltype <- data.frame(p.value=compare_celltype[,1], FDR=p.adjust(compar
 subset(compare_celltype, FDR > 0.05)
 top_celltypes <- rownames(subset(compare_celltype, FDR > 0.05))
 
+tmp <- 'CD8 positive, alpha beta T cell'
+# Calculate the 95% CI
+calc_CI <- function(x){
+    mean_score <- mean(x)
+    std_dev_score <- sd(x)
+    n <- length(x)
+    alpha <- 0.05
+    # Calculate the t critical value
+    t_critical <- qt(alpha / 2, df = n - 1, lower.tail = FALSE)
+    # Calculate the margin of error
+    margin_error <- t_critical * (std_dev_score / sqrt(n))
+    # Calculate the lower and upper bounds of the 95% CI
+    lower_bound <- mean_score - margin_error
+    upper_bound <- mean_score + margin_error
+    return(c(round(lower_bound, 2), round(upper_bound, 2)))
+}
+calc_CI(subset(metrics_df, celltype == tmp & geneset == 'chrX')$MCC)
+
 save(top_celltypes, file = '../results_update/top_celltypes.RData')
+load('../results_update/top_celltypes.RData')
 
 p.adjust(unlist(lapply(split(ensemble_metrics_df, ensemble_metrics_df$celltype), function(x){
     pairwise.wilcox.test(x$MCC, x$gene.set, p.adjust.method='fdr')$p.value
@@ -468,6 +511,7 @@ top_features <- lapply(result_list, function(x) {
 ### Save selected features ###
 selected_features <- list(all_features=all_features, top_features=top_features)
 save(selected_features, file='../results_update/selected_features.RData')
+load('../results_update/selected_features.RData')
 
 # Write as .csv file
 all_features_mtx <- bind_rows(lapply(names(selected_features$all_features), function(x){
@@ -592,17 +636,21 @@ save(output.asin, file='../results_update/propellor_results.RData')
 # Match rownames to escape genes
 hits <- rownames(top_celltypes_all_features_mtx)[rownames(top_celltypes_all_features_mtx) %in% escape]
 
-a <- sum(rownames(top_celltypes_all_features_mtx) %in% escape)
-b <- sum(!(rownames(top_celltypes_all_features_mtx) %in% escape))
-c <- sum(chrX[!chrX %in% rownames(top_celltypes_all_features_mtx)] %in% escape)
-d <- sum(!(chrX[!chrX %in% rownames(top_celltypes_all_features_mtx)] %in% escape))
+selected <- selected_features$all_features[["CD8_positive,_alpha_beta_T_cell.chrX"]]
+
+a <- sum(selected %in% escape)
+b <- sum(!(selected %in% escape))
+c <- sum(chrX[!chrX %in% selected] %in% escape)
+d <- sum(!(chrX[!chrX %in% selected] %in% escape))
 chisq.test(matrix(c(a, b, c, d), nrow=2))
 
 
 ### Read in edgeR results and subset top_features for DEGs ###
-source('/directflow/SCCGGroupShare/projects/lacgra/PhD/functions/edgeR.list.R')
+source('../edgeR.list.R')
 edgeR <- deg.list('../edgeR', filter=FALSE)
 
+top_celltypes_all_features <- selected_features$all_features[c('CD4_positive,_alpha_beta_T_cell.chrX',
+'CD8_positive,_alpha_beta_T_cell.chrX')]
 edgeR_top_celltypes_all_features <- lapply(names(top_celltypes_all_features), function(x){
     tmp <- edgeR[[gsub('.chrX', '', x)]]
     subset(tmp, gene %in% top_celltypes_all_features[[x]])[,c('gene', 'logFC', 'FDR')]
@@ -662,14 +710,12 @@ dev.off()
 
 
 ### Predicting independent data metrics ###
-setwd('/directflow/SCCGGroupShare/projects/lacgra/autoimmune.datasets/SLE_GSE135779')
-
 library(dplyr)
 library(ggplot2)
 library(stringr)
 
 
-metrics.files <- list.files('ML.plots_update', pattern ='csv', full.names = TRUE)
+metrics.files <- list.files('results_update', pattern ='csv', full.names = TRUE)
 
 metrics <- lapply(metrics.files, read.csv)
 names(metrics) <- gsub('.csv', '', basename(metrics.files))
@@ -684,9 +730,10 @@ metrics_df$geneset <- factor(metrics_df$geneset, levels = c('chrX', 'SLE'))
 metrics_df$celltype <- gsub('^metrics_|\\..*', '', metrics_df$filename)
 metrics_df$celltype <- gsub('_', ' ', metrics_df$celltype)
 
-write.csv(metrics_df, 'predicting_metrics.csv', row.names = FALSE)
+write.table(metrics_df, 'results_update/predicting_metrics.txt', row.names = FALSE)
+metrics_df <- read.table('results_update/predicting_metrics.txt', header=TRUE)
 
-pdf('predicting_boxplot.pdf')
+pdf('results_update/predicting_boxplot.pdf')
 ggplot(metrics_df, aes(x=MCC, y=celltype, colour=geneset)) +
   geom_boxplot() +
   scale_colour_manual(values=c('#8A0798', '#D90750')) +
@@ -725,7 +772,7 @@ mean_metrics <- metrics_df %>%
   ungroup() %>%
   data.frame()
 
-subset(mean_metrics, age == 'child' & mean_MCC > 0.7)
+subset(mean_metrics, age == 'adult' & mean_MCC > 0.7)
 
 #### Analysing FLARE predictions ####
 library(dplyr)

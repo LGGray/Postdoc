@@ -750,6 +750,43 @@ overlap_lists <- list(
 save(overlap_lists, file = 'LINKS_study/adult_aged_TAC_link_overlaps.RData')
 load('LINKS_study/adult_aged_TAC_link_overlaps.RData')
 
+
+#. Venn diagram adult, aged, sham
+adult_aged_sham_enhancing <- euler(list(
+  Adult = adult_heart_enhancing,
+  Aged  = aged_heart_enhancing,
+  Sham  = sham_enhancing
+))
+adult_aged_sham_enhancing_plot <- plot(adult_aged_sham_enhancing, quantities = TRUE, fill = sample_colours[c("adult", "aged", "Sham")], main='Enhancing Links in Heart')
+
+adult_aged_sham_repressive <- euler(list(
+  Adult = adult_heart_repressive,
+  Aged  = aged_heart_repressive,
+  Sham  = sham_repressive
+))
+adult_aged_sham_repressive_plot <- plot(adult_aged_sham_repressive, quantities=TRUE, fill=sample_colours[c("adult", "aged", "Sham")], main='Repressive Links in Heart')
+pdf('LINKS_study/figures/venn_adult_aged_Sham_links.pdf')
+grid.arrange(grobs = list(adult_aged_sham_enhancing_plot, adult_aged_sham_repressive_plot), ncol = 2)
+dev.off()
+
+# Venn diagram sham and adult
+adult_sham_enhancing <- euler(list(
+  Adult = adult_heart_enhancing,
+  Sham  = sham_enhancing
+))
+adult_sham_enhancing_plot <- plot(adult_sham_enhancing, quantities = TRUE, fill = sample_colours[c("adult", "Sham")], main='Enhancing Links in Heart')
+adult_sham_repressive <- euler(list(
+  Adult = adult_heart_repressive,
+  Sham  = sham_repressive
+))
+adult_sham_repressive_plot <- plot(adult_sham_repressive, quantities=TRUE, fill=sample_colours[c("adult", "Sham")], main='Repressive Links in Heart')
+pdf('LINKS_study/figures/venn_adult_Sham_links.pdf')
+grid.arrange(grobs = list(adult_sham_enhancing_plot, adult_sham_repressive_plot), ncol = 2)
+dev.off()
+
+jaccard_index(adult_heart_enhancing, sham_enhancing)
+jaccard_index(adult_heart_repressive, sham_repressive)
+
 # Separate for TAC specific links
 adult_aged_tac_enhancing <- euler(list(
   Adult = adult_heart_enhancing,

@@ -23,8 +23,8 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cardiac_RNAseq
 
 genome_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/STAR2.7.11b_genome_index/genome_dir_gencodeM36_mm39.202410
 annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation.gtf
-annotation_f=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation_f.bed
-annotation_r=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation_r.bed
+annotation_us=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation_us.bed
+
 SNPfile=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed
 
 run_one() {
@@ -43,7 +43,7 @@ run_one() {
 
   samtools index "${SAMPLE}/${SAMPLE}_Aligned.sortedByCoord.out.bam"
 
-  STRAND=reverse
+  STRAND=no
   htseq-count -s $STRAND -r pos -f bam \
     "${SAMPLE}/${SAMPLE}_Aligned.sortedByCoord.out.bam" \
     $annotation \
@@ -57,75 +57,37 @@ mkdir -p $SAMPLE
 run_one "$SAMPLE"
 
 
-# # Separate BAM files into forward and reverse reads
-# BAM="adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam"
-# ANNOTATION=../GRCm39/gencode.vM37.primary_assembly.annotation.gtf
-# #awk '{ if ($0 ~ "transcript_id") print $0; else print $0" transcript_id \"\";"; }' $ANNOTATION | gtf2bed - > ../GRCm39/gencode.vM37.primary_assembly.annotation.bed
-# BED=../GRCm39/gencode.vM37.primary_assembly.annotation.bed
+# # # Separate BAM files into forward and reverse reads
+# BAM="${SAMPLE}/${SAMPLE}_Aligned.sortedByCoord.out.bam"
+# # ANNOTATION=../GRCm39/gencode.vM37.primary_assembly.annotation.gtf
+# # #awk '{ if ($0 ~ "transcript_id") print $0; else print $0" transcript_id \"\";"; }' $ANNOTATION | gtf2bed - > ../GRCm39/gencode.vM37.primary_assembly.annotation.bed
+# BED=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/20250512_RefSeq.bed
 
 # ../Postdoc/infer_experiment.py -i $BAM -r $BED
 
-# strandrule="1+-,1-+,2++,2--"
-# perl /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/separate_BAM_strand.pl "adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out.bam" $strandrule adult/${SAMPLE}
+# # strandrule="1+-,1-+,2++,2--"
+# perl /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/separate_BAM_strand.pl "${SAMPLE}/${SAMPLE}_Aligned.sortedByCoord.out.bam" $strandrule ${SAMPLE}
 
 # # Split RefSeq into forward and reverse strands
 # #awk '$6 == "+" {print > "../GRCm39/forward_20250512_RefSeq.bed"} $6 == "-" {print > "../GRCm39/reverse_20250512_RefSeq.bed"}' ../GRCm39/20250512_RefSeq.bed
 
-# # Run Allelome.PRO
-# bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-#   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
-#   -a $annotation_f \
-#   -s $SNPfile \
-#   -r 1 \
-#   -t 1 \
-#   -o "adult/${SAMPLE}"
+# Run Allelome.PRO
+bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+  -i ${SAMPLE}/${SAMPLE}_Aligned.sortedByCoord.out.bam \
+  -a $annotation_us \
+  -s $SNPfile \
+  -r 1 \
+  -t 1 \
+  -o ${SAMPLE}
 
-# bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-#   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
-#   -a $annotation_r \
-#   -s $SNPfile \
-#   -r 1 \
-#   -t 1 \
-#   -o "adult/${SAMPLE}"
-
-# # Merge locus_table from forward and reverse strands
-# DATE=$(date +%Y_%m_%d)
-# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
-
-# for i in {1..24}; do
-#   SAMPLE=$(sed -n "${i}p" adult_path.txt)
-#   DATE=$(date +%Y_%m_%d)
-#   Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
-# done
+DATE=$(date +%Y_%m_%d)
+Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+  -i ${SAMPLE}/${DATE}_${SAMPLE}_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt \
+  -o ${SAMPLE} \
+  --allelic-bias 0.65 \
+  -r 20 \
+  -w 100 \
+  -n AL_65 \
+  -d FALSE
 
 
-# # Allelome Pro with no predicted genes
-# bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-#   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
-#   -a $ref_dir/annotation_no_predicted_f.bed \
-#   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
-#   -o "adult/${SAMPLE}"
-
-# bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-#   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
-#   -a $ref_dir/annotation_no_predicted_r.bed \
-#   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
-#   -o "adult/${SAMPLE}"
-
-# # Allelome Pro with predicted genes
-# bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-#   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_fwd.bam \
-#   -a $ref_dir/annotation_f.bed \
-#   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
-#   -o "adult/${SAMPLE}"
-
-# bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-#   -i adult/${SAMPLE}/${filename}_Aligned.sortedByCoord.out_rev.bam \
-#   -a $ref_dir/annotation_r.bed \
-#   -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed \
-#   -o "adult/${SAMPLE}"
-
-# # Merge locus_table from forward and reverse strands
-# DATE=$(date +%Y_%m_%d)
-# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation_no_predicted
-# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/merge_strands.R adult/$SAMPLE $DATE annotation
