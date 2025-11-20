@@ -48,9 +48,16 @@ print(f'Missing features in test set: {missing}')
 test[missing] = 0
 X_test = test[features]
 
-# Scale the data
-scaler = StandardScaler()
-X_test = pd.DataFrame(scaler.fit_transform(X_test), columns=X_test.columns, index=X_test.index)
+# Load in the scaler
+with open(f'/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/SLE_paper/SLE/pseudobulk_update/split_{sys.argv[2]}/scaler/scaler_'+cell+'.pkl', "rb") as f:
+    scaler = pickle.load(f)
+# Scale the test data
+X_test = pd.DataFrame(
+    scaler.transform(X_test),
+    columns=X_test.columns,
+    index=X_test.index
+)
+
 
 # Predict the test set
 y_pred = eclf.predict(X_test)

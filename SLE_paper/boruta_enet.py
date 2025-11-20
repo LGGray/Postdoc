@@ -50,6 +50,10 @@ X_train = pd.DataFrame(
     columns=X_train.columns,
     index=X_train.index
 )
+
+with open(f'pseudobulk_update/split_{sys.argv[2]}/scaler/scaler_'+cell+'.pkl', "wb") as f:
+    pickle.dump(scaler, f)
+
 # Use the SAME scaler for test
 X_test = pd.DataFrame(
     scaler.transform(X_test),
