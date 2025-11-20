@@ -44,8 +44,18 @@ y_test = df[df['individual'].isin(test['rownames'])]['class']
 
 # Standard scale the data - z-scores
 scaler = StandardScaler()
-X_train = pd.DataFrame(scaler.fit_transform(X_train), columns=X_train.columns, index=X_train.index)
-X_test = pd.DataFrame(scaler.fit_transform(X_test), columns=X_test.columns, index=X_test.index)
+# Fit ONLY on training data
+X_train = pd.DataFrame(
+    scaler.fit_transform(X_train),
+    columns=X_train.columns,
+    index=X_train.index
+)
+# Use the SAME scaler for test
+X_test = pd.DataFrame(
+    scaler.transform(X_test),
+    columns=X_test.columns,
+    index=X_test.index
+)
 
 # Save data splits
 X_train.to_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/X_train.'+cell+'.csv', index=True)
