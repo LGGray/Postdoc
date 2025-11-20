@@ -33,7 +33,6 @@ for i in {1..10}; do
     python3 $script_dir/boruta_enet.py $celltype $i
 done
 
-
 for i in {1..10}; do
 # Logistic regression
   python3 $script_dir/logit.regression.py $celltype $i combined
@@ -114,7 +113,3 @@ done
 # python3 $script_dir/predict_independent_SLE.py $celltype $i child
 # python3 $script_dir/predict_independent_SLE.py $celltype $i adult
 # done
-
-for i in {1..10}; do
-    mkdir -p split_$i/scaler
-done
