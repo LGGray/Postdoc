@@ -13,7 +13,7 @@
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=100G
 #SBATCH --time=8:00:00
-#SBATCH --array=1-24
+#SBATCH --array=1-4
 
 module load slurm_setup
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
@@ -54,8 +54,7 @@ run_one() {
 
 SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" fastq_files.txt )
 mkdir -p $SAMPLE
-run_one "$SAMPLE"
-
+# run_one "$SAMPLE"
 
 # # # Separate BAM files into forward and reverse reads
 # BAM="${SAMPLE}/${SAMPLE}_Aligned.sortedByCoord.out.bam"
@@ -72,7 +71,7 @@ run_one "$SAMPLE"
 # #awk '$6 == "+" {print > "../GRCm39/forward_20250512_RefSeq.bed"} $6 == "-" {print > "../GRCm39/reverse_20250512_RefSeq.bed"}' ../GRCm39/20250512_RefSeq.bed
 
 # Run Allelome.PRO
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_src/Allelome.PRO2.sh \
   -i ${SAMPLE}/${SAMPLE}_Aligned.sortedByCoord.out.bam \
   -a $annotation_us \
   -s $SNPfile \
