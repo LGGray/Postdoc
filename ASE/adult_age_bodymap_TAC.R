@@ -20,7 +20,7 @@ jaccard_index <- function(set1, set2) {
   return(intersection / union)
 }
 
-sample_colours <- c("adult" = "#E69F00", "aged" = "#56B4E9", "TAC" = "#009E73", "Sham" = "#CC79A7")
+sample_colours <- c("adult" = "#E69F00", "aged" = "#56B4E9", "TAC" = "#009E73", "Sham" = "#CC79A7", "FACS" = "#A67C8C")
 
 # #### Match RefSeq transcript ID to gene name
 # gtf <- read.delim('GRCm39/GCF_000001635.27_GRCm39_genomic.gtf', comment.char = "#", header = FALSE)
@@ -637,6 +637,65 @@ Heatmap(as.matrix(plot_data[, -1]),
 )
 dev.off()
 
+########################################
+# Overlap with FACS cardiac cell types #
+########################################
+
+facs_dirs <- c("female_Cardiac_fibroblasts", "female_Cardiomyocytes", "female_Endothelial_cells", "female_Macrophages")
+
+facs_links <- lapply(facs_dirs, function(dir) {
+    tmp <- paste0('cardiac_RNAseq/', dir, '/AL_65/AL_65_links_full_table.txt')
+    read.delim(tmp)
+})
+names(facs_links) <- facs_dirs
+
+# Filter for noncoding-coding links only
+facs_links <- lapply(facs_links, function(df) {
+  subset(df, name_base %in% noncoding & name_target %in% coding)
+})
+save(facs_links, file = 'cardiac_RNAseq/facs_links.RData')
+load('cardiac_RNAseq/facs_links.RData')
+
+adult_heart <- unique(link_key(bodymap[['He_9w']]))
+aged_heart <- unique(link_key(bodymap[['He_78w']]))
+lapply(facs_links, function(ct){
+    ct_links <- unique(link_key(ct))
+    print(c(jaccard_index(adult_heart, ct_links),
+    jaccard_index(aged_heart, ct_links)))
+})
+
+intersect(aged_heart, unique(link_key(facs_links[['female_Cardiomyocytes']])))
+
+# Plot ven diagrams of adult and aged heart vs FACS cell types
+adult_plots <- lapply(names(facs_links), function(ct) {
+  facs_ct <- facs_links[[ct]]
+  facs_sets  <- unique(link_key(facs_ct))
+  ct_clean <- gsub('female_', '', ct)
+  
+  # Create a named list properly
+  sets_list <- list(adult_heart, facs_sets)
+  names(sets_list) <- c('Adult_Heart', ct_clean)
+  
+  fit_adult <- euler(sets_list)
+  plot(fit_adult, quantities = TRUE, fill = sample_colours[c("adult", "FACS")], main='')
+})
+
+aged_plots <- lapply(names(facs_links), function(ct) {
+  facs_ct <- facs_links[[ct]]
+  facs_sets  <- unique(link_key(facs_ct))
+  ct_clean <- gsub('female_', '', ct)
+  
+  # Create a named list properly
+  sets_list <- list(aged_heart, facs_sets)
+  names(sets_list) <- c('Aged_Heart', ct_clean)
+  
+  fit_aged <- euler(sets_list)
+  plot(fit_aged, quantities = TRUE, fill = sample_colours[c("aged", "FACS")], main='')
+})
+
+pdf('LINKS_study/figures/venn_adult_aged_heart_vs_FACS_links.pdf', width = 12, height = 6)
+grid.arrange(grobs = c(adult_plots, aged_plots), ncol = 4, nrow = 2)
+dev.off()
 
 ##################################
 # Read in data from TAC and Sham #
@@ -749,6 +808,8 @@ overlap_lists <- list(
 )
 save(overlap_lists, file = 'LINKS_study/adult_aged_TAC_link_overlaps.RData')
 load('LINKS_study/adult_aged_TAC_link_overlaps.RData')
+
+lapply(facs_links, function(x){unlist(overlap_lists)[unlist(overlap_lists) %in% unique(link_key(x))]})
 
 
 #. Venn diagram adult, aged, sham

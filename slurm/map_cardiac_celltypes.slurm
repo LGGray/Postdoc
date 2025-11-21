@@ -79,14 +79,16 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_sr
   -t 1 \
   -o ${SAMPLE}
 
-DATE=$(date +%Y_%m_%d)
-Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
-  -i ${SAMPLE}/${DATE}_${SAMPLE}_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt \
-  -o ${SAMPLE} \
-  --allelic-bias 0.65 \
-  -r 20 \
-  -w 100 \
-  -n AL_65 \
-  -d FALSE
 
+for i in {1..8}; do
+  dir=$(sed -n "${i}p" sample_dirs.txt)
+  Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+    -i ${dir}/annotation_us_locus_table_reps.txt\
+    -o ${dir} \
+    --allelic-bias 0.65 \
+    -r 20 \
+    -w 100 \
+    -n AL_65 \
+    -d FALSE
 
+done
