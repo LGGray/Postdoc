@@ -107,7 +107,7 @@ GEM <- GEM[, c(1, which(colnames(GEM) %in% metadata$Sample_ID))]
 metadata <- metadata[match(colnames(GEM[,-1]), metadata$Sample_ID), ]
 rownames(GEM) <- GEM$geneID
 GEM <- GEM[, -1]
-write.table(GEM, file='DEG/TAC_GEM.txt', sep='\t', quote=FALSE, row.names=FALSE)
+write.table(GEM, file='DEG/TAC_GEM.txt', sep='\t', quote=FALSE, row.names=TRUE)
 
 
 

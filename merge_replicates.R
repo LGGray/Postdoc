@@ -282,3 +282,111 @@ lapply(unique(metadata$sex_tissue), function(x){
   }
   write.table(locus_tab, paste0(gsub(" ", "_", x), '/', 'annotation_us_locus_table_reps.txt'), row.names=FALSE, quote=FALSE, sep='\t')
 })
+
+# Merge replicates for H3K4me3 chipseq
+rep_1 <- read.delim('2025_11_25_rep_1.clean_H3K4me3_consensus_peaks.bed_1/locus_table.txt')
+rep_2 <- read.delim('2025_11_25_rep_2.clean_H3K4me3_consensus_peaks.bed_1/locus_table.txt')
+
+# # # Filter for min total reads
+# min_total_reads <- 20
+# rep_1 <- rep_1 %>% filter(total_reads >= min_total_reads)
+# rep_2 <- rep_2 %>% filter(total_reads >= min_total_reads)
+
+# # Filter for allelic ratio >= 0.7 and <= 0.3
+# rep_1 <- rep_1 %>% filter(allelic_ratio >= 0.65 | allelic_ratio <= 0.35)
+# rep_2 <- rep_2 %>% filter(allelic_ratio >= 0.65 | allelic_ratio <= 0.35)
+
+# get overlapping genes and filter these from each locus table
+overlap <- rep_1 %>% merge(rep_2,by=c("chr","start","end","name"))
+rep_1 <- rep_1 %>% dplyr::filter(name %in% overlap$name)
+rep_2 <- rep_2 %>% dplyr::filter(name %in% overlap$name)
+# bind all replicates and select median AR, min total reads and min AS
+merge <- rep_1 %>% rbind(rep_2)
+locus_tab <- merge %>% group_by(name) %>% 
+  dplyr::summarise(chr = unique(chr),start = unique(start), end = unique(end), name = unique(name), 
+  A1_reads = round(median(A1_reads),0), A2_reads = round(median(A2_reads),0), 
+  total_reads = round(median(total_reads),0), allelic_score = min(abs(allelic_score)), 
+  allelic_ratio = median(allelic_ratio))
+locus_tab <- locus_tab %>% dplyr::select("chr","start","end","name","A1_reads",
+                                         "A2_reads","total_reads","allelic_score",
+                                         "allelic_ratio")
+locus_tab <- locus_tab %>% arrange(chr,start)
+# output summarized locus table
+write.table(locus_tab, paste0('H3K4me3_chipseq_annotation_locus_table_reps.txt'), row.names=FALSE, quote=FALSE, sep='\t')
+
+# Write BED file
+ap <- locus_tab
+bed <- ap[c(1:3,7,9)]
+bed$name <- paste0(ap$name,"_reads:",ap$A1_reads,"/",ap$A2_reads,"_score:",ap$allelic_score,"_ratio:",ap$allelic_ratio)
+bed$score <- "1000"
+bed$strand <- "."
+bed$thickStart <-  paste0(bed$start)
+bed$thickEnd <- paste0(bed$end)
+bed$itemRgb[bed$allelic_ratio >= 0.6 & 
+            bed$allelic_ratio < 0.8] <- "207,136,131"
+bed$itemRgb[bed$allelic_ratio >= 0.8 & 
+            bed$allelic_ratio <= 1] <- "139,25,19"
+bed$itemRgb[bed$allelic_ratio <= 0.4 & 
+            bed$allelic_ratio > 0.2] <- "140,164,202"
+bed$itemRgb[bed$allelic_ratio <= 0.2 & 
+            bed$allelic_ratio >=0] <- "48,74,153"
+bed$itemRgb[bed$allelic_ratio > 0.4 & 
+            bed$allelic_ratio < 0.6] <- "28,100,45"
+bed$itemRgb[bed$total_reads < 20] <- "80,80,80"
+bed <- bed[,c(1:3,6:11)]
+colnames(bed) <- c("track",paste0("name= H3K4me3"),paste0("description= H3K4me3"),"visibility=2","itemRgb=On","useScore=1","","","")
+write.table(bed, 'H3K4me3_ENCODE.bed', quote=FALSE, sep = "\t", col.names = FALSE, row.names =FALSE)
+
+# Merge replicates for H3K27ac chipseq
+rep_1 <- read.delim('2025_11_28_rep_1.clean_H3K27ac_consensus_peaks.bed_1/locus_table.txt')
+rep_2 <- read.delim('2025_11_28_rep_2.clean_H3K27ac_consensus_peaks.bed_1/locus_table.txt')
+
+# # # Filter for min total reads
+# min_total_reads <- 20
+# rep_1 <- rep_1 %>% filter(total_reads >= min_total_reads)
+# rep_2 <- rep_2 %>% filter(total_reads >= min_total_reads)
+
+# # Filter for allelic ratio >= 0.7 and <= 0.3
+# rep_1 <- rep_1 %>% filter(allelic_ratio >= 0.65 | allelic_ratio <= 0.35)
+# rep_2 <- rep_2 %>% filter(allelic_ratio >= 0.65 | allelic_ratio <= 0.35)
+
+# get overlapping genes and filter these from each locus table
+overlap <- rep_1 %>% merge(rep_2,by=c("chr","start","end","name"))
+rep_1 <- rep_1 %>% dplyr::filter(name %in% overlap$name)
+rep_2 <- rep_2 %>% dplyr::filter(name %in% overlap$name)
+# bind all replicates and select median AR, min total reads and min AS
+merge <- rep_1 %>% rbind(rep_2)
+locus_tab <- merge %>% group_by(name) %>% 
+  dplyr::summarise(chr = unique(chr),start = unique(start), end = unique(end), name = unique(name), 
+  A1_reads = round(median(A1_reads),0), A2_reads = round(median(A2_reads),0), 
+  total_reads = round(median(total_reads),0), allelic_score = min(abs(allelic_score)), 
+  allelic_ratio = median(allelic_ratio))
+locus_tab <- locus_tab %>% dplyr::select("chr","start","end","name","A1_reads",
+                                         "A2_reads","total_reads","allelic_score",
+                                         "allelic_ratio")
+locus_tab <- locus_tab %>% arrange(chr,start)
+# output summarized locus table
+write.table(locus_tab, paste0('H3K27ac_chipseq_annotation_locus_table_reps.txt'), row.names=FALSE, quote=FALSE, sep='\t')
+
+# Write BED file
+ap <- locus_tab
+bed <- ap[c(1:3,7,9)]
+bed$name <- paste0(ap$name,"_reads:",ap$A1_reads,"/",ap$A2_reads,"_score:",ap$allelic_score,"_ratio:",ap$allelic_ratio)
+bed$score <- "1000"
+bed$strand <- "."
+bed$thickStart <-  paste0(bed$start)
+bed$thickEnd <- paste0(bed$end)
+bed$itemRgb[bed$allelic_ratio >= 0.6 & 
+            bed$allelic_ratio < 0.8] <- "207,136,131"
+bed$itemRgb[bed$allelic_ratio >= 0.8 &  
+            bed$allelic_ratio <= 1] <- "139,25,19"
+bed$itemRgb[bed$allelic_ratio <= 0.4 & 
+            bed$allelic_ratio > 0.2] <- "140,164,202"
+bed$itemRgb[bed$allelic_ratio <= 0.2 & 
+            bed$allelic_ratio >=0] <- "48,74,153"
+bed$itemRgb[bed$allelic_ratio > 0.4 & 
+            bed$allelic_ratio < 0.6] <- "28,100,45"
+bed$itemRgb[bed$total_reads < 20] <- "80,80,80"
+bed <- bed[,c(1:3,6:11)]
+colnames(bed) <- c("track",paste0("name= H3K27ac"),paste0("description= H3K27ac"),"visibility=2","itemRgb=On","useScore=1","","","")
+write.table(bed, 'H3K27ac_ENCODE.bed', quote=FALSE, sep = "\t", col.names = FALSE, row.names =FALSE)

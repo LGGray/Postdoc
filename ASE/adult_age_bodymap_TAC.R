@@ -92,7 +92,67 @@ rownames(links_mtx) <- unique(unlist(bodymap_link_keys))
 links_mtx <- links_mtx[, c('Ao_9w', 'Br_9w', 'He_9w', 'Ki_9w', 'Li_9w', 'Lu_9w', 'Mu_9w', 'Sp_9w',
                            'Ao_78w', 'Br_78w', 'He_78w', 'Ki_78w', 'Li_78w', 'Lu_78w', 'Mu_78w', 'Sp_78w')]
 
-# Heatmap of links across all adult and aged bodymap samples
+# Heatmap of links across all adult and aged bodymap samples, split by age
+links_mtx_adult <- links_mtx[, 1:8]
+colnames(links_mtx_adult) <- gsub('_9w', '', colnames(links_mtx_adult))
+links_mtx_adult <- links_mtx_adult[rowSums(links_mtx_adult) > 0, ]
+links_mtx_aged <- links_mtx[, 9:16]
+colnames(links_mtx_aged) <- gsub('_78w', '', colnames(links_mtx_aged))
+links_mtx_aged <- links_mtx_aged[rowSums(links_mtx_aged) > 0, ]
+
+pdf('LINKS_study/figures/heatmap_adult_bodymap_links.pdf')
+Heatmap(as.matrix(links_mtx_adult),
+        name = "Link",
+        col = c("grey", "red"),
+        show_row_names = FALSE,
+        show_column_names = TRUE,
+        cluster_rows = TRUE,
+        cluster_columns = TRUE,
+        column_title = "Adult Links",
+        show_heatmap_legend = FALSE
+)
+dev.off()
+pdf('LINKS_study/figures/heatmap_aged_bodymap_links.pdf')
+Heatmap(as.matrix(links_mtx_aged),
+        name = "Link",
+        col = c("grey", "red"),
+        show_row_names = FALSE,
+        show_column_names = TRUE,
+        cluster_rows = TRUE,
+        cluster_columns = TRUE,
+        column_title = "Aged Links",
+        show_heatmap_legend = FALSE
+)
+dev.off()
+
+
+# PCA plot of links across all adult and aged bodymap samples
+link_pca <- prcomp(t(links_mtx), center = TRUE, scale. = FALSE)
+# calculate percent variance explained for PC1 and PC2
+var_explained <- (link_pca$sdev^2) / sum(link_pca$sdev^2) * 100
+pc1_pct <- round(var_explained[1], 1)
+pc2_pct <- round(var_explained[2], 1)
+
+pca_data <- data.frame(
+  Sample = rownames(link_pca$x),
+  PC1 = link_pca$x[, 1],
+  PC2 = link_pca$x[, 2],
+  Age = rep(c("adult", "aged"), each = 8)
+)
+pca_data$Sample <- gsub('_9w|_78w', '', pca_data$Sample)
+
+pdf('LINKS_study/figures/PCA_adult_aged_bodymap_links.pdf', width = 6, height = 6)
+ggplot(pca_data, aes(x=PC1, y=PC2, color=Sample, shape=Age)) +
+  geom_point(size=3) +
+  theme_minimal() +
+  labs(
+    title='PCA of Links: Adult vs Aged Bodymap',
+    x = paste0('PC1 (', pc1_pct, '% variance)'),
+    y = paste0('PC2 (', pc2_pct, '% variance)')
+  )
+dev.off()
+
+
 pdf('LINKS_study/figures/heatmap_adult_aged_bodymap_links.pdf')
 ann <- HeatmapAnnotation(
   Age = c(rep("Adult", 8), rep("Aged", 8)),
@@ -124,6 +184,18 @@ upset(links_mtx,
 )
 dev.off()
 
+# calculte jaccard index per tissue
+jaccard_results <- lapply(tissues, function(tissue) {
+  adult <- bodymap[[paste0(tissue, '_9w')]]
+  aged <- bodymap[[paste0(tissue, '_78w')]]
+  A <- unique(link_key(adult))
+  G <- unique(link_key(aged))
+  ji <- jaccard_index(A, G)
+  data.frame(
+    organ = tissue_name[[tissue]],
+    jaccard_index = ji
+  )
+}) |> bind_rows() 
 
 # Venn diagram of adult vs aged links per tissue
 tissues <- c('Ao', 'Br', 'He', 'Ki', 'Li', 'Lu', 'Mu', 'Sp')
@@ -142,14 +214,18 @@ plot_list <- lapply(tissues, function(tissue) {
   aged <- bodymap[[paste0(tissue, '_78w')]]
   adult_sets <- unique(link_key(adult))
   aged_sets  <- unique(link_key(aged))
-  fit <- euler(list(
-      'Adult' = adult_sets,
-      'Aged'  = aged_sets
-    ))
-  plot(fit, quantities = TRUE, fill = sample_colours[c("adult", "aged")], main=tissue_name[[tissue]])
+  fit <- euler(list('Adult' = adult_sets, 'Aged'  = aged_sets))
+
+  # lookup jaccard using the human-readable tissue name stored in jaccard_results$organ
+  ji <- jaccard_results$jaccard_index[jaccard_results$organ == tissue_name[[tissue]]]
+  subtitle_text <- paste0("Jaccard Index: ", ifelse(length(ji)==0 | is.na(ji), "NA", round(ji, 2)))
+
+  # eulerr::plot ignores subtitle, so include it in main (with newline) or call title(sub=...) after plot
+  plot(fit, quantities = TRUE, fill = sample_colours[c("adult", "aged")],
+       main = paste0(tissue_name[[tissue]], "\n", subtitle_text))
 })
 
-pdf('LINKS_study/figures/venn_adult_aged_bodymap_links.pdf', width = 12, height = 6)
+pdf('LINKS_study/figures/venn_adult_aged_bodymap_links.pdf', width = 12, height = 7)
 grid.arrange(grobs = plot_list, ncol = 4, nrow = 2)
 dev.off()
 
@@ -614,11 +690,11 @@ aged_jaccard <- lapply(aged_link, function(ct){
 
 aged_jaccard <- aged_jaccard[names(adult_jaccard)]
 
-  plot_data <- data.frame(
-    Cell_Type = names(adult_jaccard),
-    Adult = unlist(adult_jaccard),
-    Aged = unlist(aged_jaccard)
-  )
+plot_data <- data.frame(
+  Cell_Type = names(adult_jaccard),
+  Adult = unlist(adult_jaccard),
+  Aged = unlist(aged_jaccard)
+)
 
 pdf('LINKS_study/figures/heatmap_jaccard_adult_aged_heart_snRNAseq_links.pdf')
 Heatmap(as.matrix(plot_data[, -1]),
@@ -636,6 +712,51 @@ Heatmap(as.matrix(plot_data[, -1]),
         )
 )
 dev.off()
+
+adult_ct_links <- lapply(adult_link, function(ct) {
+    unique(link_key(ct))
+})
+names(adult_ct_links) <- paste(names(adult_ct_links), 'adult', sep = '_')
+
+aged_ct_links <- lapply(aged_link, function(ct) {
+    unique(link_key(ct))
+})
+names(aged_ct_links) <- paste(names(aged_ct_links), 'aged', sep = '_')
+
+heart_links <- c(adult_ct_links, aged_ct_links, list('Adult_Heart' = adult_He),
+    list('Aged_Heart'  = aged_He)
+)
+heart_links_mtx <- fromList(heart_links)
+rownames(heart_links_mtx) <- unique(unlist(heart_links))
+
+pdf('LINKS_study/figures/upset_adult_aged_heart_snRNAseq_vs_bodymap_links.pdf', onefile = FALSE, width = 12, height = 8)
+upset(heart_links_mtx,
+      nsets = ncol(heart_links_mtx),
+      order.by = "freq",
+      main.bar.color = "black",
+      sets.bar.color = "black",
+      mainbar.y.label = "Number of Links",
+      sets.x.label = "Links per Sample"
+)
+dev.off()
+
+
+# Isolate links found only in heart_adult and ventCM_adult
+unique_adult_ventCM_links <- rownames(heart_links_mtx)[which(heart_links_mtx[,'Adult_Heart'] == 1 &
+    heart_links_mtx[,'ventCM_adult'] == 1 &
+    rowSums(heart_links_mtx[, setdiff(colnames(heart_links_mtx), c('Adult_Heart', 'ventCM_adult'))]) == 0)]
+
+# Isolate links found in heart_aged but not heart_adult
+unique_aged_links <- rownames(heart_links_mtx)[which(heart_links_mtx[,'Aged_Heart'] == 1 &
+    rowSums(heart_links_mtx[, setdiff(colnames(heart_links_mtx), c('Aged_Heart'))]) == 0)]
+
+# Isolate links found in heart_aged and ventCM_aged or atrialCM_aged but not heart_adult
+unique_aged_vent_atrialCM_links <- rownames(heart_links_mtx)[which(heart_links_mtx[,'Aged_Heart'] == 1 &
+    (heart_links_mtx[,'ventCM_aged'] == 1 | heart_links_mtx[,'atrialCM_aged'] == 1) &
+    rowSums(heart_links_mtx[, setdiff(colnames(heart_links_mtx), c('Aged_Heart', 'ventCM_aged', 'atrialCM_aged'))]) == 0)]
+
+heart_links_mtx[grep("Hmgb1", rownames(heart_links_mtx)), ]
+
 
 ########################################
 # Overlap with FACS cardiac cell types #
