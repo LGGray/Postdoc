@@ -41,14 +41,22 @@ samtools index -@ 8 He_9w/pooled_fwd.sorted.bam
 bam2wig.py -i He_9w/pooled_fwd.sorted.bam -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/mm39.chrom.sizes -o He_9w/He_9w_fwd --skip-multi-hits
 
 # merge reverse
-samtools merge -@ 8 He_9w/pooled_rev.bam \
+samtools merge -@ 8 -f He_9w/pooled_rev.bam \
   "adult/Sample_${samples[0]}/${samples[0]}_Aligned.sortedByCoord.out_rev.bam" \
   "adult/Sample_${samples[1]}/${samples[1]}_Aligned.sortedByCoord.out_rev.bam" \
   "adult/Sample_${samples[2]}/${samples[2]}_Aligned.sortedByCoord.out_rev.bam"
+
 samtools sort -o He_9w/pooled_rev.sorted.bam -@ 8 He_9w/pooled_rev.bam
 samtools index -@ 8 He_9w/pooled_rev.sorted.bam
 
 bam2wig.py -i He_9w/pooled_rev.sorted.bam -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/mm39.chrom.sizes -o He_9w/He_9w_rev --skip-multi-hits
+
+# invert counts with deepTools
+bamCoverage \
+  -b He_9w/pooled_rev.sorted.bam \
+  -o He_9w/pooled_rev_inverted.bw \
+  --scaleFactor -1 \
+  --numberOfProcessors 8
 
 ##############
 # Aged heart #
@@ -76,7 +84,12 @@ samtools index -@ 8 He_78w/pooled_rev.sorted.bam
 
 bam2wig.py -i He_78w/pooled_rev.sorted.bam -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/mm39.chrom.sizes -o He_78w/He_78w_rev --skip-multi-hits
 
-
+# invert counts with deepTools
+bamCoverage \
+  -b He_78w/pooled_rev.sorted.bam \
+  -o He_78w/pooled_rev_inverted.bw \
+  --scaleFactor -1 \
+  --numberOfProcessors 8
 
 
 # Collect sample names into an array (0-based)
@@ -104,3 +117,8 @@ samtools index -@ 8 He_TAC28d_RNA_XistBxC_-+_XX/pooled_rev.sorted.bam
 
 bam2wig.py -i He_TAC28d_RNA_XistBxC_-+_XX/pooled_rev.sorted.bam -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/mm39.chrom.sizes -o He_TAC28d_RNA_XistBxC_-+_XX/He_TAC28d_RNA_XistBxC_-+_XX_rev --skip-multi-hits
 
+bamCoverage \
+  -b He_TAC28d_RNA_XistBxC_-+_XX/pooled_rev.sorted.bam \
+  -o He_TAC28d_RNA_XistBxC_-+_XX/pooled_rev_inverted.bw \
+  --scaleFactor -1 \
+  --numberOfProcessors 8
