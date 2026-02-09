@@ -343,11 +343,26 @@ condition <- dplyr::case_when(
 )
 coldata <- data.frame(row.names = sample_names, study=factor(study), condition=factor(condition))
 
+
+
 # Prepare count matrix
 counts_mat <- as.matrix(combined[, -1])
 rownames(counts_mat) <- combined$geneID
 counts_mat[is.na(counts_mat)] <- 0
 storage.mode(counts_mat) <- "integer"
+
+pdf('LINKS_study/figures/heatmap_adult_aged_TAC_sham_log2_counts.pdf')
+top_genes <- head(order(matrixStats::rowVars(counts_mat), decreasing=TRUE), 1000)
+counts_mat_top <- counts_mat[top_genes, ]
+Heatmap(log2(counts_mat_top + 1),
+        name = "Log2 Counts",
+        show_row_names = FALSE,
+        show_column_names = TRUE,
+        cluster_rows = TRUE,
+        cluster_columns = TRUE,
+        col = colorRamp2(c(0, max(log2(counts_mat + 1))), c("blue", "red"))
+)
+dev.off()
 
 # DESeq2 object with batch term (not for DE testing here, just for normalization metadata)
 dds_combined <- DESeqDataSetFromMatrix(
@@ -429,13 +444,11 @@ hmgb1_tac_sham <- subset(tac_sham_deseq, gene == 'Hmgb1')
 # Set condition factor levels for proper ordering
 hmgb1_expr_long$condition <- factor(hmgb1_expr_long$condition, levels=c('adult', 'aged', 'sham', 'TAC'))
 
-# Calculate y positions for significance bars
-y_max <- max(hmgb1_expr_long$expression, na.rm=TRUE)
-y_range <- diff(range(hmgb1_expr_long$expression, na.rm=TRUE))
-bar_height <- y_max + 0.1 * y_range
+# Set fixed bar height for significance indicators
+bar_height <- 11
 
 sample_colours <- c("adult" = "#E69F00", "aged" = "#56B4E9", "TAC" = "#009E73", "sham" = "#CC79A7", "FACS" = "#A67C8C")
-pdf('LINKS_study/figures/Hmgb1_expression_boxplot.pdf', width=10, height=6)
+pdf('LINKS_study/figures/Hmgb1_expression_boxplot.pdf')
 ggplot(hmgb1_expr_long, aes(x=condition, y=expression, fill=condition)) +
   geom_boxplot() +
   geom_jitter(width=0.2, size=2, alpha=0.8) +
@@ -443,19 +456,63 @@ ggplot(hmgb1_expr_long, aes(x=condition, y=expression, fill=condition)) +
   ylab('Hmgb1 Expression (VST batch-corrected)') +
   xlab('') +
   scale_fill_manual(values = sample_colours) +
+  scale_y_continuous(breaks = seq(2, 12, by = 2), limits = c(1, 12)) +
   theme(legend.position = 'none') +
   # Adult vs Aged significance bar
   geom_segment(aes(x=1, xend=2, y=bar_height, yend=bar_height), color='black') +
-  geom_segment(aes(x=1, xend=1, y=bar_height, yend=bar_height - 0.02*y_range), color='black') +
-  geom_segment(aes(x=2, xend=2, y=bar_height, yend=bar_height - 0.02*y_range), color='black') +
-  annotate('text', x=1.5, y=bar_height + 0.03*y_range, 
+  geom_segment(aes(x=1, xend=1, y=bar_height, yend=bar_height - 0.15), color='black') +
+  geom_segment(aes(x=2, xend=2, y=bar_height, yend=bar_height - 0.15), color='black') +
+  annotate('text', x=1.5, y=bar_height + 0.3, 
            label=paste0('padj = ', round(hmgb1_adult_age$padj, 3)), size=3.5) +
   # Sham vs TAC significance bar
   geom_segment(aes(x=3, xend=4, y=bar_height, yend=bar_height), color='black') +
-  geom_segment(aes(x=3, xend=3, y=bar_height, yend=bar_height - 0.02*y_range), color='black') +
-  geom_segment(aes(x=4, xend=4, y=bar_height, yend=bar_height - 0.02*y_range), color='black') +
-  annotate('text', x=3.5, y=bar_height + 0.03*y_range, 
-           label=paste0('padj = ', round(hmgb1_tac_sham$padj, 3)), size=3.5) +
-  coord_cartesian(ylim=c(min(hmgb1_expr_long$expression, na.rm=TRUE) - 0.1*y_range, 
-                          bar_height + 0.1*y_range))
+  geom_segment(aes(x=3, xend=3, y=bar_height, yend=bar_height - 0.15), color='black') +
+  geom_segment(aes(x=4, xend=4, y=bar_height, yend=bar_height - 0.15), color='black') +
+  annotate('text', x=3.5, y=bar_height + 0.3, 
+           label=paste0('padj = ', round(hmgb1_tac_sham$padj, 3)), size=3.5)
 dev.off()
+
+##############################
+`5930430L01Rik_expr` <- vst_bc[rownames(vst_bc) == '5930430L01Rik', ]
+# Convert to long format
+`5930430L01Rik_expr_long` <- data.frame(
+  sample = colnames(`5930430L01Rik_expr`),
+  expression = as.numeric(`5930430L01Rik_expr`[1, ])
+)
+`5930430L01Rik_expr_long`$condition <- dplyr::case_when(
+  grepl('_9w_', `5930430L01Rik_expr_long`$sample) ~ 'adult',
+  grepl('_78w_', `5930430L01Rik_expr_long`$sample)  ~ 'aged',
+  grepl('^TAC_', `5930430L01Rik_expr_long`$sample)   ~ 'TAC',
+  grepl('^sham_', `5930430L01Rik_expr_long`$sample)  ~ 'sham',
+  TRUE ~ 'unknown'
+)
+# Get DESeq2 results for annotation
+hmgb1_adult_age <- subset(adult_age_deseq, gene == '5930430L01Rik')
+hmgb1_tac_sham <- subset(tac_sham_deseq, gene == '5930430L01Rik')
+# Set condition factor levels for proper ordering
+`5930430L01Rik_expr_long`$condition <- factor(`5930430L01Rik_expr_long`$condition, levels=c('adult', 'aged', 'sham', 'TAC'))
+# Set fixed bar height for significance indicators
+bar_height <- 11
+pdf('LINKS_study/figures/5930430L01Rik_expression_boxplot.pdf')
+ggplot(`5930430L01Rik_expr_long`, aes(x=condition, y=expression, fill=condition)) +
+  geom_boxplot() +
+  geom_jitter(width=0.2, size=2, alpha=0.8) +
+  theme_minimal() +
+  ylab('5930430L01Rik Expression (VST batch-corrected)') +
+  xlab('') +
+  scale_fill_manual(values = sample_colours) +
+  scale_y_continuous(breaks = seq(2, 12, by = 2), limits = c(1, 12)) +
+  theme(legend.position = 'none') +
+  # Adult vs Aged significance bar
+  geom_segment(aes(x=1, xend=2, y=bar_height, yend=bar_height), color='black') +
+  geom_segment(aes(x=1, xend=1, y=bar_height, yend=bar_height - 0.15), color='black') +
+  geom_segment(aes(x=2, xend=2, y=bar_height, yend=bar_height - 0.15), color='black') +
+  annotate('text', x=1.5, y=bar_height + 0.3, 
+           label=paste0('padj = ', round(hmgb1_adult_age$padj, 3)), size=3.5) +
+  # Sham vs TAC significance bar
+  geom_segment(aes(x=3, xend=4, y=bar_height, yend=bar_height), color='black') +
+  geom_segment(aes(x=3, xend=3, y=bar_height, yend=bar_height - 0.15), color='black') +
+  geom_segment(aes(x=4, xend=4, y=bar_height, yend=bar_height - 0.15), color='black') +
+  annotate('text', x=3.5, y=bar_height + 0.3, 
+           label=paste0('padj = ', round(hmgb1_tac_sham$padj, 3)), size=3.5)
+dev.off() 

@@ -1,3 +1,16 @@
+"""SHAP analysis for ensemble model interpretability.
+
+Averages hyperparameters across 10 cross-validation splits to create
+a representative ensemble model, then computes SHAP values to explain
+feature contributions to SLE predictions.
+
+Usage:
+    python SHAP.py <input_RDS_file>
+
+Arguments:
+    input_RDS_file: Path to an RDS file (used for cell type name extraction).
+"""
+
 import pickle
 import pandas as pd
 import sys

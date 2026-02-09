@@ -1,10 +1,12 @@
-###### Rename cellTypist labels based on Perez et al. 2022
+# Rename cellTypist labels based on Perez et al. 2022
+#
+# Maps cell type annotations from a Seurat object to standardised
+# labels matching the Perez et al. 2022 nomenclature used in this study.
 
 library(Seurat)
 library(dplyr)
-library(edgeR)
 
-perez_celltypes <- list.files('../../SLE/pseudobulk/split_1/combined/ensemble/', pattern='.chrX.sav')
+perez_celltypes <- list.files('pseudobulk/split_1/combined/ensemble/', pattern='.chrX.sav')
 perez_celltypes <- gsub('.chrX.sav', '', perez_celltypes)
 perez_celltypes <- gsub('_', ' ', perez_celltypes)
 perez_celltypes[6] <- "CD4 T cell Effector-Memory"

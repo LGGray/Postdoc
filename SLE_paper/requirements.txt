@@ -1,0 +1,8 @@
+# Python dependencies for SLE classification pipeline
+numpy
+pandas
+scikit-learn
+matplotlib
+pyreadr
+boruta
+shap

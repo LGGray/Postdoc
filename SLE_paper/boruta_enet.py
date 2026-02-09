@@ -1,10 +1,22 @@
+"""Boruta and Elastic Net feature selection pipeline.
+
+Performs Boruta (Random Forest-based) and Elastic Net feature selection
+on pseudobulk gene expression data for SLE classification.
+
+Usage:
+    python boruta_enet.py <input_RDS_file> <split_number>
+
+Arguments:
+    input_RDS_file: Path to an RDS file containing pseudobulk expression matrix.
+    split_number:   Integer (1-10) indicating the cross-validation split.
+"""
+
 import sys
 import os.path
 import time
 import pandas as pd
 import numpy as np
 from numpy import arange
-import time
 import pyreadr
 from boruta import BorutaPy
 from sklearn.utils import resample

@@ -7,6 +7,7 @@ library(ComplexHeatmap)
 library(circlize)
 library(gridExtra)
 library(ggplot2)
+library(ggrepel)
 
 # Function to extract the link key - base|target|mechanism
 link_key <- function(df) paste(df$name_base, df$name_target, df$mechanism, sep="|")
@@ -84,6 +85,46 @@ load('adult_aged_bodymap/bodymap_links.RData')
 #######################################
 # Compare link between adult and aged #
 #######################################
+# Aged and TAC specific
+adult_heart <- bodymap[['He_9w']]
+adult_heart$link_key <- link_key(adult_heart)
+aged_heart <- bodymap[['He_78w']]
+aged_heart$link_key <- link_key(aged_heart)
+
+common_links <- merge(adult_heart, aged_heart, by = "link_key", suffixes = c("_adult", "_aged"))
+common_links$delta_allelic_ratio_base <- common_links$allelic_ratio_base_aged - common_links$allelic_ratio_base_adult
+common_links$delta_allelic_ratio_target <- common_links$allelic_ratio_target_aged - common_links$allelic_ratio_target_adult
+
+q <- 0.8
+thr_base   <- quantile(abs(common_links$delta_allelic_ratio_base), q)
+thr_target <- quantile(abs(common_links$delta_allelic_ratio_target), q)
+common_links$tail_candidate <-
+  abs(common_links$delta_allelic_ratio_base)   > thr_base &
+  abs(common_links$delta_allelic_ratio_target) > thr_target &
+  sign(common_links$delta_allelic_ratio_base) ==
+  sign(common_links$delta_allelic_ratio_target)
+
+pdf('LINKS_study/figures/allelic_ratio_changes_adult_to_aged_heart_links.pdf')
+ggplot(common_links,
+       aes(x = delta_allelic_ratio_base,
+           y = delta_allelic_ratio_target)) +
+  geom_point(alpha = 0.3, colour = "grey70") +
+  geom_point(data = subset(common_links, tail_candidate),
+             colour = "firebrick", size = 1.5) +
+  geom_text_repel(data = subset(common_links, tail_candidate),
+                  aes(label = link_key),
+                  size = 4,
+                  max.overlaps = Inf,
+                  min.segment.length = 0) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_minimal() +
+  labs(
+    x = " Delta Allelic Ratio (lncRNA, Aged - Adult)",
+    y = " Delta Allelic Ratio (pcGene, Aged - Adult)"
+  ) +
+  ggtitle("Heart Links")
+dev.off()
 
 bodymap <- lapply(bodymap, function(df) {
   df$link_key <- link_key(df)
@@ -96,8 +137,8 @@ delta_AR <- lapply(tissues, function(tissue) {
   adult <- bodymap[[paste0(tissue, '_9w')]]
   aged  <- bodymap[[paste0(tissue, '_78w')]]
   merged <- merge(adult, aged, by = "link_key", suffixes = c("_adult", "_aged"))
-  merged$delta_allelic_ratio_base <- merged$allelic_ratio_base_adult - merged$allelic_ratio_base_aged
-  merged$delta_allelic_ratio_target <- merged$allelic_ratio_target_adult - merged$allelic_ratio_target_aged
+  merged$delta_allelic_ratio_base <- merged$allelic_ratio_base_aged - merged$allelic_ratio_base_adult
+  merged$delta_allelic_ratio_target <- merged$allelic_ratio_target_aged - merged$allelic_ratio_target_adult
   merged$tissue <- tissue
   merged[, c('link_key', 'delta_allelic_ratio_base', 'delta_allelic_ratio_target', 'tissue')]
 }) |> bind_rows()
@@ -122,6 +163,20 @@ ggplot(delta_AR, aes(x=delta_allelic_ratio_target, fill = tissue)) +
   theme(legend.position = "none")
 dev.off()
 
+pdf('LINKS_study/figures/scatter_adult_aged_bodymap_delta_AR.pdf')
+ggplot(delta_AR, aes(x=delta_allelic_ratio_base, y=delta_allelic_ratio_target, color = tissue)) +
+  geom_point(alpha = 0.5) +
+  scale_color_manual(values = unlist(tissue_colours)) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_minimal() +
+  labs(
+    x = " Delta Allelic Ratio (lncRNA, Aged - Adult)",
+    y = " Delta Allelic Ratio (pcGene, Aged - Adult)"
+  ) +
+  facet_wrap(~ tissue, nrow=2) +
+  theme(legend.position = "none")
+dev.off()
 
 # Colours for adult and aged
 bodymap_link_keys <- lapply(bodymap, function(df) unique(link_key(df)))
@@ -693,20 +748,57 @@ upset(combined_mtx,
 dev.off()
 
 # Venn diagram of adult vs aged links per cell type
-plot_list <- lapply(names(adult_link), function(ct) {
+# Calculate Jaccard index and hypergeometric p-value for enrichment
+jaccard_results_ct <- lapply(names(adult_link), function(ct) {
   adult_ct <- adult_link[[ct]]
   aged_ct  <- aged_link[[ct]]
   adult_sets <- unique(link_key(adult_ct))
   aged_sets  <- unique(link_key(aged_ct))
   ji <- jaccard_index(adult_sets, aged_sets)
+  data.frame(
+    cell_type = ct,
+    jaccard_index = ji
+  )
+}) |> bind_rows()
+
+# Calculate the hypergeometric p-value for the overlap against total background of all links
+hypergeometric_results_ct <- lapply(names(adult_link), function(ct) {
+  adult_ct <- adult_link[[ct]]
+  aged_ct  <- aged_link[[ct]]
+  A <- unique(link_key(adult_ct))
+  G <- unique(link_key(aged_ct))
+  k <- length(intersect(A, G))
+  M <- nrow(combined_mtx)
+  n <- length(A)
+  N <- length(G)
+  p_value <- phyper(k - 1, n, M - n, N, lower.tail = FALSE)
+  data.frame(
+    cell_type = ct,
+    hypergeometric_pvalue = p_value
+  )
+}) |> bind_rows()
+
+plot_list <- lapply(names(adult_link), function(ct) {
+  adult_ct <- adult_link[[ct]]
+  aged_ct  <- aged_link[[ct]]
+  adult_sets <- unique(link_key(adult_ct))
+  aged_sets  <- unique(link_key(aged_ct))
   fit <- euler(list(
       'Adult' = adult_sets,
       'Aged'  = aged_sets
     ))
+  
+  ji <- jaccard_results_ct$jaccard_index[jaccard_results_ct$cell_type == ct]
+  subtitle_text <- paste0("Jaccard Index: ", ifelse(length(ji)==0 | is.na(ji), "NA", round(ji, 2)), 
+                          "\np-value: ",
+                          ifelse(length(ji)==0 | is.na(ji), "NA",
+                                 formatC(hypergeometric_results_ct$hypergeometric_pvalue[hypergeometric_results_ct$cell_type == ct],
+                                         format = "e", digits = 2)))
+  
   plot(fit, quantities = TRUE, fill = sample_colours[c('adult', 'aged')], 
-       main = paste0(ct, '\nJaccard Index: ', round(ji, 2)))
+       main = paste0(ct, '\n', subtitle_text))
 })
-pdf('LINKS_study/figures/venn_adult_aged_heart_snRNAseq_links.pdf', width = 15, height = 8)
+pdf('LINKS_study/figures/venn_adult_aged_heart_snRNAseq_links.pdf', width = 15, height = 10)
 grid.arrange(grobs = plot_list, ncol = 5, nrow = 2)
 dev.off()
 
@@ -822,6 +914,7 @@ adult_heart_links <- c(adult_ct_links, list('Adult_Heart' = adult_He))
 adult_heart_links_mtx <- fromList(adult_heart_links)
 rownames(adult_heart_links_mtx) <- unique(unlist(adult_heart_links))
 colnames(adult_heart_links_mtx) <- gsub('_adult', '', colnames(adult_heart_links_mtx))
+
 pdf('LINKS_study/figures/heatmap_adult_heart_snRNAseq_vs_bodymap_links.pdf')
 Heatmap(as.matrix(adult_heart_links_mtx),
         name = "Link",
@@ -841,6 +934,9 @@ Heatmap(as.matrix(adult_heart_links_mtx),
         )
 )
 dev.off()
+
+adult_heart_only_links <- rownames(adult_heart_links_mtx)[which(adult_heart_links_mtx[,'Adult_Heart'] == 1 &
+    rowSums(adult_heart_links_mtx[, setdiff(colnames(adult_heart_links_mtx), c('Adult_Heart'))]) == 0)]
 
 aged_heart_links <- c(aged_ct_links, list('Aged_Heart' = aged_He))
 aged_heart_links_mtx <- fromList(aged_heart_links)
@@ -866,6 +962,11 @@ Heatmap(as.matrix(aged_heart_links_mtx),
 )
 dev.off()
 
+# How many links have a 1 in Aged_heart but not other columns?
+aged_heart_only_links <- rownames(aged_heart_links_mtx)[which(aged_heart_links_mtx[,'Aged_Heart'] == 1 &
+    rowSums(aged_heart_links_mtx[, setdiff(colnames(aged_heart_links_mtx), c('Aged_Heart'))]) == 0)]
+
+length(adult_heart_only_links) / length(aged_He)
 
 
 pdf('LINKS_study/figures/heatmap_adult_aged_heart_snRNAseq_vs_bodymap_links.pdf')
@@ -991,44 +1092,35 @@ save(facs_links, file = 'cardiac_RNAseq/facs_links.RData')
 load('cardiac_RNAseq/facs_links.RData')
 
 adult_heart <- unique(link_key(bodymap[['He_9w']]))
-aged_heart <- unique(link_key(bodymap[['He_78w']]))
-lapply(facs_links, function(ct){
-    ct_links <- unique(link_key(ct))
-    print(c(jaccard_index(adult_heart, ct_links),
-    jaccard_index(aged_heart, ct_links)))
-})
 
-intersect(aged_heart, unique(link_key(facs_links[['female_Cardiomyocytes']])))
+# Jaccard indices for adult and aged heart vs each FACS cell type
+jaccard_ct_adult <- lapply(facs_links, function(ct){
+  ct_links <- unique(link_key(ct))
+  jaccard_index(adult_heart, ct_links)
+})
 
 # Plot ven diagrams of adult and aged heart vs FACS cell types
 adult_plots <- lapply(names(facs_links), function(ct) {
   facs_ct <- facs_links[[ct]]
   facs_sets  <- unique(link_key(facs_ct))
   ct_clean <- gsub('female_', '', ct)
+  ct_clean <- gsub('_', ' ', ct_clean)
+  ct_label <- paste0(ct_clean, " \n Jaccard: ", round(jaccard_ct_adult[[ct]], 2), "")
   
   # Create a named list properly
   sets_list <- list(adult_heart, facs_sets)
-  names(sets_list) <- c('Adult_Heart', ct_clean)
+  names(sets_list) <- c('Adult_Heart', 'FACS')
   
   fit_adult <- euler(sets_list)
-  plot(fit_adult, quantities = TRUE, fill = sample_colours[c("adult", "FACS")], main='')
+  plot(fit_adult,
+       quantities = TRUE,
+       fill = sample_colours[c("adult", "FACS")],
+       main = ct_label)
 })
 
-aged_plots <- lapply(names(facs_links), function(ct) {
-  facs_ct <- facs_links[[ct]]
-  facs_sets  <- unique(link_key(facs_ct))
-  ct_clean <- gsub('female_', '', ct)
-  
-  # Create a named list properly
-  sets_list <- list(aged_heart, facs_sets)
-  names(sets_list) <- c('Aged_Heart', ct_clean)
-  
-  fit_aged <- euler(sets_list)
-  plot(fit_aged, quantities = TRUE, fill = sample_colours[c("aged", "FACS")], main='')
-})
 
-pdf('LINKS_study/figures/venn_adult_aged_heart_vs_FACS_links.pdf', width = 12, height = 6)
-grid.arrange(grobs = c(adult_plots, aged_plots), ncol = 4, nrow = 2)
+pdf('LINKS_study/figures/venn_adult_heart_vs_FACS_links.pdf', width = 12, height = 6)
+grid.arrange(grobs = adult_plots, nrow = 1)
 dev.off()
 
 ##################################
@@ -1307,6 +1399,48 @@ bodymap_flt[['He_9w']]
 # analysis of allelic ratios #
 ##############################
 # Aged and TAC specific
+adult_heart <- bodymap[['He_9w']]
+adult_heart$link_key <- link_key(adult_heart)
+aged_heart <- bodymap[['He_78w']]
+aged_heart$link_key <- link_key(aged_heart)
+
+common_links <- merge(adult_heart, aged_heart, by = "link_key", suffixes = c("_adult", "_aged"))
+common_links$delta_allelic_ratio_base <- common_links$allelic_ratio_base_aged - common_links$allelic_ratio_base_adult
+common_links$delta_allelic_ratio_target <- common_links$allelic_ratio_target_aged - common_links$allelic_ratio_target_adult
+
+q <- 0.8
+thr_base   <- quantile(abs(common_links$delta_allelic_ratio_base), q)
+thr_target <- quantile(abs(common_links$delta_allelic_ratio_target), q)
+common_links$tail_candidate <-
+  abs(common_links$delta_allelic_ratio_base)   > thr_base &
+  abs(common_links$delta_allelic_ratio_target) > thr_target &
+  sign(common_links$delta_allelic_ratio_base) ==
+  sign(common_links$delta_allelic_ratio_target)
+
+pdf('LINKS_study/figures/allelic_ratio_changes_adult_to_aged_heart_links.pdf')
+ggplot(common_links,
+       aes(x = delta_allelic_ratio_base,
+           y = delta_allelic_ratio_target)) +
+  geom_point(alpha = 0.3, colour = "grey70") +
+  geom_point(data = subset(common_links, tail_candidate),
+             colour = "firebrick", size = 1.5) +
+  geom_text_repel(data = subset(common_links, tail_candidate),
+                  aes(label = link_key),
+                  size = 4,
+                  max.overlaps = Inf,
+                  min.segment.length = 0) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_minimal() +
+  labs(
+    x = " Delta Allelic Ratio (lncRNA, Aged - Adult)",
+    y = " Delta Allelic Ratio (pcGene, Aged - Adult)"
+  ) +
+  ggtitle("Heart Links")
+dev.off()
+
+
+
 aged_heart <- setdiff(bodymap[['He_78w']]$link_key, bodymap[['He_9w']]$link_key)
 aged_heart_AR <- subset(bodymap[['He_78w']], link_key %in% aged_heart)
 

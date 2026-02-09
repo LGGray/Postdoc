@@ -70,6 +70,8 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_sr
   -t 1 \
   -o .
 
+bam2wig.py -i rep_1.clean.bam -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/mm39.chrom.sizes -o rep_1.clean --skip-multi-hits
+
 # Allelome.PRO with MAC2 peaks as annotation
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_src/Allelome.PRO2.sh \
   -i rep_2.clean.bam \

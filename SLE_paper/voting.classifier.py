@@ -1,15 +1,30 @@
+"""Soft Voting Ensemble classifier for SLE classification.
+
+Loads pre-trained LR, RF, SVM, GBM, and MLP models and combines them
+into a soft voting ensemble. Evaluates on a held-out test set and saves
+metrics, plots, and the ensemble model.
+
+Usage:
+    python voting.classifier.py <input_RDS_file> <split_number> <feature_type>
+
+Arguments:
+    input_RDS_file: Path to an RDS file containing pseudobulk expression matrix.
+    split_number:   Integer (1-10) indicating the cross-validation split.
+    feature_type:   One of 'intersection', 'combined', 'boruta', or 'enet'.
+"""
+
 import sys
 import pickle
 import os.path
 import pandas as pd
 import numpy as np
 import pyreadr
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc, roc_auc_score, precision_recall_curve, PrecisionRecallDisplay, average_precision_score, cohen_kappa_score, matthews_corrcoef
+from sklearn.metrics import (confusion_matrix, accuracy_score, precision_score,
+    recall_score, f1_score, roc_curve, roc_auc_score, precision_recall_curve,
+    PrecisionRecallDisplay, average_precision_score, cohen_kappa_score,
+    matthews_corrcoef)
 import matplotlib.pyplot as plt
 from sklearn.ensemble import VotingClassifier
-from sklearn.inspection import permutation_importance
 from sklearn.utils import resample
 
 file = sys.argv[1]
@@ -36,7 +51,7 @@ y_test = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/y_test.
 enet_features = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/enet_features.'+os.path.basename(file).replace('.RDS', '')+'.csv')
 boruta_features = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/boruta_features.'+os.path.basename(file).replace('.RDS', '')+'.csv')
 
-# Subset for selected and tentitive features from boruta
+# Subset for selected and tentative features from boruta
 boruta_features = boruta_features[boruta_features['Rank'] == 1]
 # Subset elastic net features to those with absolute value of coefficients in 80th percentile
 threshold = np.percentile(np.abs(enet_features['coef']), 90)
@@ -193,7 +208,6 @@ disp.ax_.set_title('Ensemble: ' + os.path.basename(file).replace('.RDS', '').rep
 plt.savefig(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ensemble/PRcurve_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
 
 # Save the model
-import pickle
 filename = f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ensemble/'+os.path.basename(file).replace('.RDS', '')+'.sav'
 pickle.dump(voting_clf, open(filename, 'wb'))
 

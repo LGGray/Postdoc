@@ -1,11 +1,23 @@
+"""Plot overlaid Precision-Recall curves for all trained ML models.
+
+Loads all individual and ensemble models for a given cell type and split,
+then plots their PR curves on a single figure for comparison.
+
+Usage:
+    python plot.all.curves.py <input_RDS_file> <split_number> <feature_type>
+
+Arguments:
+    input_RDS_file: Path to an RDS file (used for cell type name extraction).
+    split_number:   Integer (1-10) indicating the cross-validation split.
+    feature_type:   One of 'intersection', 'combined', 'boruta', or 'enet'.
+"""
+
 import sys
 import os
 import pickle
 import pandas as pd
 import numpy as np
-import pyreadr
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc, roc_auc_score, precision_recall_curve, PrecisionRecallDisplay, average_precision_score
+from sklearn.metrics import precision_recall_curve
 import matplotlib.pyplot as plt
 
 file = sys.argv[1]
@@ -27,7 +39,7 @@ y_test = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/y_test.
 enet_features = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/enet_features.'+os.path.basename(file).replace('.RDS', '')+'.csv')
 boruta_features = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/boruta_features.'+os.path.basename(file).replace('.RDS', '')+'.csv')
 
-# Subset for selected and tentitive features from boruta
+# Subset for selected and tentative features from boruta
 boruta_features = boruta_features[boruta_features['Rank'] == 1]
 # Subset elastic net features to those with absolute value of coefficients in 80th percentile
 threshold = np.percentile(np.abs(enet_features['coef']), 90)

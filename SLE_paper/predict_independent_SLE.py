@@ -1,21 +1,35 @@
+"""Predict SLE status on an independent validation cohort.
+
+Loads a pre-trained ensemble model and scaler, applies them to an
+independent test set, and saves classification metrics, confusion
+matrix, and PR curve.
+
+Usage:
+    python predict_independent_SLE.py <input_RDS_file> <split_number> <age_group>
+
+Arguments:
+    input_RDS_file: Path to an RDS file containing the independent cohort.
+    split_number:   Integer (1-10) indicating the cross-validation split.
+    age_group:      One of 'adult', 'child', or 'all'.
+"""
+
 import sys
 import pickle
 import os.path
 import pandas as pd
 import numpy as np
 import pyreadr
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler, StandardScaler
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc, roc_auc_score, precision_recall_curve, PrecisionRecallDisplay, average_precision_score, cohen_kappa_score, matthews_corrcoef
+from sklearn.metrics import (confusion_matrix, accuracy_score, precision_score,
+    recall_score, f1_score, roc_curve, roc_auc_score, precision_recall_curve,
+    PrecisionRecallDisplay, average_precision_score, cohen_kappa_score,
+    matthews_corrcoef)
 import matplotlib.pyplot as plt
-from sklearn.ensemble import VotingClassifier
-from sklearn.inspection import permutation_importance
 from sklearn.utils import resample
 
 cell = os.path.basename(sys.argv[1]).replace('.RDS', '')
 
 # Load in ensemble model
-model_path = f'/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/SLE_paper/SLE/pseudobulk_update/split_{sys.argv[2]}/combined/ensemble/{cell}.sav'
+model_path = f'pseudobulk_update/split_{sys.argv[2]}/combined/ensemble/{cell}.sav'
 eclf = pickle.load(open(model_path, 'rb'))
 features = eclf.feature_names_in_
 
@@ -49,7 +63,7 @@ test[missing] = 0
 X_test = test[features]
 
 # Load in the scaler
-with open(f'/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/SLE_paper/SLE/pseudobulk_update/split_{sys.argv[2]}/scaler/scaler_'+cell+'.pkl', "rb") as f:
+with open(f'pseudobulk_update/split_{sys.argv[2]}/scaler/scaler_'+cell+'.pkl', "rb") as f:
     scaler = pickle.load(f)
 # Scale the test data
 X_test = pd.DataFrame(
@@ -92,7 +106,7 @@ metrics = pd.DataFrame({'Accuracy': [accuracy],
                         'Kappa': [kappa],
                         'MCC': [mcc],
                         'n_features': [len(features)]})
-metrics.to_csv(f'/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/SLE_paper/SLE_GSE135779/results_update/metrics_{cell}_{sys.argv[3]}_split_{sys.argv[2]}.csv', index=False)
+metrics.to_csv(f'results_update/metrics_{cell}_{sys.argv[3]}_split_{sys.argv[2]}.csv', index=False)
 
 # confusion matrix
 confusion = pd.DataFrame(confusion_matrix(y_test, y_pred))
@@ -125,7 +139,7 @@ plt.annotate(f'MCC: {mcc:.2f}', xy=(0.5, -0.1), xycoords='axes fraction',
 # Adjust layout for visibility
 plt.tight_layout()
 # Save the figure
-plt.savefig(f'/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/SLE_paper/SLE_GSE135779/results_update/confusion_{cell}_{sys.argv[3]}_split_{sys.argv[2]}.pdf', bbox_inches='tight')
+plt.savefig(f'results_update/confusion_{cell}_{sys.argv[3]}_split_{sys.argv[2]}.pdf', bbox_inches='tight')
 plt.close()
 
 # Print the PR curve
@@ -134,4 +148,4 @@ average_precision = average_precision_score(y_test, y_pred_proba)
 disp = PrecisionRecallDisplay(precision=precision, recall=recall, average_precision=average_precision)
 disp.plot()
 disp.ax_.set_title(f'Split_{sys.argv[2]}: {sys.argv[3]} {cell.replace("_", " ")}')
-plt.savefig(f'/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/SLE_paper/SLE_GSE135779/results_update/PRcurve_{cell}_{sys.argv[3]}_split_{sys.argv[2]}.pdf', bbox_inches='tight')
+plt.savefig(f'results_update/PRcurve_{cell}_{sys.argv[3]}_split_{sys.argv[2]}.pdf', bbox_inches='tight')

@@ -1,19 +1,31 @@
+"""Logistic Regression classifier for SLE classification.
 
-### Import required libraries ###
+Trains an Elastic Net-regularised logistic regression model using features
+selected by Boruta and/or Elastic Net, evaluates on a held-out test set,
+and saves metrics, plots, and the trained model.
+
+Usage:
+    python logit.regression.py <input_RDS_file> <split_number> <feature_type>
+
+Arguments:
+    input_RDS_file: Path to an RDS file containing pseudobulk expression matrix.
+    split_number:   Integer (1-10) indicating the cross-validation split.
+    feature_type:   One of 'intersection', 'combined', 'boruta', or 'enet'.
+"""
+
 import sys
 import os.path
+import pickle
 import time
 import pandas as pd
 import numpy as np
 import pyreadr
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import GridSearchCV, RepeatedKFold, GroupShuffleSplit
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV, RepeatedKFold
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import train_test_split, StratifiedShuffleSplit
-from sklearn.metrics import confusion_matrix, accuracy_score, precision_score, recall_score, f1_score, roc_curve, auc, roc_auc_score, precision_recall_curve, PrecisionRecallDisplay, average_precision_score, cohen_kappa_score, ConfusionMatrixDisplay, matthews_corrcoef
-from sklearn.feature_selection import RFECV
-from sklearn.inspection import permutation_importance
+from sklearn.metrics import (confusion_matrix, accuracy_score, precision_score,
+    recall_score, f1_score, roc_curve, roc_auc_score, precision_recall_curve,
+    PrecisionRecallDisplay, average_precision_score, cohen_kappa_score,
+    matthews_corrcoef)
 import matplotlib.pyplot as plt
 from sklearn.utils import resample
 
@@ -31,7 +43,7 @@ y_test = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/data.splits/y_test.
 enet_features = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/enet_features.'+os.path.basename(file).replace('.RDS', '')+'.csv')
 boruta_features = pd.read_csv(f'pseudobulk_update/split_{sys.argv[2]}/features/boruta_features.'+os.path.basename(file).replace('.RDS', '')+'.csv')
 
-# Subset for selected and tentitive features from boruta
+# Subset for selected and tentative features from boruta
 boruta_features = boruta_features[boruta_features['Rank'] == 1]
 # Subset elastic net features to those with absolute value of coefficients in 80th percentile
 threshold = np.percentile(np.abs(enet_features['coef']), 90)
@@ -203,7 +215,6 @@ disp.ax_.set_title('logit: ' + os.path.basename(file).replace('.RDS', '').replac
 plt.savefig(f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/PRC/logit_'+os.path.basename(file).replace('.RDS', '')+'.pdf', bbox_inches='tight')
 
 # Save the model
-import pickle
 filename = f'pseudobulk_update/split_{sys.argv[2]}/{sys.argv[3]}/ML.models/logit_model_'+os.path.basename(file).replace('.RDS', '')+'.sav'
 pickle.dump(clf, open(filename, 'wb'))
 

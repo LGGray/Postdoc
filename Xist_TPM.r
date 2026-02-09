@@ -98,6 +98,19 @@ ggplot(long_data, aes(x = age, y = value, fill = organ)) +
   theme(legend.position = 'none', axis.text.x = element_text(angle = 45, hjust = 1))
 dev.off()
 
+png('LRZ Sync+Share/LGray/Xist_TPM_Deutsch.png')
+ggplot(long_data, aes(x = age, y = value, fill = organ)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, alpha = 0.5) +
+  scale_fill_manual(values = organ_colors) +
+  facet_wrap(~ organ, scales = "free_y", axes = 'all_x') +
+  labs(title = "Xist-Expression während der Entwicklung", 
+       x = "Alter", 
+       y = "Xist TPM") +
+  theme_minimal() +
+  theme(legend.position = 'none', axis.text.x = element_text(angle = 45, hjust = 1))
+dev.off()
+
 # Set factors
 long_data$age <- factor(long_data$age, levels = c("embryo", "young", "adult", "aged"))
 long_data$organ <- factor(long_data$organ, levels = c("brain", "heart", "kidney", "liver", "lung", "spleen", "muscle"))
