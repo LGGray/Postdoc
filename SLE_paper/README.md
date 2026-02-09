@@ -37,6 +37,17 @@ The following R packages are required for the R analysis scripts and `rename_cel
 - `ComplexHeatmap`, `circlize`, `UpSetR`
 - `Seurat`, `speckle`
 
+## Setup
+
+### Create directory structure
+
+Run the setup script once from the project root to create all required directories:
+```bash
+./setup_directories.sh
+```
+
+This creates the full tree of ~290 directories across `pseudobulk/`, `pseudobulk_update/`, and `results_update/` needed by the pipeline.
+
 ## Usage
 
 ### 1. Feature Selection
