@@ -24,7 +24,8 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq
 
 celltypes=(Adipo EC Epicard FB Glial LEC Macro SMC atrialCM ventCM)
 
-ct=$(sed -n "${SLURM_ARRAY_TASK_ID}p" celltypes)
+# index celltypes
+ct=${celltypes[$((SLURM_ARRAY_TASK_ID-1))]}
 
 ## Adult mice ##
 # sort, index
