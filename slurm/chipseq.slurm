@@ -62,7 +62,7 @@ awk 'BEGIN{OFS="\t"} {print $1,$2,$3,$4,$5,"."}' \
 
 # Allelome.PRO with MAC2 peaks as annotation
 SNPfile=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_src/Allelome.PRO2.sh \
+bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i rep_1.clean.bam \
   -a macs2/H3K4me3_consensus_peaks.bed \
   -s $SNPfile \
@@ -73,7 +73,7 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_sr
 bam2wig.py -i rep_1.clean.bam -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/mm39.chrom.sizes -o rep_1.clean --skip-multi-hits
 
 # Allelome.PRO with MAC2 peaks as annotation
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_src/Allelome.PRO2.sh \
+bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i rep_2.clean.bam \
   -a macs2/H3K4me3_consensus_peaks.bed \
   -s $SNPfile \
@@ -81,6 +81,62 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_sr
   -t 1 \
   -o .
 
+bam2wig.py -i rep_2.clean.bam -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/mm39.chrom.sizes -o rep_2.clean --skip-multi-hits
+
+# combine rep_1.clean.bed and rep_2.clean.bed into one bed file and average allelic ratios
+awk 'BEGIN{OFS="\t"}
+  FNR==NR{
+    key=$1 FS $2 FS $3
+    rline[key]=$0
+    split($4,a,"_ratio:")
+    r1[key]=a[2]+0
+    next
+  }
+  {
+    key=$1 FS $2 FS $3
+    split($4,b,"_ratio:")
+    r2=b[2]+0
+    if(key in r1){
+      # average ratios, keep rep1 columns but remove rep1/rep2 and _peak_\d+ from name
+      split(rline[key],f,"\t")
+      avg=(r1[key]+r2)/2
+      sub(/_rep[12]/,"",f[4])
+      sub(/_peak_[0-9]+/,"",f[4])
+      sub(/_ratio:.*/,"_ratio:"sprintf("%.3f",avg),f[4])
+      print f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8],f[9]
+      seen[key]=1
+    } else {
+      # only in rep2: remove rep1/rep2 and _peak_\d+ from name
+      sub(/_rep[12]/,"",$4)
+      sub(/_peak_[0-9]+/,"",$4)
+      print $1,$2,$3,$4,$5,$6,$7,$8,$9
+    }
+  }
+  END{
+    # only in rep1: remove rep1/rep2 and _peak_\d+ from name
+    for(key in rline){
+      if(!(key in seen)){
+        split(rline[key],f,"\t")
+        sub(/_rep[12]/,"",f[4])
+        sub(/_peak_[0-9]+/,"",f[4])
+        print f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8],f[9]
+      }
+    }
+  }' \
+  2026_02_11_rep_1.clean_H3K4me3_consensus_peaks.bed_1/BED_files/rep_1.clean.bed \
+  2026_02_11_rep_2.clean_H3K4me3_consensus_peaks.bed_1/BED_files/rep_2.clean.bed \
+  > rep_1_2.avg.clean.bed
+cp rep_1_2.avg.clean.bed H3K4me3_adult_heart.bed
+
+# merge, sort, index
+samtools merge -@ 8 merged.clean.bam rep_1.clean.bam rep_2.clean.bam
+samtools sort -@ 8 -o merged.clean.sorted.bam merged.clean.bam
+samtools index merged.clean.sorted.bam
+
+# make WIG from merged BAM
+bam2wig.py -i merged.clean.sorted.bam \
+  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/mm39.chrom.sizes \
+  -o merged.clean --skip-multi-hits
 
 ### H3K27ac CHIP-seq ###
 
@@ -132,7 +188,7 @@ bedtools intersect \
 
 # Allelome.PRO with MAC2 peaks as annotation
 SNPfile=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_src/Allelome.PRO2.sh \
+bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i rep_1.clean.bam \
   -a macs2/H3K27ac_consensus_peaks.bed \
   -s $SNPfile \
@@ -141,7 +197,7 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_sr
   -o .
 
 # Allelome.PRO with MAC2 peaks as annotation
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_src/Allelome.PRO2.sh \
+bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i rep_2.clean.bam \
   -a macs2/H3K27ac_consensus_peaks.bed \
   -s $SNPfile \
@@ -149,3 +205,57 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_sr
   -t 1 \
   -o .
 
+# combine rep_1.clean.bed and rep_2.clean.bed into one bed file and average allelic ratios
+awk 'BEGIN{OFS="\t"}
+  FNR==NR{
+    key=$1 FS $2 FS $3
+    rline[key]=$0
+    split($4,a,"_ratio:")
+    r1[key]=a[2]+0
+    next
+  }
+  {
+    key=$1 FS $2 FS $3
+    split($4,b,"_ratio:")
+    r2=b[2]+0
+    if(key in r1){
+      # average ratios, keep rep1 columns but remove rep1/rep2 and _peak_\d+ from name
+      split(rline[key],f,"\t")
+      avg=(r1[key]+r2)/2
+      sub(/_rep[12]/,"",f[4])
+      sub(/_peak_[0-9]+/,"",f[4])
+      sub(/_ratio:.*/,"_ratio:"sprintf("%.3f",avg),f[4])
+      print f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8],f[9]
+      seen[key]=1
+    } else {
+      # only in rep2: remove rep1/rep2 and _peak_\d+ from name
+      sub(/_rep[12]/,"",$4)
+      sub(/_peak_[0-9]+/,"",$4)
+      print $1,$2,$3,$4,$5,$6,$7,$8,$9
+    }
+  }
+  END{
+    # only in rep1: remove rep1/rep2 and _peak_\d+ from name
+    for(key in rline){
+      if(!(key in seen)){
+        split(rline[key],f,"\t")
+        sub(/_rep[12]/,"",f[4])
+        sub(/_peak_[0-9]+/,"",f[4])
+        print f[1],f[2],f[3],f[4],f[5],f[6],f[7],f[8],f[9]
+      }
+    }
+  }' \
+  2026_02_11_rep_1.clean_H3K27ac_consensus_peaks.bed_1/BED_files/rep_1.clean.bed \
+  2026_02_11_rep_2.clean_H3K27ac_consensus_peaks.bed_1/BED_files/rep_2.clean.bed \
+  > rep_1_2.avg.clean.bed
+cp rep_1_2.avg.clean.bed H3K27ac_adult_heart.bed
+
+# merge, sort, index
+samtools merge -@ 8 merged.clean.bam rep_1.clean.bam rep_2.clean.bam
+samtools sort -@ 8 -o merged.clean.sorted.bam merged.clean.bam
+samtools index merged.clean.sorted.bam
+
+# make WIG from merged BAM
+bam2wig.py -i merged.clean.sorted.bam \
+  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/mm39.chrom.sizes \
+  -o merged.clean --skip-multi-hits
