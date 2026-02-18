@@ -492,3 +492,90 @@ FeaturePlot(merged, features = "Med14", reduction = "umap", cols = col_fun(break
   theme_minimal() +
   labs(title = "Allelic Ratio of Med14") +
   theme(plot.title = element_text(hjust = 0.5))
+
+
+############################################
+# Visualising per cell expression of Hmgb1 #
+############################################
+
+# Feature Plot
+pdf('Hmgb1_expression.pdf')
+FeaturePlot(merged, features = "Hmgb1", reduction = "umap", cols = c("lightblue", "darkblue"), min.cutoff = "q10", max.cutoff = "q90")
+dev.off()
+
+# Violin Plot split by age and cell type
+pdf('Hmgb1_violin.pdf', width = 12, height = 6)
+VlnPlot(merged, features = "Hmgb1", group.by = "age", split.by = "celltype", cols = cluster_colors[levels(merged)])
+dev.off()
+
+# Percent of cells expressing Hmgb1 in each cell type and age group
+hmgb1_expr <- merged@assays$SCT$counts["Hmgb1", ]
+cell_ids$Hmgb1_expr <- hmgb1_expr[match(rownames(cell_ids), colnames(merged))]
+hmgb1_summary <- cell_ids %>%
+  group_by(cell_type, age) %>%
+  summarise(percent_expressing = mean(Hmgb1_expr > 0) * 100) %>%
+  ungroup()
+hmgb1_summary$age <- factor(hmgb1_summary$age, levels = c("adult", "aged"))
+pdf('Hmgb1_percent_expressing.pdf', width = 10, height = 6)
+ggplot(hmgb1_summary, aes(x = cell_type, y = percent_expressing, fill = age)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Cell Type", y = "Percent Expressing Hmgb1", title = "Percentage of Cells Expressing Hmgb1 by Cell Type and Age") +
+  theme_minimal() +
+  scale_fill_manual(values = c("adult" = "lightblue", "aged" = "darkblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
+dev.off() 
+
+####################################################
+# Visualising per cell expression of 5930430L01Rik #
+####################################################
+DefaultAssay(merged) <- "SCT"
+pdf('5930430L01Rik_expression.pdf')
+FeaturePlot(merged, features = "5930430L01Rik", reduction = "umap", cols = c("lightblue", "darkblue"), min.cutoff = "q10", max.cutoff = "q90")
+dev.off()
+
+pdf('5930430L01Rik_violin.pdf', width = 12, height = 6)
+VlnPlot(merged, features = "5930430L01Rik", group.by = "age", split.by = "celltype", cols = cluster_colors[levels(merged)])
+dev.off()
+  
+Rik_expr <- merged@assays$SCT$counts["5930430L01Rik", ]
+cell_ids$Rik_expr <- Rik_expr[match(rownames(cell_ids), colnames(merged))]
+rik_summary <- cell_ids %>%
+  group_by(cell_type, age) %>%
+  summarise(percent_expressing = mean(Rik_expr > 0) * 100) %>%
+  ungroup() 
+rik_summary$age <- factor(rik_summary$age, levels = c("adult", "aged"))
+pdf('5930430L01Rik_percent_expressing.pdf', width = 10, height = 6)
+ggplot(rik_summary, aes(x = cell_type, y = percent_expressing, fill = age)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Cell Type", y = "Percent Expressing 5930430L01Rik", title = "Percentage of Cells Expressing 5930430L01Rik by Cell Type and Age") +
+  theme_minimal() +
+  scale_fill_manual(values = c("adult" = "lightblue", "aged" = "darkblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
+dev.off()
+
+
+##############################################
+# Visualising per cell expression of Gm15408 #
+##############################################
+pdf('Gm15408_expression.pdf')
+FeaturePlot(merged, features = "Gm15408", reduction = "umap", cols = c("lightblue", "darkblue"), min.cutoff = "q10", max.cutoff = "q90")
+dev.off()
+pdf('Gm15408_violin.pdf', width = 12, height = 6)
+VlnPlot(merged, features = "Gm15408", group.by = "age", split.by = "celltype", cols = cluster_colors[levels(merged)])
+dev.off() 
+
+Gm15408_expr <- merged@assays$SCT$counts["Gm15408", ]
+cell_ids$Gm15408_expr <- Gm15408_expr[match(rownames(cell_ids), colnames(merged))]
+Gm15408_summary <- cell_ids %>%
+  group_by(cell_type, age) %>%
+  summarise(percent_expressing = mean(Gm15408_expr > 0) * 100) %>%
+  ungroup()
+Gm15408_summary$age <- factor(Gm15408_summary$age, levels = c("adult", "aged"))
+pdf('Gm15408_percent_expressing.pdf', width = 10, height = 6)
+ggplot(Gm15408_summary, aes(x = cell_type, y = percent_expressing, fill = age)) +
+  geom_bar(stat = "identity", position = position_dodge()) +
+  labs(x = "Cell Type", y = "Percent Expressing Gm15408", title = "Percentage of Cells Expressing Gm15408 by Cell Type and Age") +
+  theme_minimal() +
+  scale_fill_manual(values = c("adult" = "lightblue", "aged" = "darkblue")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
+dev.off()

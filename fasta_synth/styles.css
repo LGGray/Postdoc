@@ -1,0 +1,249 @@
+:root {
+  font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  color: #f8fafc;
+  background-color: #050608;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 2rem;
+  background: radial-gradient(circle at top, #1f2937, #030712 65%);
+}
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+header h1 {
+  margin: 0 0 0.5rem;
+  font-size: clamp(1.8rem, 4vw, 3rem);
+}
+
+.panel {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+label {
+  font-weight: 600;
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+textarea {
+  width: 100%;
+  min-height: 180px;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(226, 232, 240, 0.2);
+  padding: 1rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.95rem;
+  color: #f8fafc;
+  background: rgba(15, 23, 42, 0.7);
+  resize: vertical;
+}
+
+textarea:focus,
+input:focus {
+  outline: 2px solid #f59e0b;
+}
+
+.fasta-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.fasta-actions button,
+.file-upload span {
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.7);
+  color: #f8fafc;
+  padding: 0.5rem 1.5rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: transform 150ms ease, border-color 150ms ease;
+}
+
+.file-upload {
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+}
+
+.file-upload input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.fasta-actions button:hover,
+.file-upload span:hover {
+  transform: translateY(-1px);
+  border-color: rgba(248, 250, 252, 0.5);
+}
+
+.file-upload span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem 1.5rem;
+}
+
+.tone-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  align-items: flex-start;
+}
+
+.tone-panel .control {
+  min-width: 260px;
+}
+
+.octave-control {
+  flex: 1;
+}
+
+.octave-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.octave-input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: 0.9rem;
+  color: #cbd5f5;
+}
+
+.octave-input span {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: #94a3b8;
+}
+
+.octave-input select {
+  min-width: 140px;
+}
+
+select {
+  border-radius: 0.6rem;
+  border: 1px solid rgba(226, 232, 240, 0.2);
+  padding: 0.55rem 0.8rem;
+  background: rgba(15, 23, 42, 0.7);
+  color: #f8fafc;
+  font-size: 1rem;
+}
+
+.status-subtle {
+  margin: 0.35rem 0 0;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.control-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+input[type="range"] {
+  flex: 1;
+}
+
+output {
+  min-width: 3ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+input[type="number"] {
+  width: 100px;
+  border-radius: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(226, 232, 240, 0.2);
+  color: #f8fafc;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+button {
+  border: none;
+  border-radius: 999px;
+  padding: 0.75rem 1.75rem;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+button#playBtn {
+  background: linear-gradient(120deg, #f59e0b, #ef4444);
+  color: #0f172a;
+  font-weight: 700;
+  box-shadow: 0 10px 25px rgba(239, 68, 68, 0.35);
+}
+
+button.subtle {
+  background: rgba(15, 23, 42, 0.6);
+  color: #f1f5f9;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+button:hover {
+  transform: translateY(-2px);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
+#status {
+  margin: 0;
+  font-size: 0.95rem;
+  color: #cbd5f5;
+}
+
+@media (max-width: 640px) {
+  body {
+    padding: 1rem;
+  }
+}

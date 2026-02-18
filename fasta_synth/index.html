@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FASTA Synth Translator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="container">
+    <header>
+      <h1>FASTA to Monophonic Synth</h1>
+      <p>Paste a FASTA sequence, set the sonic parameters, and hear it translated into a minor pentatonic melody.</p>
+    </header>
+
+    <section class="panel">
+      <label for="fastaInput">FASTA Sequence</label>
+      <textarea id="fastaInput" placeholder=">seq\nACGTTGCA..." spellcheck="false"></textarea>
+      <div class="fasta-actions">
+        <button id="reloadDefaultBtn" type="button">Reload XIST Reference</button>
+        <label class="file-upload">
+          <input type="file" id="fastaFile" accept=".fa,.fasta,.fna,.txt">
+          <span>Upload FASTA</span>
+        </label>
+      </div>
+      <p id="fastaStatus" class="status-subtle">Loading XIST.fasta...</p>
+    </section>
+
+    <section class="panel tone-panel">
+      <div class="control key-control">
+        <label for="keySelect">Key signature</label>
+        <select id="keySelect">
+          <option value="C">C minor pentatonic</option>
+          <option value="C#">C# minor pentatonic</option>
+          <option value="D">D minor pentatonic</option>
+          <option value="D#">D# minor pentatonic</option>
+          <option value="E">E minor pentatonic</option>
+          <option value="F">F minor pentatonic</option>
+          <option value="F#">F# minor pentatonic</option>
+          <option value="G">G minor pentatonic</option>
+          <option value="G#">G# minor pentatonic</option>
+          <option value="A" selected>A minor pentatonic</option>
+          <option value="A#">A# minor pentatonic</option>
+          <option value="B">B minor pentatonic</option>
+        </select>
+        <small class="status-subtle">Paste any FASTA above to hear it in your chosen key.</small>
+      </div>
+
+      <div class="control octave-control">
+        <label>Octave window (relative to middle C)</label>
+        <div class="octave-inputs">
+          <label class="octave-input">
+            <span>Low</span>
+            <select id="octaveMin">
+              <option value="24">C1 (−3)</option>
+              <option value="36">C2 (−2)</option>
+              <option value="48" selected>C3 (−1)</option>
+              <option value="60">C4 (middle)</option>
+              <option value="72">C5 (+1)</option>
+            </select>
+          </label>
+          <label class="octave-input">
+            <span>High</span>
+            <select id="octaveMax">
+              <option value="60">C4 (middle)</option>
+              <option value="72" selected>C5 (+1)</option>
+              <option value="84">C6 (+2)</option>
+              <option value="96">C7 (+3)</option>
+            </select>
+          </label>
+        </div>
+        <small class="status-subtle">Clamp playback to stay within the selected octave band.</small>
+      </div>
+    </section>
+
+    <section class="panel controls-grid">
+      <div class="control">
+        <label for="noteLength">Note length (ms)</label>
+        <div class="control-input">
+          <input type="range" id="noteLength" min="80" max="1500" value="350" step="10">
+          <output for="noteLength" id="noteLengthValue">350</output>
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="filterCutoff">Filter cutoff (Hz)</label>
+        <div class="control-input">
+          <input type="range" id="filterCutoff" min="200" max="12000" value="2400" step="50">
+          <output id="filterCutoffValue">2400</output>
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="resonance">Filter resonance (Q)</label>
+        <div class="control-input">
+          <input type="range" id="resonance" min="0.1" max="20" value="1.2" step="0.1">
+          <output id="resonanceValue">1.2</output>
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="attack">Attack (s)</label>
+        <div class="control-input">
+          <input type="range" id="attack" min="0.005" max="1.5" value="0.05" step="0.005">
+          <output id="attackValue">0.05</output>
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="decay">Decay (s)</label>
+        <div class="control-input">
+          <input type="range" id="decay" min="0.01" max="2" value="0.3" step="0.01">
+          <output id="decayValue">0.3</output>
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="sustain">Sustain (0-1)</label>
+        <div class="control-input">
+          <input type="range" id="sustain" min="0" max="1" value="0.6" step="0.01">
+          <output id="sustainValue">0.6</output>
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="release">Release (s)</label>
+        <div class="control-input">
+          <input type="range" id="release" min="0.02" max="3" value="0.4" step="0.01">
+          <output id="releaseValue">0.4</output>
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="maxNotes">Notes to play</label>
+        <div class="control-input">
+          <input type="number" id="maxNotes" min="4" max="512" value="64">
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="waveformSelect">Waveform</label>
+        <select id="waveformSelect">
+          <option value="sawtooth" selected>Saw</option>
+          <option value="square">Square</option>
+          <option value="triangle">Triangle</option>
+          <option value="sine">Sine</option>
+        </select>
+      </div>
+
+      <div class="control">
+        <label for="lfoRate">LFO rate (Hz)</label>
+        <div class="control-input">
+          <input type="range" id="lfoRate" min="0" max="20" value="0" step="0.1">
+          <output id="lfoRateValue">0</output>
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="lfoDepth">LFO depth</label>
+        <div class="control-input">
+          <input type="range" id="lfoDepth" min="0" max="1" value="0" step="0.01">
+          <output id="lfoDepthValue">0</output>
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="delayTime">Delay time (ms)</label>
+        <div class="control-input">
+          <input type="range" id="delayTime" min="0" max="1500" value="240" step="10">
+          <output id="delayTimeValue">240</output>
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="delayFeedback">Delay feedback</label>
+        <div class="control-input">
+          <input type="range" id="delayFeedback" min="0" max="0.95" value="0.35" step="0.01">
+          <output id="delayFeedbackValue">0.35</output>
+        </div>
+      </div>
+
+      <div class="control">
+        <label for="delayMix">Delay mix</label>
+        <div class="control-input">
+          <input type="range" id="delayMix" min="0" max="1" value="0.25" step="0.01">
+          <output id="delayMixValue">0.25</output>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel actions">
+      <button id="playBtn">Play Sequence</button>
+      <button id="stopBtn" class="subtle">Stop</button>
+      <p id="status">Silence is golden.</p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
