@@ -15,6 +15,41 @@ body {
   background: radial-gradient(circle at top, #1f2937, #030712 65%);
 }
 
+.mobile-reminder {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 1000;
+}
+
+.mobile-reminder__card {
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(248, 250, 252, 0.15);
+  border-radius: 1.25rem;
+  padding: 2rem;
+  max-width: 420px;
+  text-align: center;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+
+.mobile-reminder__card h2 {
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+}
+
+.mobile-reminder__card p {
+  margin-bottom: 1.5rem;
+  color: #e2e8f0;
+}
+
+.hidden {
+  display: none !important;
+}
+
 .container {
   max-width: 960px;
   margin: 0 auto;

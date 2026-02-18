@@ -7,6 +7,14 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <div id="mobileReminder" class="mobile-reminder hidden" role="dialog" aria-live="polite" aria-modal="true">
+    <div class="mobile-reminder__card">
+      <h2>Sound tip for phones</h2>
+      <p>Many phones mute Web Audio when the device is in silent or vibrate mode. Flip the hardware mute switch off or raise the ringer volume before you hit play.</p>
+      <button id="dismissReminderBtn" type="button">I'm ready to listen</button>
+    </div>
+  </div>
+
   <main class="container">
     <header>
       <h1>FASTA to Monophonic Synth</h1>

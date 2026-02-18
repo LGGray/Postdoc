@@ -49,6 +49,10 @@ const delayMixInput = document.getElementById("delayMix");
 const reloadDefaultBtn = document.getElementById("reloadDefaultBtn");
 const fastaFileInput = document.getElementById("fastaFile");
 const fastaStatus = document.getElementById("fastaStatus");
+const mobileReminder = document.getElementById("mobileReminder");
+const dismissReminderBtn = document.getElementById("dismissReminderBtn");
+const defaultPlayLabel = playBtn?.textContent?.trim() || "Play Sequence";
+let reminderActive = false;
 const controls = {
   noteLength: document.getElementById("noteLength"),
   filterCutoff: document.getElementById("filterCutoff"),
@@ -82,6 +86,34 @@ const KEY_ROOTS = {
 };
 
 const baseMap = { A: 0, C: 1, G: 2, T: 3, U: 3, N: 4, R: 5, Y: 6, M: 7, K: 8, S: 9 };
+
+const isMobileDevice = () => /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || "");
+
+const setPlayButtonState = (disabled, label) => {
+  if (!playBtn) return;
+  playBtn.disabled = !!disabled;
+  if (label) {
+    playBtn.textContent = label;
+  } else {
+    playBtn.textContent = defaultPlayLabel;
+  }
+};
+
+const showMobileReminder = () => {
+  if (!mobileReminder) return;
+  mobileReminder.classList.remove("hidden");
+  reminderActive = true;
+  setPlayButtonState(true, "Dismiss reminder to play");
+  reportStatus("Flip silent mode off, then dismiss the reminder to start playback.");
+};
+
+const dismissMobileReminder = () => {
+  if (!mobileReminder) return;
+  mobileReminder.classList.add("hidden");
+  reminderActive = false;
+  setPlayButtonState(false);
+  reportStatus("Silent-mode reminder dismissed. Tap Play when you're ready.");
+};
 
 const getRootMidi = () => {
   const key = keySelect?.value || "A";
@@ -386,6 +418,10 @@ const gatherParams = () => {
 };
 
 const handlePlay = async () => {
+  if (reminderActive) {
+    reportStatus("Dismiss the silent-mode reminder to start playback.", true);
+    return;
+  }
   const cleaned = sanitizeSequence(fastaInput.value);
   if (!cleaned.length) {
     reportStatus("Please provide a FASTA sequence (letters A/C/G/T/U).", true);
@@ -444,6 +480,8 @@ const handleOctaveChange = () => {
   select?.addEventListener("change", handleOctaveChange);
 });
 
+dismissReminderBtn?.addEventListener("click", dismissMobileReminder);
+
 reloadDefaultBtn?.addEventListener("click", () => loadDefaultFasta(true));
 
 fastaFileInput?.addEventListener("change", (event) => {
@@ -456,4 +494,7 @@ fastaFileInput?.addEventListener("change", (event) => {
 
 window.addEventListener("load", () => {
   loadDefaultFasta(false);
+  if (isMobileDevice()) {
+    showMobileReminder();
+  }
 });
