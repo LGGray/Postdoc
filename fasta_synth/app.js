@@ -46,6 +46,8 @@ const lfoDepthInput = document.getElementById("lfoDepth");
 const delayTimeInput = document.getElementById("delayTime");
 const delayFeedbackInput = document.getElementById("delayFeedback");
 const delayMixInput = document.getElementById("delayMix");
+const sequenceStartInput = document.getElementById("sequenceStart");
+const sequenceEndInput = document.getElementById("sequenceEnd");
 const reloadDefaultBtn = document.getElementById("reloadDefaultBtn");
 const fastaFileInput = document.getElementById("fastaFile");
 const fastaStatus = document.getElementById("fastaStatus");
@@ -53,6 +55,7 @@ const mobileReminder = document.getElementById("mobileReminder");
 const dismissReminderBtn = document.getElementById("dismissReminderBtn");
 const defaultPlayLabel = playBtn?.textContent?.trim() || "Play Sequence";
 let reminderActive = false;
+const helixContainer = document.getElementById("helixVisualizer");
 const controls = {
   noteLength: document.getElementById("noteLength"),
   filterCutoff: document.getElementById("filterCutoff"),
@@ -87,7 +90,44 @@ const KEY_ROOTS = {
 
 const baseMap = { A: 0, C: 1, G: 2, T: 3, U: 3, N: 4, R: 5, Y: 6, M: 7, K: 8, S: 9 };
 
+const BASE_COLORS = {
+  A: "#f97316",
+  C: "#38bdf8",
+  G: "#a3e635",
+  T: "#facc15",
+  U: "#facc15",
+  N: "#e2e8f0",
+  R: "#fb7185",
+  Y: "#4ade80",
+  M: "#c084fc",
+  K: "#38bdf8",
+  S: "#f472b6",
+};
+const COMPLEMENT_BASES = {
+  A: "T",
+  T: "A",
+  U: "A",
+  C: "G",
+  G: "C",
+  R: "Y",
+  Y: "R",
+  M: "K",
+  K: "M",
+  S: "S",
+};
+const HELIX_SLOT_COUNT = 8;
+let helixSlots = [];
+let helixQueue = [];
+
 const isMobileDevice = () => /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || "");
+
+const parsePositiveInt = (value, fallback) => {
+  const num = Number(value);
+  if (Number.isFinite(num) && num > 0) {
+    return Math.floor(num);
+  }
+  return fallback;
+};
 
 const setPlayButtonState = (disabled, label) => {
   if (!playBtn) return;
@@ -113,6 +153,95 @@ const dismissMobileReminder = () => {
   reminderActive = false;
   setPlayButtonState(false);
   reportStatus("Silent-mode reminder dismissed. Tap Play when you're ready.");
+};
+
+const initHelix = () => {
+  if (!helixContainer) return;
+  helixContainer.innerHTML = "";
+  helixSlots = [];
+  helixQueue = [];
+  for (let i = 0; i < HELIX_SLOT_COUNT; i += 1) {
+    const rung = document.createElement("div");
+    rung.className = "helix-rung";
+    rung.setAttribute("aria-hidden", "true");
+
+    const left = document.createElement("span");
+    left.className = "helix-strand left";
+    left.textContent = "·";
+
+    const connector = document.createElement("div");
+    connector.className = "helix-connector";
+    const noteSpan = document.createElement("span");
+    noteSpan.className = "helix-note";
+    noteSpan.textContent = "--";
+    connector.appendChild(noteSpan);
+
+    const right = document.createElement("span");
+    right.className = "helix-strand right";
+    right.textContent = "·";
+
+    rung.appendChild(left);
+    rung.appendChild(connector);
+    rung.appendChild(right);
+
+    helixContainer.appendChild(rung);
+    helixSlots.push({ root: rung, left, right, note: noteSpan });
+  }
+};
+
+const resetHelix = () => {
+  helixQueue = [];
+  helixSlots.forEach((slot) => {
+    slot.root.classList.remove("active");
+    slot.root.style.removeProperty("--base-color");
+    slot.root.style.removeProperty("--compl-color");
+    slot.left.textContent = "·";
+    slot.right.textContent = "·";
+    slot.note.textContent = "--";
+  });
+};
+
+const renderHelix = () => {
+  helixSlots.forEach((slot, idx) => {
+    const data = helixQueue[idx];
+    if (data) {
+      slot.root.classList.add("active");
+      slot.root.style.setProperty("--base-color", data.color);
+      slot.root.style.setProperty("--compl-color", data.complementColor);
+      slot.left.textContent = data.base;
+      slot.right.textContent = data.complement;
+      slot.note.textContent = data.note;
+    } else {
+      slot.root.classList.remove("active");
+      slot.root.style.removeProperty("--base-color");
+      slot.root.style.removeProperty("--compl-color");
+      slot.left.textContent = "·";
+      slot.right.textContent = "·";
+      slot.note.textContent = "--";
+    }
+  });
+};
+
+const getComplementBase = (base) => COMPLEMENT_BASES[base] || base || "N";
+
+const pushHelixEvent = (base, midi) => {
+  if (!helixSlots.length) return;
+  const normalizedBase = (base || "N").toUpperCase();
+  const complement = getComplementBase(normalizedBase);
+  const color = BASE_COLORS[normalizedBase] || "#f8fafc";
+  const complementColor = BASE_COLORS[complement] || "#f1f5f9";
+  helixQueue.unshift({
+    base: normalizedBase,
+    complement,
+    midi,
+    note: formatMidiNote(midi),
+    color,
+    complementColor,
+  });
+  if (helixQueue.length > HELIX_SLOT_COUNT) {
+    helixQueue.pop();
+  }
+  renderHelix();
 };
 
 const getRootMidi = () => {
@@ -163,6 +292,46 @@ const clampToOctaveWindow = (midi) => {
 };
 
 const DEFAULT_FASTA_PATH = "XIST.fasta";
+
+const normalizeSequenceWindowInputs = () => {
+  const startVal = Math.max(1, parsePositiveInt(sequenceStartInput?.value, 1));
+  let endVal = parsePositiveInt(sequenceEndInput?.value, startVal);
+  if (!Number.isFinite(endVal) || endVal < startVal) {
+    endVal = startVal;
+  }
+  if (sequenceStartInput) {
+    sequenceStartInput.value = String(startVal);
+  }
+  if (sequenceEndInput) {
+    sequenceEndInput.value = String(endVal);
+  }
+  return { start: startVal, end: endVal };
+};
+
+const getSequenceWindow = (sequence) => {
+  if (!sequence.length) {
+    return { sequence: "", start: 0, end: 0 };
+  }
+  const { start: normalizedStart, end: normalizedEnd } = normalizeSequenceWindowInputs();
+  const fallbackEnd = Math.min(sequence.length, normalizedEnd || normalizedStart);
+  const parsedStart = normalizedStart;
+  let parsedEnd = normalizedEnd;
+  if (!Number.isFinite(parsedEnd) || parsedEnd <= 0) {
+    parsedEnd = fallbackEnd;
+  }
+  const startVal = Math.max(1, parsedStart);
+  let endVal = Math.max(startVal, parsedEnd);
+  if (!Number.isFinite(endVal) || endVal <= 0) {
+    endVal = Math.min(sequence.length, startVal + 999);
+  }
+  const startIdx = Math.min(sequence.length - 1, startVal - 1);
+  const endIdx = Math.min(sequence.length, Math.max(startIdx + 1, endVal));
+  return {
+    sequence: sequence.slice(startIdx, endIdx),
+    start: startIdx + 1,
+    end: endIdx,
+  };
+};
 
 const setFastaStatus = (message, color = "#94a3b8") => {
   if (!fastaStatus) return;
@@ -253,7 +422,7 @@ const sequenceToNotes = (sequence, targetLength) => {
       : (letter.charCodeAt(0) + i) % MINOR_PENT_INTERVALS.length;
     const octaveLift = (Math.floor(i / MINOR_PENT_INTERVALS.length) % 4) * 12; // spread melody
     const midi = rootMidi + MINOR_PENT_INTERVALS[scaleIndex % MINOR_PENT_INTERVALS.length] + octaveLift;
-    notes.push(midi);
+    notes.push({ midi, base: letter, idx: i });
   }
   return notes;
 };
@@ -294,6 +463,8 @@ const triggerNote = (ctx, midi, params) => {
   const feedbackGain = ctx.createGain();
   const dryGain = ctx.createGain();
   const wetGain = ctx.createGain();
+  let lfoOsc = null;
+  let lfoGain = null;
 
   const start = ctx.currentTime;
   const limitedRelease = clampRelease(lengthSec, releaseSec);
@@ -313,10 +484,9 @@ const triggerNote = (ctx, midi, params) => {
   delayNode.delayTime.setValueAtTime(Math.min(2, Math.max(0, delayTime)), start);
   feedbackGain.gain.setValueAtTime(Math.min(0.95, Math.max(0, delayFeedback)), start);
 
-  let lfoOsc = null;
   if (lfoRate > 0 && lfoDepth > 0) {
     lfoOsc = ctx.createOscillator();
-    const lfoGain = ctx.createGain();
+    lfoGain = ctx.createGain();
     const depthHz = Math.max(0, filterCutoff * lfoDepth);
     lfoGain.gain.setValueAtTime(depthHz, start);
     lfoOsc.frequency.setValueAtTime(lfoRate, start);
@@ -358,10 +528,24 @@ const triggerNote = (ctx, midi, params) => {
       osc.stop(now + 0.05);
       if (lfoOsc) {
         lfoOsc.stop(now + 0.05);
+        lfoOsc.disconnect();
       }
-      feedbackGain.gain.setTargetAtTime(0, now, 0.05);
-      wetGain.gain.setTargetAtTime(0, now, 0.05);
-      dryGain.gain.setTargetAtTime(0, now, 0.05);
+      if (lfoGain) {
+        lfoGain.disconnect();
+      }
+      feedbackGain.gain.cancelScheduledValues(now);
+      wetGain.gain.cancelScheduledValues(now);
+      dryGain.gain.cancelScheduledValues(now);
+      feedbackGain.gain.setValueAtTime(0, now);
+      wetGain.gain.setValueAtTime(0, now);
+      dryGain.gain.setValueAtTime(0, now);
+      try { delayNode.disconnect(); } catch (e) { /* noop */ }
+      try { feedbackGain.disconnect(); } catch (e) { /* noop */ }
+      try { wetGain.disconnect(); } catch (e) { /* noop */ }
+      try { dryGain.disconnect(); } catch (e) { /* noop */ }
+      try { gain.disconnect(); } catch (e) { /* noop */ }
+      try { filter.disconnect(); } catch (e) { /* noop */ }
+      try { osc.disconnect(); } catch (e) { /* noop */ }
     } catch (err) {
       // already stopped
     }
@@ -391,7 +575,9 @@ const playNotes = async (ctx, notes, abortHandle) => {
     if (abortHandle.stopped) break;
     const params = gatherParams();
     params.releaseSec = clampRelease(params.lengthSec, params.releaseSec);
-    const midi = clampToOctaveWindow(notes[i]);
+    const event = notes[i];
+    const midi = clampToOctaveWindow(event.midi);
+    pushHelixEvent(event.base, midi);
     const voice = triggerNote(ctx, midi, params);
     activeVoices.push(voice);
     await wait(params.lengthSec * 1000);
@@ -428,8 +614,14 @@ const handlePlay = async () => {
     return;
   }
 
-  const maxNotes = Number(maxNotesInput.value) || cleaned.length;
-  const notes = sequenceToNotes(cleaned, maxNotes);
+  const windowed = getSequenceWindow(cleaned);
+  if (!windowed.sequence.length) {
+    reportStatus("The selected sequence range contains no valid bases.", true);
+    return;
+  }
+
+  const maxNotes = Number(maxNotesInput.value) || windowed.sequence.length;
+  const notes = sequenceToNotes(windowed.sequence, maxNotes);
   if (!notes.length) {
     reportStatus("No valid bases found to convert into notes.", true);
     return;
@@ -444,10 +636,15 @@ const handlePlay = async () => {
     stopPlaybackNow("Restarting playback...");
   }
 
+  resetHelix();
+
   abortPlayback = { stopped: false };
   const keyName = keySelect?.value || "A";
   const windowLabel = getOctaveRangeLabel();
-  reportStatus(`Playing ${notes.length} notes in ${keyName} minor pentatonic (${windowLabel}).`);
+  const baseRangeLabel = windowed.start && windowed.end
+    ? `bases ${windowed.start}–${windowed.end}`
+    : "entire sequence";
+  reportStatus(`Playing ${notes.length} notes (${baseRangeLabel}) in ${keyName} minor pentatonic (${windowLabel}).`);
 
   try {
     await playNotes(audioCtx, notes, abortPlayback);
@@ -482,6 +679,15 @@ const handleOctaveChange = () => {
 
 dismissReminderBtn?.addEventListener("click", dismissMobileReminder);
 
+const handleSequenceWindowChange = () => {
+  const { start, end } = normalizeSequenceWindowInputs();
+  reportStatus(`Sequence window set to bases ${start}–${end}.`);
+};
+
+[sequenceStartInput, sequenceEndInput].forEach((input) => {
+  input?.addEventListener("change", handleSequenceWindowChange);
+});
+
 reloadDefaultBtn?.addEventListener("click", () => loadDefaultFasta(true));
 
 fastaFileInput?.addEventListener("change", (event) => {
@@ -493,6 +699,7 @@ fastaFileInput?.addEventListener("change", (event) => {
 });
 
 window.addEventListener("load", () => {
+  initHelix();
   loadDefaultFasta(false);
   if (isMobileDevice()) {
     showMobileReminder();

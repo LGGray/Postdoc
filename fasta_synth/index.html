@@ -141,8 +141,23 @@
       <div class="control">
         <label for="maxNotes">Notes to play</label>
         <div class="control-input">
-          <input type="number" id="maxNotes" min="4" max="512" value="64">
+          <input type="number" id="maxNotes" min="4" max="4096" value="1000">
         </div>
+      </div>
+
+      <div class="control sequence-window">
+        <label>Sequence range (1-based positions)</label>
+        <div class="sequence-window__inputs">
+          <label>
+            Start
+            <input type="number" id="sequenceStart" min="1" value="1">
+          </label>
+          <label>
+            End
+            <input type="number" id="sequenceEnd" min="1" value="1000">
+          </label>
+        </div>
+        <small class="status-subtle">Only the bases within this window are converted to notes.</small>
       </div>
 
       <div class="control">
@@ -194,6 +209,14 @@
           <output id="delayMixValue">0.25</output>
         </div>
       </div>
+    </section>
+
+    <section class="panel viz-panel">
+      <div class="viz-header">
+        <h2>DNA Helix Visualizer</h2>
+        <p>Seven bases trail behind the current note so you can watch how the melody walks the strand.</p>
+      </div>
+      <div id="helixVisualizer" class="helix" aria-live="polite"></div>
     </section>
 
     <section class="panel actions">
