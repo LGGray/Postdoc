@@ -82,6 +82,8 @@ save(bodymap, file = 'adult_aged_bodymap/bodymap_links.RData')
 load('adult_aged_bodymap/bodymap_links.RData')
 
 
+
+
 #######################################
 # Compare link between adult and aged #
 #######################################
@@ -131,6 +133,69 @@ bodymap <- lapply(bodymap, function(df) {
   df
 })
 tissues <- c('Ao', 'Br', 'He', 'Ki', 'Li', 'Lu', 'Mu', 'Sp')
+
+lapply(tissues, function(tissue) data.frame(
+  tissue = tissue,
+  n_links = nrow(bodymap[[paste0(tissue, '_9w')]]),
+  n_links_aged = nrow(bodymap[[paste0(tissue, '_78w')]]),
+  total_links = nrow(bodymap[[paste0(tissue, '_9w')]]) + nrow(bodymap[[paste0(tissue, '_78w')]])
+)) |> bind_rows() %>% arrange(desc(total_links))
+
+adult_links <- fromList(lapply(tissues, function(tissue) bodymap[[paste0(tissue, '_9w')]]$link_key))
+rownames(adult_links) <- unique(unlist(lapply(tissues, function(tissue) bodymap[[paste0(tissue, '_9w')]]$link_key)))
+adult_links$sum <- rowSums(adult_links)
+rownames(adult_links[adult_links$sum == 8, ])
+
+aged_links <- fromList(lapply(tissues, function(tissue) bodymap[[paste0(tissue, '_78w')]]$link_key))
+rownames(aged_links) <- unique(unlist(lapply(tissues, function(tissue) bodymap[[paste0(tissue, '_78w')]]$link_key)))
+aged_links$sum <- rowSums(aged_links)
+rownames(aged_links[aged_links$sum == 8, ])
+
+
+lapply(tissues, function(tissue) {
+  data.frame(
+    tissue = tissue,
+    n_enhancing_adult = nrow(subset(bodymap[[paste0(tissue, '_9w')]], mechanism == "enhancing")),
+    per_enhancing_adult = round(nrow(subset(bodymap[[paste0(tissue, '_9w')]], mechanism == "enhancing")) / nrow(bodymap[[paste0(tissue, '_9w')]]), 2),
+    n_repressing_adult = nrow(subset(bodymap[[paste0(tissue, '_9w')]], mechanism == "repressing")),
+    per_repressing_adult = round(nrow(subset(bodymap[[paste0(tissue, '_9w')]], mechanism == "repressing")) / nrow(bodymap[[paste0(tissue, '_9w')]]), 2),
+    n_enhancing_aged = nrow(subset(bodymap[[paste0(tissue, '_78w')]], mechanism == "enhancing")),
+    per_enhancing_aged = round(nrow(subset(bodymap[[paste0(tissue, '_78w')]], mechanism == "enhancing")) / nrow(bodymap[[paste0(tissue, '_78w')]]), 2),
+    n_repressing_aged = nrow(subset(bodymap[[paste0(tissue, '_78w')]], mechanism == "repressing")),
+    per_repressing_aged = round(nrow(subset(bodymap[[paste0(tissue, '_78w')]], mechanism == "repressing")) / nrow(bodymap[[paste0(tissue, '_78w')]]), 2),
+    total_links = nrow(bodymap[[paste0(tissue, '_9w')]]) + nrow(bodymap[[paste0(tissue, '_78w')]])
+  )
+}) |> bind_rows() %>% arrange(desc(total_links)) -> 
+
+mean(link_mechanism_summary$per_enhancing_adult)
+mean(link_mechanism_summary$per_enhancing_aged)
+
+link_mechanism_summary_long <- link_mechanism_summary %>%
+  tidyr::pivot_longer(
+    cols = dplyr::starts_with("n_"),
+    names_to = c("mechanism", "age"),
+    names_pattern = "^n_(enhancing|repressing)_(adult|aged)$",
+    values_to = "value"
+  ) %>%
+  dplyr::mutate(
+    mechanism = factor(mechanism, levels = c("enhancing", "repressing")),
+    age = factor(age, levels = c("adult", "aged"))
+  ) %>%
+  dplyr::group_by(tissue, age) %>%
+  dplyr::mutate(frac = value / sum(value)) %>%
+  dplyr::ungroup()
+
+pdf("LINKS_study/figures/barplot_adult_aged_bodymap_link_mechanism.pdf")
+ggplot(link_mechanism_summary_long, aes(x = tissue, y = frac, fill = mechanism)) +
+  geom_col(position = "stack") +
+  scale_fill_manual(values = c("enhancing" = "#1b9e77", "repressing" = "#d95f02")) +
+  labs(x = "", y = "Fraction of Links", fill = "Mechanism") +
+  theme_minimal() +
+  facet_wrap(~ age)
+dev.off()
+
+
+
 tissue_colours <- list(Br="#DCB465", He="#8B1812", Ki="#244C51", Li="#C97A41", Lu="#A77A76", Mu="#555463", Sp="#97A092", Ao="#4E8098")
 
 delta_AR <- lapply(tissues, function(tissue) {
@@ -705,6 +770,18 @@ aged_link <- lapply(aged_link, function(df) {
 
 save(aged_link, file = 'adult_aged_heart_snRNAseq/aged.Allelome.LINK.RData')
 load('adult_aged_heart_snRNAseq/aged.Allelome.LINK.RData')
+
+
+# Create a table of the number of links per cell type in adult and aged heart
+link_counts <- data.frame(
+  adult_links = sapply(adult_link, function(df) nrow(df)),
+  aged_links = sapply(aged_link, function(df) nrow(df))
+)
+link_counts$sum <- link_counts$adult_links + link_counts$aged_links
+link_counts <- link_counts[order(link_counts$sum, decreasing = TRUE), ]
+
+
+
 
 # Visualise cell type specific links
 adult_mtx <- fromList(lapply(adult_link, function(x) { unique(link_key(x)) }))
