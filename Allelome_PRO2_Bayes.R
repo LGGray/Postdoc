@@ -23,7 +23,10 @@ bayes_function <- function(ref, alt, alpha, beta, null = 0.5, tail = c("two.side
   b <- beta  + (n - k)
 
   post_mean <- a / (a + b)
-  ci <- qbeta(c(0.025, 0.975), a, b)
+  ci <- cbind(
+    lower = qbeta(0.025, a, b),
+    upper = qbeta(0.975, a, b)
+  )
 
   # posterior tail(s) at 'null'
   if (tail == "greater") {
