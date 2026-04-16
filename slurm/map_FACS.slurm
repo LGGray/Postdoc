@@ -32,10 +32,12 @@ SNPfile=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C5
 
 run_one() {
   SAMPLE="$1"
+  R1=$(ls $data_path/Sample_$SAMPLE/${SAMPLE}_S*_L00*_R1_001.fastq.gz | tr '\n' ',' | sed 's/,$//')
+  R2=$(ls $data_path/Sample_$SAMPLE/${SAMPLE}_S*_L00*_R2_001.fastq.gz | tr '\n' ',' | sed 's/,$//')
   # One STAR per srun; --exclusive ensures each gets its own CPU set
   STAR \
     --genomeDir $genome_dir \
-    --readFilesIn $data_path/Sample_$SAMPLE/${SAMPLE}_S*_L001_R1_001.fastq.gz,$data_path/Sample_$SAMPLE/${SAMPLE}_S*_L002_R1_001.fastq.gz $data_path/Sample_$SAMPLE/${SAMPLE}_S*_L001_R2_001.fastq.gz,$data_path/Sample_$SAMPLE/${SAMPLE}_S*_L002_R2_001.fastq.gz \
+    --readFilesIn $R1 $R2 \
     --readFilesCommand zcat \
     --runThreadN 12 \
     --outStd Log \
@@ -80,4 +82,3 @@ Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src
     -w 100 \
     -n AL_65 \
     -d FALSE
-    
