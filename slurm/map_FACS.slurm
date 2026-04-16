@@ -35,7 +35,7 @@ run_one() {
   # One STAR per srun; --exclusive ensures each gets its own CPU set
   STAR \
     --genomeDir $genome_dir \
-    --readFilesIn $data_path/Sample_$SAMPLE/${SAMPLE}_S1_L001_R1_001.fastq.gz,$data_path/Sample_$SAMPLE/${SAMPLE}_S1_L002_R1_001.fastq.gz $data_path/Sample_$SAMPLE/${SAMPLE}_S1_L001_R2_001.fastq.gz,$data_path/Sample_$SAMPLE/${SAMPLE}_S1_L002_R2_001.fastq.gz \
+    --readFilesIn $data_path/Sample_$SAMPLE/${SAMPLE}_S*_L001_R1_001.fastq.gz,$data_path/Sample_$SAMPLE/${SAMPLE}_S*_L002_R1_001.fastq.gz $data_path/Sample_$SAMPLE/${SAMPLE}_S*_L001_R2_001.fastq.gz,$data_path/Sample_$SAMPLE/${SAMPLE}_S*_L002_R2_001.fastq.gz \
     --readFilesCommand zcat \
     --runThreadN 12 \
     --outStd Log \
@@ -80,3 +80,6 @@ Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src
     -w 100 \
     -n AL_65 \
     -d FALSE
+
+
+/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/00_raw_data/20230619_Project_699_Eckstein_Engelhardt_Stefan_XBxC_MCL_78w_XX_XY/Sample_23L003319/23L003319_S1_L001_R1_001.fastq.gz
