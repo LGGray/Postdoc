@@ -13,16 +13,16 @@
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=100G
 #SBATCH --time=8:00:00
-#SBATCH --array=2-32
+#SBATCH --array=1-32
 
-data_path=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/00_raw_data/20230619_Project_699_Eckstein_Engelhardt_Stefan_XBxC_MCL_78w_XX_XY
-# path=20240507_Project_1050_Eckstein_Engelhardt_Stefan_XBxC_MCL_TAC
+#data_path=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/00_raw_data/20230619_Project_699_Eckstein_Engelhardt_Stefan_XBxC_MCL_78w_XX_XY
+data_path=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/00_raw_data/20240507_Project_1050_Eckstein_Engelhardt_Stefan_XBxC_MCL_TAC
 
 module load slurm_setup
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 conda activate RNAseq
 
-cd aged_cardiac_RNAseq/
+cd TAC_cardiac_RNAseq/
 
 genome_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/STAR2.7.11b_genome_index/genome_dir_gencodeM36_mm39.202410
 annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation.gtf
