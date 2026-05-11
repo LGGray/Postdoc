@@ -22,7 +22,7 @@ jaccard_index <- function(set1, set2) {
   return(intersection / union)
 }
 
-sample_colours <- c("adult" = "#E69F00", "aged" = "#56B4E9", "TAC" = "#009E73", "Sham" = "#CC79A7", "FACS" = "#A67C8C")
+sample_colours <- c("adult" = "#E69F00", "aged" = "#56B4E9", "TAC" = "#009E73", "Sham" = "#CC79A7")
 
 # #### Match RefSeq transcript ID to gene name
 # gtf <- read.delim('GRCm39/GCF_000001635.27_GRCm39_genomic.gtf', comment.char = "#", header = FALSE)
@@ -87,7 +87,6 @@ load('adult_aged_bodymap/bodymap_links.RData')
 #######################################
 # Compare link between adult and aged #
 #######################################
-# Aged and TAC specific
 adult_heart <- bodymap[['He_9w']]
 adult_heart$link_key <- link_key(adult_heart)
 aged_heart <- bodymap[['He_78w']]
@@ -125,7 +124,7 @@ ggplot(common_links,
     x = " Delta Allelic Ratio (lncRNA, Aged - Adult)",
     y = " Delta Allelic Ratio (pcGene, Aged - Adult)"
   ) +
-  ggtitle("Heart Links")
+  ggtitle("Heart Links: Aged vs Adult")
 dev.off()
 
 bodymap <- lapply(bodymap, function(df) {
@@ -1150,23 +1149,332 @@ heart_links_mtx[grep("Hmgb1", rownames(heart_links_mtx)), ]
 
 
 ########################################
-# Overlap with FACS cardiac cell types #
+# Adult vs Aged FACS heart links #
 ########################################
+adult_facs_dirs <- c("female_Cardiac_fibroblasts", "female_Cardiomyocytes", "female_Endothelial_cells", "female_Macrophages")
 
-facs_dirs <- c("female_Cardiac_fibroblasts", "female_Cardiomyocytes", "female_Endothelial_cells", "female_Macrophages")
-
-facs_links <- lapply(facs_dirs, function(dir) {
+adult_facs_links <- lapply(adult_facs_dirs, function(dir) {
     tmp <- paste0('cardiac_RNAseq/', dir, '/AL_65/AL_65_links_full_table.txt')
     read.delim(tmp)
 })
-names(facs_links) <- facs_dirs
+names(adult_facs_links) <- c('CF_adult', 'CM_adult', 'EC_adult', 'MP_adult')
 
 # Filter for noncoding-coding links only
-facs_links <- lapply(facs_links, function(df) {
+adult_facs_links <- lapply(adult_facs_links, function(df) {
   subset(df, name_base %in% noncoding & name_target %in% coding)
 })
-save(facs_links, file = 'cardiac_RNAseq/facs_links.RData')
-load('cardiac_RNAseq/facs_links.RData')
+save(adult_facs_links, file = 'cardiac_RNAseq/adult_facs_links.RData')
+load('cardiac_RNAseq/adult_facs_links.RData')
+
+aged_facs_dirs <- c('female_EC', 'female_CF', 'female_MP', 'female_CM')
+aged_facs_links <- lapply(aged_facs_dirs, function(dir) {
+    tmp <- paste0('aged_cardiac_RNAseq/', dir, '/AL_65/AL_65_links_full_table.txt')
+    read.delim(tmp)
+})
+names(aged_facs_links) <- c('EC_aged', 'CF_aged', 'MP_aged', 'CM_aged')
+# Filter for noncoding-coding links only
+aged_facs_links <- lapply(aged_facs_links, function(df) {
+  subset(df, name_base %in% noncoding & name_target %in% coding)
+})
+save(aged_facs_links, file = 'aged_cardiac_RNAseq/aged_facs_links.RData')
+load('aged_cardiac_RNAseq/aged_facs_links.RData')
+
+# Calculate the overlap between adult and aged FACS links for each cell type
+celltypes <- c('CF', 'CM', 'EC', 'MP')
+adult_aged_facs_links <- lapply(celltypes, function(ct) {
+    adult_ct <- adult_facs_links[[paste0(ct, '_adult')]]
+    aged_ct  <- aged_facs_links[[paste0(ct, '_aged')]]
+    adult_sets <- unique(link_key(adult_ct))
+    aged_sets  <- unique(link_key(aged_ct))
+    data.frame(
+        cell_type = ct,
+        adult_links = length(adult_sets),
+        aged_links = length(aged_sets),
+        overlap_links = length(intersect(adult_sets, aged_sets)),
+        jaccard_index = jaccard_index(adult_sets, aged_sets)
+    )
+}) |> bind_rows()
+
+# Plot the overlap between adult and aged FACS links for each cell type
+pdf('LINKS_study/figures/venn_adult_aged_FACS_links.pdf', width = 12, height = 10)
+facs_plots <- lapply(celltypes, function(ct) {
+    adult_ct <- adult_facs_links[[paste0(ct, '_adult')]]
+    aged_ct  <- aged_facs_links[[paste0(ct, '_aged')]]
+    adult_sets <- unique(link_key(adult_ct))
+    aged_sets  <- unique(link_key(aged_ct))
+    fit <- euler(list(
+        'Adult' = adult_sets,
+        'Aged'  = aged_sets
+    ))
+    
+    ji <- adult_aged_facs_links$jaccard_index[adult_aged_facs_links$cell_type == ct]
+    subtitle_text <- paste0("Jaccard Index: ", ifelse(length(ji)==0 | is.na(ji), "NA", round(ji, 2)))
+    
+    plot(fit, quantities = TRUE, fill = sample_colours[c('adult', 'aged')], 
+         main = paste0(ct, '\n', subtitle_text))
+})
+grid.arrange(grobs = facs_plots, ncol = 2, nrow = 2)
+dev.off()
+
+# Plot an UpSet plot of the overlap between adult and aged FACS links
+adult_facs_sets <- lapply(celltypes, function(ct) {
+  adult_ct <- adult_facs_links[[paste0(ct, '_adult')]]
+  unique(link_key(adult_ct))
+})
+names(adult_facs_sets) <- paste0(celltypes, '_adult')
+
+aged_facs_sets <- lapply(celltypes, function(ct) {
+  aged_ct <- aged_facs_links[[paste0(ct, '_aged')]]
+  unique(link_key(aged_ct))
+})
+names(aged_facs_sets) <- paste0(celltypes, '_age')
+
+all_celltype_facs_sets <- c(adult_facs_sets, aged_facs_sets)
+
+adult_aged_facs_mtx <- fromList(all_celltype_facs_sets)
+rownames(adult_aged_facs_mtx) <- unique(unlist(all_celltype_facs_sets))
+set_order <- c(paste0(celltypes, '_adult'), paste0(celltypes, '_age'))
+adult_aged_facs_mtx <- adult_aged_facs_mtx[, set_order]
+
+colnames(adult_aged_facs_mtx) <- gsub('_adult$', ' Adult', colnames(adult_aged_facs_mtx))
+colnames(adult_aged_facs_mtx) <- gsub('_age$', ' Aged', colnames(adult_aged_facs_mtx))
+
+set_bar_colours <- ifelse(
+  grepl(' Adult$', colnames(adult_aged_facs_mtx)),
+  sample_colours['adult'],
+  sample_colours['aged']
+)
+set_bar_colours <- unname(set_bar_colours)
+
+pdf('LINKS_study/figures/UpSet_adult_aged_FACS_links.pdf', onefile = FALSE, width = 12, height = 7)
+upset(adult_aged_facs_mtx,
+      nsets = ncol(adult_aged_facs_mtx),
+    sets = colnames(adult_aged_facs_mtx),
+    keep.order = TRUE,
+      order.by = "freq",
+    main.bar.color = "#1F2A44",
+    sets.bar.color = set_bar_colours,
+    matrix.color = "#2B2B2B",
+    shade.color = "#F2F2F2",
+    shade.alpha = 0.4,
+    point.size = 3.5,
+    line.size = 1,
+    text.scale = c(1.5, 1.1, 1.3, 1, 1.2, 1),
+    mainbar.y.label = "Intersection Size (Number of Links)",
+    sets.x.label = "Set Size (Links per Cell Type)",
+    mb.ratio = c(0.65, 0.35)
+)
+dev.off()
+
+##########################
+# Sham vs TAC FACS links #
+##########################
+sham_facs_dirs <- c('CF_Sham', 'CM_Sham', 'EC_Sham', 'MP_Sham')
+sham_facs_links <- lapply(sham_facs_dirs, function(dir) {
+    tmp <- paste0('TAC_cardiac_RNAseq/', dir, '/AL_65/AL_65_links_full_table.txt')
+    read.delim(tmp)
+})
+names(sham_facs_links) <- sham_facs_dirs
+# Filter for noncoding-coding links only
+sham_facs_links <- lapply(sham_facs_links, function(df) {
+  subset(df, name_base %in% noncoding & name_target %in% coding)
+})
+save(sham_facs_links, file = 'TAC_cardiac_RNAseq/sham_facs_links.RData')
+load('TAC_cardiac_RNAseq/sham_facs_links.RData')
+
+TAC_facs_dirs <- c('CF_TAC', 'CM_TAC', 'EC_TAC', 'MP_TAC')
+TAC_facs_links <- lapply(TAC_facs_dirs, function(dir) {
+    tmp <- paste0('TAC_cardiac_RNAseq/', dir, '/AL_65/AL_65_links_full_table.txt')
+    read.delim(tmp)
+})
+names(TAC_facs_links) <- TAC_facs_dirs
+# Filter for noncoding-coding links only
+TAC_facs_links <- lapply(TAC_facs_links, function(df) {
+  subset(df, name_base %in% noncoding & name_target %in% coding)
+})
+save(TAC_facs_links, file = 'TAC_cardiac_RNAseq/TAC_facs_links.RData')
+load('TAC_cardiac_RNAseq/TAC_facs_links.RData')
+
+# Calculate the overlap between sham and TAC FACS links for each cell type
+celltypes <- c('CF', 'CM', 'EC', 'MP')
+sham_TAC_facs_links <- lapply(celltypes, function(ct) {
+    sham_ct <- sham_facs_links[[paste0(ct, '_Sham')]]
+    TAC_ct  <- TAC_facs_links[[paste0(ct, '_TAC')]]
+    sham_sets <- unique(link_key(sham_ct))
+    TAC_sets  <- unique(link_key(TAC_ct))
+    data.frame(
+        cell_type = ct,
+        sham_links = length(sham_sets),
+        TAC_links = length(TAC_sets),
+        overlap_links = length(intersect(sham_sets, TAC_sets)),
+        jaccard_index = jaccard_index(sham_sets, TAC_sets)
+    )
+}) |> bind_rows()
+
+# Plot the overlap between sham and TAC FACS links for each cell type
+pdf('LINKS_study/figures/venn_sham_TAC_FACS_links.pdf', width = 12, height = 10)
+sham_TAC_facs_plots <- lapply(celltypes, function(ct) {
+    sham_ct <- sham_facs_links[[paste0(ct, '_Sham')]]
+    TAC_ct  <- TAC_facs_links[[paste0(ct, '_TAC')]]
+    sham_sets <- unique(link_key(sham_ct))
+    TAC_sets  <- unique(link_key(TAC_ct))
+    fit <- euler(list(
+        'Sham' = sham_sets,
+        'TAC'  = TAC_sets
+    ))
+    
+    ji <- sham_TAC_facs_links$jaccard_index[sham_TAC_facs_links$cell_type == ct]
+    subtitle_text <- paste0("Jaccard Index: ", ifelse(length(ji)==0 | is.na(ji), "NA", round(ji, 2)))
+    
+    plot(fit, quantities = TRUE, fill = sample_colours[c('Sham', 'TAC')], 
+         main = paste0(ct, '\n', subtitle_text))
+})
+grid.arrange(grobs = sham_TAC_facs_plots, ncol = 2, nrow = 2)
+dev.off()
+
+
+
+# Plot the overlap between adult, aged, and TAC FACS links for each cell type
+pdf('LINKS_study/figures/venn_adult_aged_TAC_FACS_links.pdf', width = 12, height = 10)
+combined_facs_plots <- lapply(celltypes, function(ct) {
+    adult_ct <- adult_facs_links[[paste0(ct, '_adult')]]
+    aged_ct  <- aged_facs_links[[paste0(ct, '_aged')]]
+    TAC_ct   <- TAC_facs_links[[paste0(ct, '_TAC')]]
+    Sham_ct   <- sham_facs_links[[paste0(ct, '_Sham')]]
+    adult_sets <- unique(link_key(adult_ct))
+    aged_sets  <- unique(link_key(aged_ct))
+    TAC_sets   <- unique(link_key(TAC_ct))
+    Sham_sets  <- unique(link_key(Sham_ct))
+    TAC_sets <- setdiff(TAC_sets, Sham_sets)
+    fit <- euler(list(
+        'Adult' = adult_sets,
+        'Aged'  = aged_sets,
+        'TAC'   = TAC_sets
+    ))
+    
+    plot(fit, quantities = TRUE, fill = sample_colours[c('adult', 'aged', 'TAC')], 
+         main = ct)
+})
+grid.arrange(grobs = combined_facs_plots, ncol = 2, nrow = 2)
+dev.off()
+
+# For each cell type return links common between aged and TAC but not adult - Sham links are removed
+aged_TAC_common_links <- lapply(celltypes, function(ct) {
+    adult_ct <- adult_facs_links[[paste0(ct, '_adult')]]
+    aged_ct  <- aged_facs_links[[paste0(ct, '_aged')]]
+    TAC_ct   <- TAC_facs_links[[paste0(ct, '_TAC')]]
+    Sham_ct   <- sham_facs_links[[paste0(ct, '_Sham')]]
+    adult_sets <- unique(link_key(adult_ct))
+    aged_sets  <- unique(link_key(aged_ct))
+    TAC_sets   <- unique(link_key(TAC_ct))
+    Sham_sets  <- unique(link_key(Sham_ct))
+    TAC_sets <- setdiff(TAC_sets, Sham_sets)
+    common_links <- intersect(aged_sets, TAC_sets)
+    unique_aged_TAC_links <- setdiff(common_links, adult_sets)
+    return(unique_aged_TAC_links)
+})
+names(aged_TAC_common_links) <- celltypes
+
+lapply(aged_TAC_common_links, function(links) {
+    links[grep('Hmgb1', links)]
+})
+
+lapply(aged_TAC_common_links, function(links) {
+    tmp <- unlist(lapply(links, function(x){
+      strsplit(x, '\\|')[[1]][2]
+    }))
+    unique(tmp)
+})
+
+# Create heatmap pf unique_aged_TAC_links across cell types
+unique_aged_TAC_links_mtx <- fromList(aged_TAC_common_links)
+rownames(unique_aged_TAC_links_mtx) <- gsub('\\|', ' | ', unique(unlist(aged_TAC_common_links)))
+colnames(unique_aged_TAC_links_mtx) <- celltypes
+pdf('LINKS_study/figures/heatmap_aged_TAC_common_FACS_links.pdf')
+Heatmap(as.matrix(unique_aged_TAC_links_mtx),
+        name = "Link",
+        col = c("grey", "red"),
+        show_row_names = TRUE,
+        show_column_names = TRUE,
+        cluster_rows = TRUE,
+        cluster_columns = TRUE,
+        # reduce row font size for better visibility
+        row_names_gp = gpar(fontsize = 6)
+)
+dev.off()
+
+# Upset plot of all cell types across adult, aged, tac and sham - append name to each list
+sham_facs_sets <- lapply(celltypes, function(ct) {
+  sham_ct <- sham_facs_links[[paste0(ct, '_Sham')]]
+  unique(link_key(sham_ct))
+})
+names(sham_facs_sets) <- paste0(celltypes, '_Sham')
+
+TAC_facs_sets <- lapply(celltypes, function(ct) {
+  TAC_ct <- TAC_facs_links[[paste0(ct, '_TAC')]]
+  unique(link_key(TAC_ct))
+})
+names(TAC_facs_sets) <- paste0(celltypes, '_TAC')
+
+all_facs_sets <- c(adult_facs_sets, aged_facs_sets, sham_facs_sets, TAC_facs_sets)
+all_facs_mtx <- fromList(all_facs_sets)
+rownames(all_facs_mtx) <- unique(unlist(all_facs_sets))
+
+all_facs_set_colours <- ifelse(
+  grepl("_adult$", colnames(all_facs_mtx), ignore.case = TRUE),
+  sample_colours["adult"],
+  ifelse(
+    grepl("_age$|_aged$", colnames(all_facs_mtx), ignore.case = TRUE),
+    sample_colours["aged"],
+    ifelse(
+      grepl("_TAC$", colnames(all_facs_mtx), ignore.case = TRUE),
+      sample_colours["TAC"],
+      ifelse(
+        grepl("_Sham$", colnames(all_facs_mtx), ignore.case = TRUE),
+        sample_colours["Sham"],
+        "#94A2AB"
+      )
+    )
+  )
+)
+all_facs_set_colours <- unname(all_facs_set_colours)
+
+pdf('LINKS_study/figures/UpSet_all_FACS_links.pdf', onefile = FALSE, width = 15, height = 10)
+upset(all_facs_mtx,
+      nsets = ncol(all_facs_mtx),
+    sets = colnames(all_facs_mtx),
+    keep.order = TRUE,
+      order.by = "freq",
+    main.bar.color = "#1F2A44",
+    sets.bar.color = all_facs_set_colours,
+    matrix.color = "#2B2B2B",
+    shade.color = "#F2F2F2",
+    shade.alpha = 0.4,
+    point.size = 3.5,
+    line.size = 1,
+    text.scale = c(1.5, 1.1, 1.3, 1, 1.2, 1),
+    mainbar.y.label = "Intersection Size (Number of Links)",
+    sets.x.label = "Set Size (Links per Cell Type)",
+    mb.ratio = c(0.65, 0.35)
+)
+dev.off()
+
+# Which links are common between aged and TAC but not adult or sham in EC?
+ec_aged_tac_only_links <- rownames(all_facs_mtx)[
+  all_facs_mtx[, "EC_age"] == 1 &
+  all_facs_mtx[, "EC_TAC"] == 1 &
+  rowSums(
+    all_facs_mtx[, setdiff(colnames(all_facs_mtx), c("EC_age", "EC_TAC")), drop = FALSE]
+  ) == 0
+]
+
+ec_aged_tac_only_links
+
+
+
+
+
+#####
 
 adult_heart <- unique(link_key(bodymap[['He_9w']]))
 
@@ -1231,7 +1539,27 @@ load('F1_TAC_Sarah/TAC_SHAM_links.RData')
 #   as.data.frame(dt_x)
 # })
 
-
+# Venn diagram of TAC vs Sham links in heart
+tac_heart_links <- TAC_SHAM[['He_TAC28d_RNA_XistBxC_-+_XX']]
+sham_heart_links <- TAC_SHAM[['He_TACSham28d_RNA_XistBxC_-+_XX']]
+tac_heart_sets <- unique(link_key(tac_heart_links))
+sham_heart_sets <- unique(link_key(sham_heart_links))
+ji_heart <- jaccard_index(tac_heart_sets, sham_heart_sets)
+fit_heart <- euler(list(
+  TAC  = tac_heart_sets,
+  Sham = sham_heart_sets
+))
+pdf('LINKS_study/figures/venn_TAC_sham_heart_links_all.pdf', width = 10, height = 8)
+plot(
+  fit_heart,
+  quantities = TRUE,
+  fill = sample_colours[c("TAC", "Sham")],
+  cex = 1.5,
+  font.size = 18,
+  main = paste0("TAC vs Sham Links in Heart\nJaccard Index: ", round(ji_heart, 2)),
+  fontface.main = "bold"
+)
+dev.off()
 
 
 # Venn diagram of TAC vs Sham links in heart split by enhancing and repressive in the one plot
@@ -1249,15 +1577,17 @@ fit_enhancing <- euler(list(
   TAC  = tac_enhancing,
   Sham = sham_enhancing
 ))
-fit_enhancing <- plot(fit_enhancing, quantities = TRUE, fill = sample_colours[c("TAC", "Sham")], main='Enhancing Links')
+fit_enhancing <- plot(fit_enhancing, quantities = TRUE, fill = sample_colours[c("TAC", "Sham")], 
+                      cex = 1.4, font.size = 16, main = 'Enhancing Links', fontface.main = "bold")
 fit_repressive <- euler(list(
   TAC  = tac_repressive,
   Sham = sham_repressive
 ))
-fit_repressive <- plot(fit_repressive, quantities=TRUE, fill = sample_colours[c("TAC", "Sham")], main='Repressive Links')
+fit_repressive <- plot(fit_repressive, quantities = TRUE, fill = sample_colours[c("TAC", "Sham")], 
+                       cex = 1.4, font.size = 16, main = 'Repressive Links', fontface.main = "bold")
 plot_list <- list(fit_enhancing, fit_repressive)
 
-pdf('LINKS_study/figures/venn_TAC_sham_links.pdf')
+pdf('LINKS_study/figures/venn_TAC_sham_links.pdf', width = 14, height = 7)
 grid.arrange(grobs = plot_list, ncol = 2)
 dev.off()
 
@@ -1437,7 +1767,52 @@ upset(repressive_mtx,
 )
 dev.off()
 
+### Upset plot of all links in adult, aged, TAC and Sham heart
+all_links_list <- list(
+  adult_links = unique(link_key(bodymap[['He_9w']])),
+  aged_links  = unique(link_key(bodymap[['He_78w']])),
+  tac_links  = unique(link_key(tac_heart_links)),
+  sham_links = unique(link_key(sham_heart_links))
+)
+all_links_mtx <- fromList(all_links_list)
+rownames(all_links_mtx) <- unique(unlist(all_links_list))
 
+all_set_bar_colours <- c(
+  sample_colours['adult'],
+  sample_colours['aged'],
+  sample_colours['TAC'],
+  sample_colours['Sham']
+)
+all_set_bar_colours <- unname(all_set_bar_colours)
+
+pdf('LINKS_study/figures/upset_adult_aged_TAC_Sham_all_links.pdf', onefile = FALSE, width = 14, height = 8)
+upset(all_links_mtx,
+      nsets = ncol(all_links_mtx),
+      sets = colnames(all_links_mtx),
+      keep.order = TRUE,
+      order.by = "freq",
+      main.bar.color = "#1F2A44",
+      sets.bar.color = all_set_bar_colours,
+      matrix.color = "#2B2B2B",
+      shade.color = "#F2F2F2",
+      shade.alpha = 0.4,
+      point.size = 3.5,
+      line.size = 1,
+      text.scale = c(1.5, 1.1, 1.3, 1, 1.2, 1),
+      mainbar.y.label = "Intersection Size (Number of Links)",
+      sets.x.label = "Set Size (Links per Condition)",
+      mb.ratio = c(0.65, 0.35)
+)
+dev.off()
+
+# Which in all_links_mtx are positive for aged and TAC but not adult or sham?
+aged_TAC_only_links <- rownames(all_links_mtx)[
+  all_links_mtx[, "aged_links"] == 1 &
+  all_links_mtx[, "tac_links"] == 1 &
+  all_links_mtx[, "adult_links"] == 0 &
+  all_links_mtx[, "sham_links"] == 0
+]
+rownames(all_links_mtx)[aged_TAC_only_links]
 
 # Links unique to He_9w (present in He_9w but not in any other sample)
 he_9w_only <- rownames(links_mtx[links_mtx[, "He_9w"] == 1 & rowSums(links_mtx[, colnames(links_mtx) != "He_9w"]) == 0, ])
@@ -1526,9 +1901,40 @@ sham_heart_links$link_key <- link_key(sham_heart_links)
 TAC_specific <- setdiff(tac_heart_links$link_key, sham_heart_links$link_key)
 TAC_specific_AR <- subset(tac_heart_links, link_key %in% TAC_specific)
 
-delta_AR <- merge(aged_heart_AR, TAC_specific_AR, by = "link_key", suffixes = c("_aged", "_TAC"))
-delta_AR$delta_allelic_ratio_base <- delta_AR$allelic_ratio_base_aged - delta_AR$allelic_ratio_base_TAC
-delta_AR$delta_allelic_ratio_target <- delta_AR$allelic_ratio_target_aged - delta_AR$allelic_ratio_target_TAC
+delta_AR <- merge(sham_heart_links, tac_heart_links, by = "link_key", suffixes = c("_Sham", "_TAC"))
+delta_AR$delta_allelic_ratio_base <- delta_AR$allelic_ratio_base_TAC - delta_AR$allelic_ratio_base_Sham
+delta_AR$delta_allelic_ratio_target <- delta_AR$allelic_ratio_target_TAC - delta_AR$allelic_ratio_target_Sham
+
+q <- 0.60
+thr_base   <- quantile(abs(delta_AR$delta_allelic_ratio_base), q)
+thr_target <- quantile(abs(delta_AR$delta_allelic_ratio_target), q)
+delta_AR$tail_candidate <-
+  abs(delta_AR$delta_allelic_ratio_base)   > thr_base &
+  abs(delta_AR$delta_allelic_ratio_target) > thr_target &
+  sign(delta_AR$delta_allelic_ratio_base) ==
+  sign(delta_AR$delta_allelic_ratio_target)
+
+pdf('LINKS_study/figures/allelic_ratio_changes_TAC_vs_Sham_heart_links.pdf')
+ggplot(delta_AR,
+       aes(x = delta_allelic_ratio_base,
+           y = delta_allelic_ratio_target)) +
+  geom_point(alpha = 0.3, colour = "grey70") +
+  geom_point(data = subset(delta_AR, tail_candidate),
+             colour = "firebrick", size = 1.5) +
+  geom_text_repel(data = subset(delta_AR, tail_candidate),
+                  aes(label = link_key),
+                  size = 4,
+                  max.overlaps = Inf,
+                  min.segment.length = 0) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  theme_minimal() +
+  labs(
+    x = "Delta Allelic Ratio (lncRNA, TAC - Sham)",
+    y = "Delta Allelic Ratio (pcGene, TAC - Sham)"
+  ) +
+  ggtitle("Heart Links: TAC vs Sham")
+dev.off()
 
 
 ######################################################
