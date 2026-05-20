@@ -235,6 +235,19 @@ aged <- cell_ids[cell_ids$age == 'aged', 1:2]
 write.table(adult, file = '9w/cell_index.txt', row.names = FALSE, col.names = FALSE, quote = FALSE)
 write.table(aged, file = '78w/cell_index.txt', row.names = FALSE, col.names = FALSE, quote = FALSE)
 
+# Export cell IDs for sinto - individual cells
+cell_ids <- data.frame(barcode = colnames(merged), cell_id = colnames(merged), age = merged$age)
+cell_ids$age <- factor(cell_ids$age, levels = c('aged', 'adult'))
+cell_ids$barcode <- gsub('adult_|aged_', '', cell_ids$barcode)
+
+adult <- cell_ids[cell_ids$age == 'adult', 1:2]
+aged <- cell_ids[cell_ids$age == 'aged', 1:2]
+
+write.table(adult, file = '9w/single_cell_index.txt', row.names = FALSE, col.names = TRUE, quote = FALSE)
+write.table(aged, file = '78w/single_cell_index.txt', row.names = FALSE, col.names = TRUE, quote = FALSE)
+
+
+
 # Clustered bar chart of cell type percentage split by age
 pdf('celltype_percentage_by_age.pdf')
 ggplot(cell_ids, aes(x = age, fill = cell_type)) +

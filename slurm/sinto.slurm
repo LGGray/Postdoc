@@ -64,8 +64,7 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq
 
 
 ###### For single cell assigning active X chromosome #####
-echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID:-none}"
-echo "SCRATCH=${SCRATCH:-none}"
+echo "SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}"
 
 SCRATCH_DIR="$SCRATCH/sinto_${SLURM_JOBID}"
 mkdir -p "$SCRATCH_DIR"
