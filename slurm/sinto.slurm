@@ -64,13 +64,21 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq
 
 
 ###### For single cell assigning active X chromosome #####
+SCRATCH_DIR="${SCRATCH_DSS:-$SCRATCH}/sinto_${SLURM_JOBID}"
+mkdir -p "$SCRATCH_DIR"
+
 if [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 1 ]; then
 	# 9w (adult)
-	sinto filterbarcodes --bam 9w/outs/possorted_genome_bam.bam --cells 9w/single_cell_index.txt --outdir 9w/sc_sinto --nproc 18
+	sinto filterbarcodes --bam 9w/outs/possorted_genome_bam.bam --cells 9w/single_cell_index.txt --outdir "$SCRATCH_DIR/9w_sc_sinto" --nproc 18
+	mv "$SCRATCH_DIR/9w_sc_sinto" 9w/sc_sinto
 elif [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 2 ]; then
 	# 78w (aged)
-	sinto filterbarcodes --bam 78w/outs/possorted_genome_bam.bam --cells 78w/single_cell_index.txt --outdir 78w/sc_sinto --nproc 18
+	sinto filterbarcodes --bam 78w/outs/possorted_genome_bam.bam --cells 78w/single_cell_index.txt --outdir "$SCRATCH_DIR/78w_sc_sinto" --nproc 18
+	mv "$SCRATCH_DIR/78w_sc_sinto" 78w/sc_sinto
 else
 	echo "Unknown SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}. Exiting." >&2
 	exit 1
 fi
+
+# Clean up scratch
+rm -rf "$SCRATCH_DIR"
