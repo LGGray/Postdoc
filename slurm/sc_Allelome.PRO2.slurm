@@ -33,7 +33,7 @@ SNPfile=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i $SAMPLE\
   -a $annotation \
-  -s $SNPfile \ 
+  -s $SNPfile \
+  -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/9w/sc_Allelome.PRO2 \
   -r 1 \
   -t 10 \
-  -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/9w/sc_Allelome.PRO2
