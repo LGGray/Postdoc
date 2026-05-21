@@ -13,7 +13,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=100G
 #SBATCH --time=8:00:00
-#SBATCH --array=1-10664
+#SBATCH --array=1-25
 
 module load slurm_setup
 
@@ -29,7 +29,7 @@ echo "Processing sample: "$SAMPLE
 annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/chr_annotation_mm39.bed
 SNPfile=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.bed
 
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
+/usr/bin/time -v bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i "$SAMPLE" \
   -a $annotation \
   -s $SNPfile \
@@ -37,3 +37,18 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
   -r 1 \
   -t 10
 
+exit_status=$?
+
+echo
+echo "===== SLURM ACCOUNTING SUMMARY ====="
+jobref="${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+
+sacct -M serial -r serial_std \
+  --jobs="$jobref" \
+  --format=JobID,JobName%20,State,ExitCode,Elapsed,TotalCPU,ReqCPUS,ReqMem,MaxRSS,AveRSS,MaxVMSize
+
+echo
+echo "===== SLURM EFFICIENCY SUMMARY ====="
+seff "$jobref" || true
+
+exit $exit_status
