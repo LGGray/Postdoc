@@ -26,6 +26,7 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq
 files=$(ls 9w/sc_sinto/*.bam)
 
 SAMPLE=${files[${SLURM_ARRAY_TASK_ID}-1]}
+echo "Processing sample: $SAMPLE"
 
 annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/chr_annotation_mm39.bed
 SNPfile=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.bed
