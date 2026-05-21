@@ -9,7 +9,7 @@ POLL_SECONDS=120
 
 # If first 200 already finished successfully, start from 200.
 # Use 0 to start from the beginning.
-START_OFFSET=200
+START_OFFSET=400
 
 # Set to 1 if you want the wrapper to stop when any task in a chunk fails.
 STOP_ON_FAILURE=1
@@ -57,7 +57,20 @@ wait_for_job () {
     local jobid="$1"
 
     echo "Waiting for job $jobid to leave the queue..."
-    while squeue --clusters=serial --partition=serial_std -h -j "$jobid" | grep -q .; do
+    while true; do
+        # Some Slurm setups return "Invalid job id" once a job is finished.
+        # Treat that as "left queue" rather than as an error.
+        local qout
+        qout=$(squeue --clusters=serial --partition=serial_std -h -j "$jobid" 2>&1 || true)
+
+        if grep -qi "Invalid job id" <<< "$qout"; then
+            break
+        fi
+
+        if [[ -z "$qout" ]]; then
+            break
+        fi
+
         sleep "$POLL_SECONDS"
     done
 
@@ -69,7 +82,7 @@ summarise_job () {
 
     echo
     echo "Accounting summary for job $jobid:"
-    sacct -M serial -r serial_std -j "$jobid" --array \
+    sacct -M serial -r serial_std -j "$jobid" \
         --format=JobID,JobName%24,State,ExitCode,Elapsed,MaxRSS
     echo
 }
@@ -80,7 +93,7 @@ chunk_has_failures () {
     # Look for clearly bad end states in any task
     local bad_count
     bad_count=$(
-        sacct -M serial -r serial_std -n -j "$jobid" --array --format=State \
+        sacct -M serial -r serial_std -n -j "$jobid" --format=State \
         | awk '
             {
               gsub(/[[:space:]]+/, "", $0)
