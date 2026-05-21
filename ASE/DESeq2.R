@@ -516,3 +516,53 @@ ggplot(`5930430L01Rik_expr_long`, aes(x=condition, y=expression, fill=condition)
   annotate('text', x=3.5, y=bar_height + 0.3, 
            label=paste0('padj = ', round(hmgb1_tac_sham$padj, 3)), size=3.5)
 dev.off() 
+
+
+## Read in adult FACS data 
+metadata <- read.csv('cardiac_RNAseq/SraRunTable.csv')
+metadata <- subset(metadata, sex == 'female' & genotype == 'C57BL/6J{delta}XistxCAST/EiJ')
+file.list <- list.files('cardiac_RNAseq', pattern='tranded_no.count', recursive=TRUE, full.names=TRUE)
+GEM <- lapply(file.list, function(x) {
+  sample_name <- gsub('_stranded_no.count', '', basename(x))
+  df <- read.delim(x, header=FALSE, col.names=c('geneID', sample_name))
+  return(df)
+})
+GEM <- Reduce(function(x, y) merge(x, y, by='geneID', all=TRUE), GEM)
+GEM <- GEM[grep('^_', GEM$geneID, invert=TRUE), ]
+metadata <- metadata[metadata$Run %in% colnames(GEM), ]
+GEM <- GEM[, c(1, which(colnames(GEM) %in% metadata$Run))]
+metadata <- metadata[match(colnames(GEM[,-1]), metadata$Run), ]
+rownames(GEM) <- GEM$geneID
+GEM <- GEM[, -1]
+
+# Split by cell type and save GEMs
+lapply(split(metadata, metadata$tissue), function(cell_type) {
+  tmp <- GEM[, cell_type$Run]
+  write.table(tmp, file=paste0('cardiac_RNAseq/DEG/', cell_type$tissue[1], '_GEM.txt'), sep='\t', quote=FALSE, row.names=TRUE)
+})
+
+## Read in aged FACS data
+metadata <- read.csv('aged_cardiac_RNAseq/Project_699_lims.csv')
+metadata <- metadata[grepl('XBxC_-\\+_XX', metadata$FID_comment), ]
+metadata$tissue <- strsplit(metadata$FID_comment, '_') %>% sapply(function(x) x[1])
+
+file.list <- list.files('aged_cardiac_RNAseq', pattern='stranded_no.count', recursive=TRUE, full.names=TRUE)
+GEM <- lapply(file.list, function(x) {
+  sample_name <- gsub('_stranded_no.count', '', basename(x))
+  df <- read.delim(x, header=FALSE, col.names=c('geneID', paste0('Sample_', sample_name)))
+  return(df)
+})
+GEM <- Reduce(function(x, y) merge(x, y, by='geneID', all=TRUE), GEM)
+GEM <- GEM[grep('^_', GEM$geneID, invert=TRUE), ]
+metadata <- metadata[metadata$Sample_ID %in% colnames(GEM), ]
+GEM <- GEM[, c(1, which(colnames(GEM) %in% metadata$Sample_ID))]
+metadata <- metadata[match(colnames(GEM[,-1]), metadata$Sample_ID), ]
+rownames(GEM) <- GEM$geneID
+GEM <- GEM[, -1]
+
+dir.create('aged_cardiac_RNAseq/DEG', showWarnings=FALSE)
+# Split by cell type and save GEMs
+lapply(split(metadata, metadata$tissue), function(cell_type) {
+  tmp <- GEM[, cell_type$Sample_ID]
+  write.table(tmp, file=paste0('aged_cardiac_RNAseq/DEG/', cell_type$tissue[1], '_GEM.txt'), sep='\t', quote=FALSE, row.names=TRUE)
+})  
