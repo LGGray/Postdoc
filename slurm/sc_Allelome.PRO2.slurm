@@ -13,7 +13,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=10G
 #SBATCH --time=1:00:00
-#SBATCH --array=1-5
+#SBATCH --array=1-200%200
 
 module load slurm_setup
 
