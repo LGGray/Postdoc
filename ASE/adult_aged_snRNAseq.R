@@ -592,3 +592,71 @@ ggplot(Gm15408_summary, aes(x = cell_type, y = percent_expressing, fill = age)) 
   scale_fill_manual(values = c("adult" = "lightblue", "aged" = "darkblue")) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
 dev.off()
+
+### Visualising per cell expression of Xist split by age
+merged <- readRDS('adult_aged_merged.RDS')
+pdf('Xist_expression.pdf', height = 8, width = 10)
+FeaturePlot(merged, features = "Xist", reduction = "umap", 
+split.by = "age", label = TRUE,
+cols = c("lightblue", "darkblue"), min.cutoff = "q10", max.cutoff = "q90")
+dev.off()
+
+# Visualise Xist change across cell types from adult to aged
+
+pdf('Xist_violin_by_celltype_age.pdf', height = 8, width = 12)
+VlnPlot(
+  merged,
+  features = "Xist",
+  group.by = "celltype",
+  split.by = "age",
+  pt.size = 0,
+  cols = c("adult" = "lightblue", "aged" = "darkblue")
+) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1), legend.title = element_blank())
+dev.off()
+
+xist_meta <- FetchData(merged, vars = c("Xist", "celltype", "age"))
+xist_summary <- xist_meta %>%
+  group_by(celltype, age) %>%
+  summarise(
+    mean_expr = mean(Xist, na.rm = TRUE),
+    pct_expressing = mean(Xist > 0, na.rm = TRUE) * 100,
+    .groups = "drop"
+  ) %>%
+  mutate(
+    celltype = as.character(celltype),
+    age = as.character(age),
+    mean_expr = as.numeric(mean_expr)
+  )
+
+xist_wide <- xist_summary %>%
+  select(celltype, age, mean_expr) %>%
+  tidyr::pivot_wider(names_from = age, values_from = mean_expr) %>%
+  mutate(delta_aged_minus_adult = aged - adult) %>%
+  arrange(desc(delta_aged_minus_adult))
+
+xist_summary$celltype <- factor(xist_summary$celltype, levels = xist_wide$celltype)
+xist_wide$celltype <- factor(xist_wide$celltype, levels = xist_wide$celltype)
+xist_colors <- unlist(cluster_colors, use.names = TRUE)
+
+pdf('Xist_change_by_celltype.pdf', height = 8, width = 11)
+ggplot(xist_summary, aes(x = age, y = mean_expr, group = celltype, color = celltype)) +
+  geom_line(alpha = 0.8, linewidth = 0.8) +
+  geom_point(size = 2) +
+  facet_wrap(~ celltype, scales = "free_y") +
+  scale_color_manual(values = xist_colors) +
+  theme_minimal() +
+  labs(x = "", y = "Mean Xist expression (SCT)", title = "Adult to aged Xist change by cell type") +
+  theme(legend.position = "none")
+dev.off()
+
+pdf('Xist_delta_aged_minus_adult_by_celltype.pdf', height = 6, width = 9)
+ggplot(xist_wide, aes(x = celltype, y = delta_aged_minus_adult, fill = delta_aged_minus_adult > 0)) +
+  geom_col() +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = "", y = "Delta mean Xist (aged - adult)", title = "Change in Xist by cell type") +
+  scale_fill_manual(values = c("TRUE" = "darkred", "FALSE" = "steelblue"), guide = "none")
+dev.off()
+
