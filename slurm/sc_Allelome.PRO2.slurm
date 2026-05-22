@@ -13,7 +13,7 @@
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=10G
 #SBATCH --time=1:00:00
-#SBATCH --array=1-200%80
+#SBATCH --array=1-5
 
 module load slurm_setup
 
@@ -33,11 +33,31 @@ echo "Processing line ${LINE}: ${SAMPLE}"
 
 annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/chr_annotation_mm39.bed
 SNPfile=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.bed
+DEST_ROOT=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/9w/sc_Allelome.PRO2
+
+if [ -z "${SCRATCH:-}" ]; then
+  echo "SCRATCH is not set; exiting"
+  exit 1
+fi
+
+TASK_SCRATCH_ROOT="${SCRATCH%/}/sc_Allelome.PRO2/9w/${SLURM_JOB_ID}_${SLURM_ARRAY_TASK_ID}"
+mkdir -p "$TASK_SCRATCH_ROOT"
+mkdir -p "$DEST_ROOT"
 
 bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
   -i "$SAMPLE" \
   -a $annotation \
   -s $SNPfile \
-  -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq/9w/sc_Allelome.PRO2 \
+  -o "$TASK_SCRATCH_ROOT" \
   -r 1 \
   -t 10
+
+find "$TASK_SCRATCH_ROOT" -type f \( -name "locus_table.txt" -o -name "locus.table.txt" \) -print0 \
+| while IFS= read -r -d '' locus_file; do
+  rel_path="${locus_file#${TASK_SCRATCH_ROOT}/}"
+  dest_file="$DEST_ROOT/$rel_path"
+  mkdir -p "$(dirname "$dest_file")"
+  mv "$locus_file" "$dest_file"
+done
+
+
