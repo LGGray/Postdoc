@@ -566,3 +566,126 @@ lapply(split(metadata, metadata$tissue), function(cell_type) {
   tmp <- GEM[, cell_type$Sample_ID]
   write.table(tmp, file=paste0('aged_cardiac_RNAseq/DEG/', cell_type$tissue[1], '_GEM.txt'), sep='\t', quote=FALSE, row.names=TRUE)
 })  
+
+## Read in TAC data
+metadata <- read.csv('TAC_cardiac_RNAseq/Project_1050_lims_fixed.csv')
+metadata$tissue <- strsplit(metadata$FID_comment, '_') %>% sapply(function(x) x[1])
+metadata_TAC <- metadata[grep('TAC_d28_RNA_XBxC', metadata$FID_comment),]
+
+TAC_list <- list.files('TAC_cardiac_RNAseq', pattern='stranded_no.count', recursive=TRUE, full.names=TRUE)
+GEM <- lapply(TAC_list, function(x) {
+  sample_name <- gsub('_stranded_no.count', '', basename(x))
+  df <- read.delim(x, header=FALSE, col.names=c('geneID', paste0('Sample_', sample_name)))
+  return(df)
+})
+GEM <- Reduce(function(x, y) merge(x, y, by='geneID', all=TRUE), GEM)
+GEM <- GEM[grep('^_', GEM$geneID, invert=TRUE), ]
+GEM <- GEM[, c(1, which(colnames(GEM) %in% metadata_TAC$Sample_ID))]
+
+metadata_TAC <- metadata_TAC[match(colnames(GEM[,-1]), metadata_TAC$Sample_ID), ]
+rownames(GEM) <- GEM$geneID
+GEM <- GEM[, -1]
+dir.create('TAC_cardiac_RNAseq/DEG', showWarnings=FALSE)
+# Split by cell type and save GEMs
+lapply(split(metadata_TAC, metadata_TAC$tissue), function(cell_type) {
+  tmp <- GEM[, cell_type$Sample_ID]
+  write.table(tmp, file=paste0('TAC_cardiac_RNAseq/DEG/TAC_', cell_type$tissue[1], '_GEM.txt'), sep='\t', quote=FALSE, row.names=TRUE)
+})
+
+metadata_Sham <- metadata[grep('Sham_d28_RNA_XBxC', metadata$FID_comment),]
+Sham_list <- list.files('TAC_cardiac_RNAseq', pattern='stranded_no.count', recursive=TRUE, full.names=TRUE)
+GEM <- lapply(Sham_list, function(x) {
+  sample_name <- gsub('_stranded_no.count', '', basename(x))
+  df <- read.delim(x, header=FALSE, col.names=c('geneID', paste0('Sample_', sample_name)))
+  return(df)
+})
+GEM <- Reduce(function(x, y) merge(x, y, by='geneID', all=TRUE), GEM)
+GEM <- GEM[grep('^_', GEM$geneID, invert=TRUE), ]
+GEM <- GEM[, c(1, which(colnames(GEM) %in% metadata_Sham$Sample_ID))]
+metadata_Sham <- metadata_Sham[match(colnames(GEM[,-1]), metadata_Sham$Sample_ID), ]
+rownames(GEM) <- GEM$geneID
+GEM <- GEM[, -1]
+dir.create('TAC_cardiac_RNAseq/DEG', showWarnings=FALSE)
+# Split by cell type and save GEMs
+lapply(split(metadata_Sham, metadata_Sham$tissue), function(cell_type) {
+  tmp <- GEM[, cell_type$Sample_ID]
+  write.table(tmp, file=paste0('TAC_cardiac_RNAseq/DEG/Sham_', cell_type$tissue[1], '_GEM.txt'), sep='\t', quote=FALSE, row.names=TRUE)
+})
+
+
+# Reading in cell specific files and running DESeq2 for each cell type - considering batch effects
+dir.create('LINKS_study/DEG', showWarnings=FALSE)
+
+run_celltype_deseq <- function(cell_type, adult_file = cell_type) {
+  adult_counts <- read.delim(
+    paste0('cardiac_RNAseq/DEG/', adult_file, '_GEM.txt'),
+    header = TRUE,
+    row.names = 1,
+    check.names = FALSE
+  )
+  aged_counts <- read.delim(
+    paste0('aged_cardiac_RNAseq/DEG/', cell_type, '_GEM.txt'),
+    header = TRUE,
+    row.names = 1,
+    check.names = FALSE
+  )
+  TAC_counts <- read.delim(
+    paste0('TAC_cardiac_RNAseq/DEG/TAC_', cell_type, '_GEM.txt'),
+    header = TRUE,
+    row.names = 1,
+    check.names = FALSE
+  )
+  sham_counts <- read.delim(
+    paste0('TAC_cardiac_RNAseq/DEG/Sham_', cell_type, '_GEM.txt'),
+    header = TRUE,
+    row.names = 1,
+    check.names = FALSE
+  )
+
+  stopifnot(identical(rownames(adult_counts), rownames(aged_counts)))
+  stopifnot(identical(rownames(TAC_counts), rownames(sham_counts)))
+
+  adult_aged_counts <- cbind(adult_counts, aged_counts)
+  adult_aged_metadata <- data.frame(
+    row.names = colnames(adult_aged_counts),
+    condition = factor(c(rep('adult', 3), rep('aged', 3)), levels = c('adult', 'aged'))
+  )
+
+  dds_adult_aged <- DESeqDataSetFromMatrix(
+    countData = adult_aged_counts,
+    colData   = adult_aged_metadata,
+    design    = ~ condition
+  )
+  dds_adult_aged <- dds_adult_aged[rowSums(counts(dds_adult_aged) >= 10) >= 3, ]
+  dds_adult_aged <- DESeq(dds_adult_aged)
+  res_aged_vs_adult <- results(dds_adult_aged, contrast = c('condition', 'aged', 'adult'), alpha = 0.05)
+  res_aged_vs_adult <- lfcShrink(dds_adult_aged, coef = 'condition_aged_vs_adult', type = 'apeglm')
+  res_aged_vs_adult <- as.data.frame(res_aged_vs_adult[order(res_aged_vs_adult$padj), ])
+  res_aged_vs_adult$gene <- rownames(res_aged_vs_adult)
+  write.table(res_aged_vs_adult, file = paste0('LINKS_study/DEG/', cell_type, '_aged_vs_adult.txt'), sep = '\t', quote = FALSE, row.names = FALSE)
+
+  TAC_sham_counts <- cbind(TAC_counts, sham_counts)
+  TAC_sham_metadata <- data.frame(
+    row.names = colnames(TAC_sham_counts),
+    condition = factor(c(rep('TAC', 3), rep('sham', 3)), levels = c('sham', 'TAC'))
+  )
+
+  dds_TAC_sham <- DESeqDataSetFromMatrix(
+    countData = TAC_sham_counts,
+    colData   = TAC_sham_metadata,
+    design    = ~ condition
+  )
+  dds_TAC_sham <- dds_TAC_sham[rowSums(counts(dds_TAC_sham) >= 10) >= 3, ]
+  dds_TAC_sham <- DESeq(dds_TAC_sham)
+  res_TAC_vs_sham <- results(dds_TAC_sham, contrast = c('condition', 'TAC', 'sham'), alpha = 0.05)
+  res_TAC_vs_sham <- lfcShrink(dds_TAC_sham, coef = 'condition_TAC_vs_sham', type = 'apeglm')
+  res_TAC_vs_sham <- as.data.frame(res_TAC_vs_sham[order(res_TAC_vs_sham$padj), ])
+  res_TAC_vs_sham$gene <- rownames(res_TAC_vs_sham)
+  write.table(res_TAC_vs_sham, file = paste0('LINKS_study/DEG/', cell_type, '_TAC_vs_sham.txt'), sep = '\t', quote = FALSE, row.names = FALSE)
+}
+
+run_celltype_deseq('MP', adult_file = 'Macrophages')
+run_celltype_deseq('CF', adult_file = 'Cardiac fibroblasts')
+run_celltype_deseq('EC', adult_file = 'Endothelial cells')
+run_celltype_deseq('CM', adult_file = 'Cardiomyocytes')
+

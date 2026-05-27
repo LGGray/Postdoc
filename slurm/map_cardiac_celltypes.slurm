@@ -23,37 +23,37 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cardiac_RNAseq
 
 genome_dir=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/STAR2.7.11b_genome_index/genome_dir_gencodeM36_mm39.202410
 annotation=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation.gtf
-annotation_us=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39/20250512_RefSeq/annotation_us.bed
+annotation_us=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/annotation_us.flt.bed
 
 SNPfile=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.bed
 
-run_one() {
-  SAMPLE="$1"
-  # One STAR per srun; --exclusive ensures each gets its own CPU set
-  STAR \
-    --genomeDir $genome_dir \
-    --readFilesIn fastq/${SAMPLE}_1.fastq fastq/${SAMPLE}_2.fastq \
-    --runThreadN 12 \
-    --outStd Log \
-    --outSAMtype BAM SortedByCoordinate \
-    --alignIntronMax 100000 \
-    --outFilterIntronMotifs RemoveNoncanonical \
-    --outFileNamePrefix "${SAMPLE}/${SAMPLE}_" \
-    --outFilterMultimapNmax 1
+# run_one() {
+#   SAMPLE="$1"
+#   # One STAR per srun; --exclusive ensures each gets its own CPU set
+#   STAR \
+#     --genomeDir $genome_dir \
+#     --readFilesIn fastq/${SAMPLE}_1.fastq fastq/${SAMPLE}_2.fastq \
+#     --runThreadN 12 \
+#     --outStd Log \
+#     --outSAMtype BAM SortedByCoordinate \
+#     --alignIntronMax 100000 \
+#     --outFilterIntronMotifs RemoveNoncanonical \
+#     --outFileNamePrefix "${SAMPLE}/${SAMPLE}_" \
+#     --outFilterMultimapNmax 1
 
-  samtools index "${SAMPLE}/${SAMPLE}_Aligned.sortedByCoord.out.bam"
+#   samtools index "${SAMPLE}/${SAMPLE}_Aligned.sortedByCoord.out.bam"
 
-  STRAND=no
-  htseq-count -s $STRAND -r pos -f bam \
-    "${SAMPLE}/${SAMPLE}_Aligned.sortedByCoord.out.bam" \
-    $annotation \
-    > "${SAMPLE}/${SAMPLE}_stranded_${STRAND}.count"
+#   STRAND=no
+#   htseq-count -s $STRAND -r pos -f bam \
+#     "${SAMPLE}/${SAMPLE}_Aligned.sortedByCoord.out.bam" \
+#     $annotation \
+#     > "${SAMPLE}/${SAMPLE}_stranded_${STRAND}.count"
 
-  echo "Finished processing sample: $SAMPLE"
-}
+#   echo "Finished processing sample: $SAMPLE"
+# }
 
 SAMPLE=$(sed -n "${SLURM_ARRAY_TASK_ID}p" fastq_files.txt )
-mkdir -p $SAMPLE
+# mkdir -p $SAMPLE
 # run_one "$SAMPLE"
 
 # # # Separate BAM files into forward and reverse reads
@@ -80,15 +80,15 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK_mod/00_sr
   -o ${SAMPLE}
 
 
-for i in {1..8}; do
-  dir=$(sed -n "${i}p" sample_dirs.txt)
-  Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
-    -i ${dir}/annotation_us_locus_table_reps.txt\
-    -o ${dir} \
-    --allelic-bias 0.65 \
-    -r 20 \
-    -w 100 \
-    -n AL_65 \
-    -d FALSE
+# for i in {1..8}; do
+#   dir=$(sed -n "${i}p" sample_dirs.txt)
+#   Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+#     -i ${dir}/annotation_us_locus_table_reps.txt\
+#     -o ${dir} \
+#     --allelic-bias 0.65 \
+#     -r 20 \
+#     -w 100 \
+#     -n AL_65 \
+#     -d FALSE
 
-done
+# done
