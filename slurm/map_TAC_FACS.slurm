@@ -74,21 +74,20 @@ bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Al
   -o ${SAMPLE}
 
 
-# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
-#     -i ${SAMPLE}/${DATE}_${SAMPLE}_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt\
-#     -o ${SAMPLE} \
-#     --allelic-bias 0.65 \
-#     -r 20 \
-#     -w 100 \
-#     -n AL_65 \
-#     -d FALSE
-
-
-# Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
-#     -i annotation_us_locus_table_reps.txt\
-#     -o . \
-#     --allelic-bias 0.65 \
-#     -r 20 \
-#     -w 100 \
-#     -n AL_65 \
-#     -d FALSE
+# Run Allelome.link on merged replicates of Allelome.PRO2
+date=2026_05_28
+for i in {1..8}; do
+  dir=$(sed -n "${i}p" sample_dirs.txt)
+  Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.LINK.R \
+    -i ${dir}/annotation_us_locus_table_reps.txt \
+    -o ${dir} \
+    --allelic-bias 0.65 \
+    -r 20 \
+    -w 100 \
+    -n AL_65.flt \
+    -d FALSE
+  Rscript /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/ASE/filter_bedpe.R \
+    ${dir}/AL_65.flt/AL_65.flt.bedpe \
+    ${dir}/AL_65.flt/AL_65.flt_links_full_table.txt \
+    ${dir}/AL_65.flt/AL_65.flt
+done

@@ -247,12 +247,12 @@ lapply(unique(tac_metadata$condition), function(x) {
 metadata <- read.csv('SraRunTable.csv')
 metadata$sex_tissue <- paste0(metadata$sex, '_', metadata$tissue)
 
-date <- '2025_11_20'
+date <- '2026_05_28'
 lapply(unique(metadata$sex_tissue), function(x){
   samples <- subset(metadata, sex_tissue == x)$Run
-  rep1 <- fread(paste0(samples[1], '/', date, '_', samples[1], '_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt'))
-  rep2 <- fread(paste0(samples[2], '/', date, '_', samples[2], '_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt'))
-  rep3 <- fread(paste0(samples[3], '/', date, '_', samples[3], '_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt'))
+  rep1 <- fread(paste0(samples[1], '/', date, '_', samples[1], '_Aligned.sortedByCoord.out_annotation_us.flt.bed_1/locus_table.txt'))
+  rep2 <- fread(paste0(samples[2], '/', date, '_', samples[2], '_Aligned.sortedByCoord.out_annotation_us.flt.bed_1/locus_table.txt'))
+  rep3 <- fread(paste0(samples[3], '/', date, '_', samples[3], '_Aligned.sortedByCoord.out_annotation_us.flt.bed_1/locus_table.txt'))
 
   # Filter for min total reads
   min_total_reads <- 20
@@ -280,7 +280,7 @@ lapply(unique(metadata$sex_tissue), function(x){
   if (!dir.exists(x)) {
   dir.create(gsub(" ", "_", x))
   }
-  write.table(locus_tab, paste0(gsub(" ", "_", x), '/', 'annotation_us_locus_table_reps.txt'), row.names=FALSE, quote=FALSE, sep='\t')
+  write.table(locus_tab, paste0(gsub(" ", "_", x), '/', date, '_', 'annotation_us_locus_table_reps.txt'), row.names=FALSE, quote=FALSE, sep='\t')
 })
 
 # Merge replicates for H3K4me3 chipseq
@@ -399,14 +399,14 @@ metadata$tissue <- strsplit(metadata$FID_comment, '_') %>% sapply(function(x) x[
 metadata$sex <- strsplit(metadata$FID_comment, '_') %>% sapply(function(x) x[6])
 metadata$sex <- ifelse(metadata$sex == 'XX', 'female', 'male')
 metadata$sex_tissue <- paste0(metadata$sex, '_', metadata$tissue)
+metadata <- subset(metadata, sex == 'female')
 
-date <- '2026_04_16'
-lapply(unique(metadata$sex_tissue)[7:8], function(x){
-  print(x)
+date <- '2026_05_28'
+lapply(unique(metadata$sex_tissue), function(x){
   samples <- subset(metadata, sex_tissue == x)$Sample_Name
-  rep1 <- fread(paste0(samples[1], '/', date, '_', samples[1], '_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt'))
-  rep2 <- fread(paste0(samples[2], '/', date, '_', samples[2], '_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt'))
-  rep3 <- fread(paste0(samples[3], '/', date, '_', samples[3], '_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt'))
+  rep1 <- fread(paste0(samples[1], '/', date, '_', samples[1], '_Aligned.sortedByCoord.out_annotation_us.flt.bed_1/locus_table.txt'))
+  rep2 <- fread(paste0(samples[2], '/', date, '_', samples[2], '_Aligned.sortedByCoord.out_annotation_us.flt.bed_1/locus_table.txt'))
+  rep3 <- fread(paste0(samples[3], '/', date, '_', samples[3], '_Aligned.sortedByCoord.out_annotation_us.flt.bed_1/locus_table.txt'))
 
   # Filter for min total reads
   min_total_reads <- 20
@@ -447,12 +447,12 @@ metadata$tissue <- strsplit(metadata$FID_comment, '_') %>% sapply(function(x) x[
 metadata$condition <- strsplit(metadata$FID_comment, '_') %>% sapply(function(x) x[2])
 metadata$tissue_condition <- paste0(metadata$tissue, '_', metadata$condition)
 
-date <- '2026_04_16'
+date <- '2026_05_28'
 lapply(unique(metadata$tissue_condition), function(x){
   samples <- subset(metadata, tissue_condition == x)$Sample_Name
-  rep1 <- fread(paste0(samples[1], '/', date, '_', samples[1], '_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt'))
-  rep2 <- fread(paste0(samples[2], '/', date, '_', samples[2], '_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt'))
-  rep3 <- fread(paste0(samples[3], '/', date, '_', samples[3], '_Aligned.sortedByCoord.out_annotation_us.bed_1/locus_table.txt'))
+  rep1 <- fread(paste0(samples[1], '/', date, '_', samples[1], '_Aligned.sortedByCoord.out_annotation_us.flt.bed_1/locus_table.txt'))
+  rep2 <- fread(paste0(samples[2], '/', date, '_', samples[2], '_Aligned.sortedByCoord.out_annotation_us.flt.bed_1/locus_table.txt'))
+  rep3 <- fread(paste0(samples[3], '/', date, '_', samples[3], '_Aligned.sortedByCoord.out_annotation_us.flt.bed_1/locus_table.txt'))
 
   # Filter for min total reads
   min_total_reads <- 20
