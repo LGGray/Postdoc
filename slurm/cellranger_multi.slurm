@@ -22,4 +22,4 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM
 
 cellranger multi \
   --id Hearts_OCM \
-  --csv OCM.csv \
+  --csv config.csv \
