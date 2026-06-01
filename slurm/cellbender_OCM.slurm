@@ -36,8 +36,8 @@ elif [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 3 ]; then
 	INPUT="He_Sham_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.h5"
 	OUTPUT="He_Sham_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender.h5"
 elif [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 4 ]; then
-	INPUT="He_Sham_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.h5"
-	OUTPUT="He_Sham_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender.h5"
+	INPUT="He_TAC_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.h5"
+	OUTPUT="He_TAC_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender.h5"
 else
 	echo "Unknown SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}. Exiting." >&2
 	exit 1
