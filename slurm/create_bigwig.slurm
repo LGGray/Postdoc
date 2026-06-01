@@ -18,7 +18,7 @@ module load slurm_setup
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 conda activate RNAseq
 
-cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_bodymap
+cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/F1_TAC_Sarah
 
 # ##############
 # # Adult heart #
@@ -126,6 +126,41 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_bodymap
 #   -o He_TAC28d_RNA_XistBxC_-+_XX/pooled_rev_inverted.bw \
 #   --scaleFactor -1 \
 #   --numberOfProcessors 8
+
+##############
+# Sham heart #
+##############
+# Collect sample names into an array (0-based)
+readarray -t samples < <(grep 'He_TACSham28d_RNA_XistBxC_-+_XX' metadata.csv | cut -d',' -f2)
+
+# merge forward
+samtools merge -@ 8 He_TACSham28d_RNA_XistBxC_-+_XX/pooled_fwd.bam \
+  "Sample_${samples[0]}/${samples[0]}_Aligned.sortedByCoord.out_fwd.bam" \
+  "Sample_${samples[1]}/${samples[1]}_Aligned.sortedByCoord.out_fwd.bam" \
+  "Sample_${samples[2]}/${samples[2]}_Aligned.sortedByCoord.out_fwd.bam"
+
+samtools sort -o He_TACSham28d_RNA_XistBxC_-+_XX/pooled_fwd.sorted.bam -@ 8 He_TACSham28d_RNA_XistBxC_-+_XX/pooled_fwd.bam
+samtools index -@ 8 He_TACSham28d_RNA_XistBxC_-+_XX/pooled_fwd.sorted.bam
+
+bam2wig.py -i He_TACSham28d_RNA_XistBxC_-+_XX/pooled_fwd.sorted.bam -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/mm39.chrom.sizes -o He_TACSham28d_RNA_XistBxC_-+_XX/He_TACSham28d_RNA_XistBxC_-+_XX_fwd --skip-multi-hits
+
+# merge reverse
+samtools merge -@ 8 He_TACSham28d_RNA_XistBxC_-+_XX/pooled_rev.bam \
+  "Sample_${samples[0]}/${samples[0]}_Aligned.sortedByCoord.out_rev.bam" \
+  "Sample_${samples[1]}/${samples[1]}_Aligned.sortedByCoord.out_rev.bam" \
+  "Sample_${samples[2]}/${samples[2]}_Aligned.sortedByCoord.out_rev.bam"
+
+samtools sort -o He_TACSham28d_RNA_XistBxC_-+_XX/pooled_rev.sorted.bam -@ 8 He_TACSham28d_RNA_XistBxC_-+_XX/pooled_rev.bam
+samtools index -@ 8 He_TACSham28d_RNA_XistBxC_-+_XX/pooled_rev.sorted.bam
+
+bam2wig.py -i He_TACSham28d_RNA_XistBxC_-+_XX/pooled_rev.sorted.bam -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/mm39.chrom.sizes -o He_TACSham28d_RNA_XistBxC_-+_XX/He_TACSham28d_RNA_XistBxC_-+_XX_rev --skip-multi-hits
+
+bamCoverage \
+  -b He_TACSham28d_RNA_XistBxC_-+_XX/pooled_rev.sorted.bam \
+  -o He_TACSham28d_RNA_XistBxC_-+_XX/pooled_rev_inverted.bw \
+  --scaleFactor -1 \
+  --numberOfProcessors 8
+
 
 
 ##############
