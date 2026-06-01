@@ -43,18 +43,10 @@ else
 	exit 1
 fi
 
-# High-throughput CPU defaults. Override with --export=ALL,VAR=value at sbatch time.
-THREADS="${SLURM_CPUS_PER_TASK}"
-EXPECTED_CELLS="${EXPECTED_CELLS:-6000}"
-
-# Keep OpenMP / MKL aligned with Slurm allocation to avoid oversubscription.
-export OMP_NUM_THREADS="${THREADS}"
-export MKL_NUM_THREADS="${THREADS}"
 
 # Run cellbender with the chosen paths
 cellbender remove-background \
 	--input "${INPUT}" \
 	--output "${OUTPUT}" \
-	--cpu-threads "${THREADS}" \
-	--expected-cells "${EXPECTED_CELLS}" \
+	--expected-cells 6000 \
 	--estimator-multiple-cpu
