@@ -1814,6 +1814,17 @@ aged_TAC_only_links <- rownames(all_links_mtx)[
 ]
 rownames(all_links_mtx)[aged_TAC_only_links]
 
+# Which in all_links_mtx are positive for adult and sham but not aged or TAC?
+adult_Sham_only_links <- rownames(all_links_mtx)[
+  all_links_mtx[, "adult_links"] == 1 &
+  all_links_mtx[, "sham_links"] == 1 &
+  all_links_mtx[, "aged_links"] == 0 &
+  all_links_mtx[, "tac_links"] == 0
+]
+adult_Sham_only_links
+
+
+
 # Links unique to He_9w (present in He_9w but not in any other sample)
 he_9w_only <- rownames(links_mtx[links_mtx[, "He_9w"] == 1 & rowSums(links_mtx[, colnames(links_mtx) != "He_9w"]) == 0, ])
 he_9w_only[he_9w_only %in% overlap_lists$adult_tac_only_rep]

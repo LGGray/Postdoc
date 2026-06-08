@@ -12,10 +12,10 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=18
+#SBATCH --cpus-per-task=50
 #SBATCH --mem=400G
-#SBATCH --time=8:00:00
-#SBATCH --array=1-2
+#SBATCH --time=24:00:00
+#SBATCH --array=1-4
 
 module load slurm_setup
 
@@ -23,7 +23,7 @@ module load slurm_setup
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 conda activate sinto
 
-cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_heart_snRNAseq
+cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM
 
 # ## Map array task IDs to input/output paths. Edit or extend as needed.
 # if [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 1 ]; then
@@ -73,20 +73,32 @@ echo "Using scratch directory: $SCRATCH_DIR"
 if [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 1 ]; then
 	# 9w (adult)
 	echo "Running adult (9w) task..."
-	sinto filterbarcodes --bam 9w/outs/possorted_genome_bam.bam --cells 9w/single_cell_index.txt --outdir "$SCRATCH_DIR/9w_sc_sinto" --nproc 18
+	sinto filterbarcodes --bam Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sample_alignments.bam --cells Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sinto_ID.txt --outdir "$SCRATCH_DIR/9w_sc_sinto" --nproc 50
 	echo "Moving results from scratch to working directory..."
-	mv "$SCRATCH_DIR/9w_sc_sinto" 9w/sc_sinto && echo "Adult task complete"
+	# mv "$SCRATCH_DIR/9w_sc_sinto" 9w/sc_sinto && echo "Adult task complete"
 elif [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 2 ]; then
 	# 78w (aged)
 	echo "Running aged (78w) task..."
-	sinto filterbarcodes --bam 78w/outs/possorted_genome_bam.bam --cells 78w/single_cell_index.txt --outdir "$SCRATCH_DIR/78w_sc_sinto" --nproc 18
+	sinto filterbarcodes --bam Hearts_OCM/outs/per_sample_outs/He_78w_snRNA_XBxC_het_XX/count/sample_alignments.bam --cells Hearts_OCM/outs/per_sample_outs/He_78w_snRNA_XBxC_het_XX/count/sinto_ID.txt --outdir "$SCRATCH_DIR/78w_sc_sinto" --nproc 50
 	echo "Moving results from scratch to working directory..."
-	mv "$SCRATCH_DIR/78w_sc_sinto" 78w/sc_sinto && echo "Aged task complete"
+	# mv "$SCRATCH_DIR/78w_sc_sinto" 78w/sc_sinto && echo "Aged task complete"
+elif [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 3 ]; then
+	# TAC (28d)
+	echo "Running TAC (28d) task..."
+	sinto filterbarcodes --bam Hearts_OCM/outs/per_sample_outs/He_TAC_28d_snRNA_XBxC_het_XX/count/sample_alignments.bam --cells Hearts_OCM/outs/per_sample_outs/He_TAC_28d_snRNA_XBxC_het_XX/count/sinto_ID.txt --outdir "$SCRATCH_DIR/TAC_sc_sinto" --nproc 50
+	echo "Moving results from scratch to working directory..."
+	# mv "$SCRATCH_DIR/TAC_sc_sinto" TAC/sc_sinto && echo "TAC task complete"
+elif [ "${SLURM_ARRAY_TASK_ID:-0}" -eq 4 ]; then
+	# Sham (28d)
+	echo "Running Sham (28d) task..."
+	sinto filterbarcodes --bam Hearts_OCM/outs/per_sample_outs/He_Sham_28d_snRNA_XBxC_het_XX/count/sample_alignments.bam --cells Hearts_OCM/outs/per_sample_outs/He_Sham_28d_snRNA_XBxC_het_XX/count/sinto_ID.txt --outdir "$SCRATCH_DIR/Sham_sc_sinto" --nproc 50
+	echo "Moving results from scratch to working directory..."
+	# mv "$SCRATCH_DIR/Sham_sc_sinto" Sham/sc_sinto && echo "Sham task complete"
 else
 	echo "ERROR: Unknown SLURM_ARRAY_TASK_ID=${SLURM_ARRAY_TASK_ID}. Exiting." >&2
 	exit 1
 fi
 
-# Clean up scratch
-rm -rf "$SCRATCH_DIR"
-echo "Cleanup complete"
+# # Clean up scratch
+# rm -rf "$SCRATCH_DIR"
+# echo "Cleanup complete"

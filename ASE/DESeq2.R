@@ -689,3 +689,49 @@ run_celltype_deseq('CF', adult_file = 'Cardiac fibroblasts')
 run_celltype_deseq('EC', adult_file = 'Endothelial cells')
 run_celltype_deseq('CM', adult_file = 'Cardiomyocytes')
 
+# PLot volcano plots for each output
+
+plot_volcano <- function(input_file, output_file, title, top_n = 5) {
+  res <- read.delim(input_file, header=TRUE)
+  res$color <- 'grey'
+  res$color[res$log2FoldChange > 1 & res$padj < 0.05] <- 'red'
+  res$color[res$log2FoldChange < -1 & res$padj < 0.05] <- 'blue'
+
+  top_up <- res %>%
+    filter(log2FoldChange > 1 & padj < 0.05) %>%
+    top_n(top_n, wt=log2FoldChange)
+  top_down <- res %>%
+    filter(log2FoldChange < -1 & padj < 0.05) %>%
+    top_n(-top_n, wt=log2FoldChange)
+
+  res$label <- ''
+  res$label[res$gene %in% top_up$gene] <- top_up$gene
+  res$label[res$gene %in% top_down$gene] <- top_down$gene
+  ggplot(res, aes(x=log2FoldChange, y=-log10(padj), color=color)) +
+    geom_point(alpha=0.4) +
+    scale_color_identity() +
+    ggrepel::geom_text_repel(
+      aes(label = label),
+      size = 3,
+      color = 'black',
+      max.overlaps = Inf,
+      box.padding = 0.3,
+      point.padding = 0.2
+    ) +
+    theme_minimal() +
+    xlab('Log2 Fold Change') +
+    ylab('-Log10 Adjusted P-value') +
+    geom_hline(yintercept=-log10(0.05), linetype='dashed', color='black') +
+    geom_vline(xintercept=c(-1, 1), linetype='dashed', color='black') +
+    ggtitle(title)
+  ggsave(output_file, width=6, height=4)
+}
+
+plot_volcano('LINKS_study/DEG/MP_aged_vs_adult.txt', 'LINKS_study/DEG/MP_aged_vs_adult_volcano.pdf', 'Macrophages: Aged vs Adult')
+plot_volcano('LINKS_study/DEG/MP_TAC_vs_sham.txt', 'LINKS_study/DEG/MP_TAC_vs_sham_volcano.pdf', 'Macrophages: TAC vs Sham')
+plot_volcano('LINKS_study/DEG/CF_aged_vs_adult.txt', 'LINKS_study/DEG/CF_aged_vs_adult_volcano.pdf', 'Cardiac Fibroblasts: Aged vs Adult')
+plot_volcano('LINKS_study/DEG/CF_TAC_vs_sham.txt', 'LINKS_study/DEG/CF_TAC_vs_sham_volcano.pdf', 'Cardiac Fibroblasts: TAC vs Sham')
+plot_volcano('LINKS_study/DEG/EC_aged_vs_adult.txt', 'LINKS_study/DEG/EC_aged_vs_adult_volcano.pdf', 'Endothelial Cells: Aged vs Adult')
+plot_volcano('LINKS_study/DEG/EC_TAC_vs_sham.txt', 'LINKS_study/DEG/EC_TAC_vs_sham_volcano.pdf', 'Endothelial Cells: TAC vs Sham')
+plot_volcano('LINKS_study/DEG/CM_aged_vs_adult.txt', 'LINKS_study/DEG/CM_aged_vs_adult_volcano.pdf', 'Cardiomyocytes: Aged vs Adult')
+plot_volcano('LINKS_study/DEG/CM_TAC_vs_sham.txt', 'LINKS_study/DEG/CM_TAC_vs_sham_volcano.pdf', 'Cardiomyocytes: TAC vs Sham')
