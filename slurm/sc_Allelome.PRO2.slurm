@@ -8,11 +8,11 @@
 #SBATCH --get-user-env
 #SBATCH --clusters=cm4
 #SBATCH --partition=cm4_tiny
-#SBATCH --cpus-per-task=56
+#SBATCH --cpus-per-task=10
 #SBATCH --mem=50G
 #SBATCH --ntasks=1
 #SBATCH --qos=cm4_tiny
-#SBATCH --time=12:00:00
+#SBATCH --time=1:00:00
 #SBATCH --export=NONE
 
 module load slurm_setup
