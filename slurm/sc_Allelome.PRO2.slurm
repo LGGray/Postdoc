@@ -8,8 +8,8 @@
 #SBATCH --get-user-env
 #SBATCH --clusters=cm4
 #SBATCH --partition=cm4_tiny
-#SBATCH --cpus-per-task=112
-#SBATCH --mem=200G
+#SBATCH --cpus-per-task=56
+#SBATCH --mem=240G
 #SBATCH --ntasks=1
 #SBATCH --qos=cm4_tiny
 #SBATCH --time=24:00:00
