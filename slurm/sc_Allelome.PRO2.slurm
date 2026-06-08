@@ -8,7 +8,7 @@
 #SBATCH --get-user-env
 #SBATCH --clusters=cm4
 #SBATCH --partition=cm4_tiny
-#SBATCH --cpus-per-task=10
+#SBATCH --cpus-per-task=18
 #SBATCH --mem=50G
 #SBATCH --ntasks=1
 #SBATCH --qos=cm4_tiny
