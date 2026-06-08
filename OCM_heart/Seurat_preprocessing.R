@@ -106,6 +106,18 @@ heart_Sham <- SCTransform(heart_Sham, vars.to.regress = c("percent.mt"), verbose
 heart <- merge(heart_9w, y = c(heart_78w, heart_TAC, heart_Sham), add.cell.ids = c("9w", "78w", "TAC", "Sham"))
 heart@meta.data$sample <- factor(heart@meta.data$sample, levels = c("9w", "78w", "Sham", "TAC"))
 
+
+# Export cell IDs file for sinto per sample
+cell_ID <- data.frame(V1=rownames(heart@meta.data), V2=rownames(heart@meta.data))
+cell_ID_adult <- cell_ID[grep('^9w', cell_ID$V1), ]
+cell_ID_aged <- cell_ID[grep('^78w', cell_ID$V1), ]
+cell_ID_TAC <- cell_ID[grep('^TAC', cell_ID$V1), ]
+cell_ID_Sham <- cell_ID[grep('^Sham', cell_ID$V1), ]
+write.table(cell_ID_adult, file = "Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE)
+write.table(cell_ID_aged, file = "Hearts_OCM/outs/per_sample_outs/He_78w_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE)
+write.table(cell_ID_TAC, file = "Hearts_OCM/outs/per_sample_outs/He_TAC_28d_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE)
+write.table(cell_ID_Sham, file = "Hearts_OCM/outs/per_sample_outs/He_Sham_28d_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE)
+
 # Violin plots of key metrics per samples
 pdf("QC_violin_plots_heart.pdf")
 VlnPlot(heart, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), group.by = "sample", ncol = 2, pt.size = 0)
