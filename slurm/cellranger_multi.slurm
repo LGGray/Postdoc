@@ -21,5 +21,5 @@ export PATH=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/cellranger-9.0.1
 cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM
 
 cellranger multi \
-  --id Hearts_OCM \
+  --id Hearts_OCM_force30k \
   --csv config.csv \
