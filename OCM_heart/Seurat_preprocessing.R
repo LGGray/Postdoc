@@ -40,6 +40,28 @@ rb.prefix <- "^Rp[sl][[:digit:]]|^Rplp[[:digit:]]|^Rpsa"
 heart_9w <- Read10X_h5('Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered_seurat.h5')
 heart_9w <- CreateSeuratObject(heart_9w)
 heart_9w
+
+pdf("QC_violin_plots_heart_9w_pre_QC.pdf")
+hist(heart_9w$nCount_RNA, main = "Total Counts", xlab = "nCount_RNA")
+hist(heart_9w$nFeature_RNA, main = "Number of Detected Genes", xlab = "nFeature_RNA")
+hist(heart_9w$percent.mt, main = "Mitochondrial Percentage", xlab = "Percent MT")
+dev.off()
+
+# Plot density of QC metrics before filtering
+pdf("QC_density_plots_heart_9w_pre_QC.pdf")
+plot(density(heart_9w$nFeature_RNA), main = "Density of nFeature_RNA", xlab = "nFeature_RNA")
+plot(density(heart_9w$nCount_RNA), main = "Density of nCount_RNA", xlab = "nCount_RNA")
+dev.off()
+
+heart_9w_cellranger <- Read10X_h5('Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sample_filtered_feature_bc_matrix.h5')
+heart_9w_cellranger <- CreateSeuratObject(heart_9w_cellranger)
+heart_9w_cellranger
+
+# Plot QC metrics before filtering
+pdf("QC_violin_plots_heart_9w_pre_QC.pdf")
+VlnPlot(heart_9w, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0)
+dev.off()
+
 # Filter with ddqcR
 heart_9w <- initialQC(heart_9w, mt.prefix = mt.prefix, rb.prefix = rb.prefix)
 summary(heart_9w$percent.mt)
@@ -122,6 +144,21 @@ write.table(cell_ID_Sham, file = "Hearts_OCM/outs/per_sample_outs/He_Sham_28d_sn
 pdf("QC_violin_plots_heart.pdf")
 VlnPlot(heart, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), group.by = "sample", ncol = 2, pt.size = 0)
 dev.off()
+
+pdf("QC_histogram_plots_heart.pdf")
+hist(heart$percent.mt, main = "Mitochondrial Percentage", xlab = "Percent MT")
+# hist(heart$percent.rb, main = "Ribosomal Percentage", xlab = "Percent RB")
+hist(heart$nFeature_RNA, main = "Number of Detected Genes", xlab = "nFeature_RNA")
+hist(heart$nCount_RNA, main = "Total Counts", xlab = "nCount_RNA")
+dev.off()
+
+pdf("QC_density_plots_heart.pdf")
+plot(density(heart$nFeature_RNA), main = "Density of nFeature_RNA", xlab = "nFeature_RNA")
+plot(density(heart$nCount_RNA), main = "Density of nCount_RNA", xlab = "nCount_RNA")
+plot(density(heart$percent.mt), main = "Density of Percent MT", xlab = "Percent MT")
+dev.off()
+
+table(heart$sample)
 
 # SCTransform normalisation on merged object (raw counts) and regressing out percent.mt
 DefaultAssay(heart) <- "RNA"
