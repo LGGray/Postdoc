@@ -12,7 +12,7 @@
 #SBATCH --mem=50G
 #SBATCH --ntasks=1
 #SBATCH --qos=cm4_tiny
-#SBATCH --time=1:00:00
+#SBATCH --time=8:00:00
 #SBATCH --export=NONE
 
 module load slurm_setup
