@@ -26,7 +26,7 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM
 # ######------ make task-list ------######
 # #generate the task-db file
 # pipeline="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh"
-# input="$SCRATCH/sinto_180476/bamfiles.txt"
+# input="$SCRATCH/sinto_182144/bamfiles.txt"
 # annotation="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/chr_annotation_mm39.bed"
 # snps="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.bed"
 # output_dir="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/9w"
@@ -34,7 +34,7 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM
 # total_read=1
 
 # while IFS= read -r line; do
-#   echo "$pipeline -i $SCRATCH/sinto_180476/$line -a $annotation -s $snps -r $min_read -t $total_read -o $output_dir"
+#   echo "$pipeline -i $SCRATCH/sinto_182144/$line -a $annotation -s $snps -r $min_read -t $total_read -o $output_dir"
 #   done < "$input" > Allelome.PRO2/9w/task-list_noXist.txt
 
 nproc=$((SLURM_CPUS_PER_TASK > 10 ? SLURM_CPUS_PER_TASK - 10 : 1))
