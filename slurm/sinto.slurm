@@ -13,8 +13,8 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
-#SBATCH --mem=400G
-#SBATCH --time=24:00:00
+#SBATCH --mem=32G
+#SBATCH --time=8:00:00
 #SBATCH --array=1-4
 
 module load slurm_setup
