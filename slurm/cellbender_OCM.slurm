@@ -51,14 +51,14 @@ cellbender remove-background \
 	--expected-cells 6000 \
 	--estimator-multiple-cpu
 
-ptrepack --complevel 5 Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered.h5:/matrix \
-Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered_seurat.h5:/matrix
+ptrepack --complevel 5 He_9w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered.h5:/matrix \
+He_9w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered_seurat.h5:/matrix
 
-ptrepack --complevel 5 Hearts_OCM/outs/per_sample_outs/He_78w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered.h5:/matrix \
-Hearts_OCM/outs/per_sample_outs/He_78w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered_seurat.h5:/matrix
+ptrepack --complevel 5 He_78w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered.h5:/matrix \
+He_78w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered_seurat.h5:/matrix
 
-ptrepack --complevel 5 Hearts_OCM/outs/per_sample_outs/He_Sham_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered.h5:/matrix \
-Hearts_OCM/outs/per_sample_outs/He_Sham_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered_seurat.h5:/matrix
+ptrepack --complevel 5 He_Sham_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered.h5:/matrix \
+He_Sham_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered_seurat.h5:/matrix
 
-ptrepack --complevel 5 Hearts_OCM/outs/per_sample_outs/He_TAC_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered.h5:/matrix \
-Hearts_OCM/outs/per_sample_outs/He_TAC_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered_seurat.h5:/matrix
+ptrepack --complevel 5 He_TAC_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered.h5:/matrix \
+He_TAC_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered_seurat.h5:/matrix

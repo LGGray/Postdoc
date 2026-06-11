@@ -37,91 +37,205 @@ rb.prefix <- "^Rp[sl][[:digit:]]|^Rplp[[:digit:]]|^Rpsa"
 
 
 # 9w mouse heart
-heart_9w <- Read10X_h5('Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered_seurat.h5')
+heart_9w <- Read10X_h5('Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered_seurat.h5')
 heart_9w <- CreateSeuratObject(heart_9w)
-heart_9w
+heart_9w$percent.mt <- PercentageFeatureSet(heart_9w, pattern = "^mt-")
+
+heart_9w_raw <- heart_9w
 
 pdf("QC_violin_plots_heart_9w_pre_QC.pdf")
-hist(heart_9w$nCount_RNA, main = "Total Counts", xlab = "nCount_RNA")
-hist(heart_9w$nFeature_RNA, main = "Number of Detected Genes", xlab = "nFeature_RNA")
-hist(heart_9w$percent.mt, main = "Mitochondrial Percentage", xlab = "Percent MT")
+VlnPlot(heart_9w_raw, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0)
 dev.off()
 
-# Plot density of QC metrics before filtering
-pdf("QC_density_plots_heart_9w_pre_QC.pdf")
-plot(density(heart_9w$nFeature_RNA), main = "Density of nFeature_RNA", xlab = "nFeature_RNA")
-plot(density(heart_9w$nCount_RNA), main = "Density of nCount_RNA", xlab = "nCount_RNA")
-dev.off()
-
-heart_9w_cellranger <- Read10X_h5('Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sample_filtered_feature_bc_matrix.h5')
-heart_9w_cellranger <- CreateSeuratObject(heart_9w_cellranger)
-heart_9w_cellranger
-
-# Plot QC metrics before filtering
-pdf("QC_violin_plots_heart_9w_pre_QC.pdf")
+heart_9w <- subset(
+  heart_9w_raw,
+  subset =
+    nCount_RNA > 500 &
+    nCount_RNA < 20000 &
+    nFeature_RNA > 200 &
+    nFeature_RNA < 5000 &
+    percent.mt < 5
+)
+pdf("QC_violin_plots_heart_9w_post_QC.pdf")
 VlnPlot(heart_9w, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0)
 dev.off()
 
-# Filter with ddqcR
-heart_9w <- initialQC(heart_9w, mt.prefix = mt.prefix, rb.prefix = rb.prefix)
-summary(heart_9w$percent.mt)
-summary(heart_9w$percent.rb)
-pdf("ddqcR_QC_metrics_heart_9w.pdf")
-df.qc <- ddqc.metrics(heart_9w)
-dev.off()
-heart_9w <- filterData(heart_9w, df.qc)
-# Add sample to metadata
 heart_9w$sample <- "9w"
-# SCTransform normalisation
-heart_9w <- SCTransform(heart_9w, vars.to.regress = c("percent.mt"), verbose = FALSE)
+
+# Compare retained vs removed cells: nCount vs percent.mt
+heart_9w_raw$QC_status <- ifelse(colnames(heart_9w_raw) %in% colnames(heart_9w), "retained", "removed")
+pdf("QC_nCount_vs_percent_mt_heart_9w.pdf")
+ggplot(heart_9w_raw@meta.data, aes(x = nCount_RNA, y = percent.mt, color = QC_status)) +
+  geom_point(size = 0.5, alpha = 0.5) +
+  scale_color_manual(values = c("retained" = "blue", "removed" = "red")) +
+  labs(title = "QC Filtering: nCount_RNA vs Percent MT (9w)", x = "nCount_RNA", y = "Percent MT") +
+  theme_minimal()
+dev.off()
+
+
+# # Filter with ddqcR
+# heart_9w <- initialQC(heart_9w_raw, mt.prefix = mt.prefix, rb.prefix = rb.prefix)
+# summary(heart_9w$percent.mt)
+# summary(heart_9w$percent.rb)
+# pdf("ddqcR_QC_metrics_heart_9w.pdf")
+# df.qc <- ddqc.metrics(heart_9w)
+# dev.off()
+# heart_9w <- filterData(heart_9w, df.qc)
+# Add sample to metadata
+
+# # SCTransform normalisation
+# heart_9w <- SCTransform(heart_9w, vars.to.regress = c("percent.mt"), verbose = FALSE)
 
 # 78w mouse heart
-heart_78w <- Read10X_h5('Hearts_OCM/outs/per_sample_outs/He_78w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered_seurat.h5')
+heart_78w <- Read10X_h5('Hearts_OCM/outs/per_sample_outs/He_78w_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered_seurat.h5')
 heart_78w <- CreateSeuratObject(heart_78w)
 heart_78w
-# Filter with ddqcR
-heart_78w <- initialQC(heart_78w, mt.prefix = mt.prefix, rb.prefix = rb.prefix)
-summary(heart_78w$percent.mt)
-summary(heart_78w$percent.rb)
-pdf("ddqcR_QC_metrics_heart_78w.pdf")
-df.qc <- ddqc.metrics(heart_78w)
-dev.off()
-heart_78w <- filterData(heart_78w, df.qc)
-heart_78w$sample <- "78w"
-# SCTransform normalisation
-heart_78w <- SCTransform(heart_78w, vars.to.regress = c("percent.mt"), verbose = FALSE)
 
-# TAC mouse heart
-heart_TAC <- Read10X_h5('Hearts_OCM/outs/per_sample_outs/He_TAC_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered_seurat.h5')
-heart_TAC <- CreateSeuratObject(heart_TAC)
-heart_TAC
-# Filter with ddqcR
-heart_TAC <- initialQC(heart_TAC, mt.prefix = mt.prefix, rb.prefix = rb.prefix)
-summary(heart_TAC$percent.mt)
-summary(heart_TAC$percent.rb)
-pdf("ddqcR_QC_metrics_heart_TAC.pdf")
-df.qc <- ddqc.metrics(heart_TAC)
+heart_78w$percent.mt <- PercentageFeatureSet(heart_78w, pattern = "^mt-")
+
+heart_78w_raw <- heart_78w
+
+pdf("QC_violin_plots_heart_78w_pre_QC.pdf")
+VlnPlot(heart_78w_raw, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0)
 dev.off()
-heart_TAC <- filterData(heart_TAC, df.qc)
-heart_TAC$sample <- "TAC"
-# SCTransform normalisation
-heart_TAC <- SCTransform(heart_TAC, vars.to.regress = c("percent.mt"), verbose = FALSE)
+
+heart_78w <- subset(
+  heart_78w_raw,
+  subset =
+    nCount_RNA > 500 &
+    nCount_RNA < 20000 &
+    nFeature_RNA > 200 &
+    nFeature_RNA < 5000 &
+    percent.mt < 5
+)
+pdf("QC_violin_plots_heart_78w_post_QC.pdf")
+VlnPlot(heart_78w, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0)
+dev.off()
+
+heart_78w$sample <- "78w"
+
+# Compare retained vs removed cells: nCount vs percent.mt
+heart_78w_raw$QC_status <- ifelse(colnames(heart_78w_raw) %in% colnames(heart_78w), "retained", "removed")
+pdf("QC_nCount_vs_percent_mt_heart_78w.pdf")
+ggplot(heart_78w_raw@meta.data, aes(x = nCount_RNA, y = percent.mt, color = QC_status)) +
+  geom_point(size = 0.5, alpha = 0.5) +
+  scale_color_manual(values = c("retained" = "blue", "removed" = "red")) +
+  labs(title = "QC Filtering: nCount_RNA vs Percent MT (78w)", x = "nCount_RNA", y = "Percent MT") +
+  theme_minimal()
+dev.off()
+
+
+# # Filter with ddqcR
+# heart_78w <- initialQC(heart_78w, mt.prefix = mt.prefix, rb.prefix = rb.prefix)
+# summary(heart_78w$percent.mt)
+# summary(heart_78w$percent.rb)
+# pdf("ddqcR_QC_metrics_heart_78w.pdf")
+# df.qc <- ddqc.metrics(heart_78w)
+# dev.off()
+# heart_78w <- filterData(heart_78w, df.qc)
+# heart_78w$sample <- "78w"
+# # SCTransform normalisation
+# heart_78w <- SCTransform(heart_78w, vars.to.regress = c("percent.mt"), verbose = FALSE)
 
 # Sham mouse heart
-heart_Sham <- Read10X_h5('Hearts_OCM/outs/per_sample_outs/He_Sham_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix.cellbender_filtered_seurat.h5')
+heart_Sham <- Read10X_h5('Hearts_OCM/outs/per_sample_outs/He_Sham_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered_seurat.h5')
 heart_Sham <- CreateSeuratObject(heart_Sham)
 heart_Sham
-# Filter with ddqcR
-heart_Sham <- initialQC(heart_Sham, mt.prefix = mt.prefix, rb.prefix = rb.prefix)
-summary(heart_Sham$percent.mt)
-summary(heart_Sham$percent.rb)
-pdf("ddqcR_QC_metrics_heart_Sham.pdf")
-df.qc <- ddqc.metrics(heart_Sham)
+
+heart_Sham$percent.mt <- PercentageFeatureSet(heart_Sham, pattern = "^mt-")
+
+heart_Sham_raw <- heart_Sham
+
+pdf("QC_violin_plots_heart_Sham_pre_QC.pdf")
+VlnPlot(heart_Sham_raw, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0)
 dev.off()
-heart_Sham <- filterData(heart_Sham, df.qc)
+
+heart_Sham <- subset(
+  heart_Sham_raw,
+  subset =
+	nCount_RNA > 500 &
+	nCount_RNA < 20000 &
+	nFeature_RNA > 200 &
+	nFeature_RNA < 5000 &
+	percent.mt < 5
+)
+pdf("QC_violin_plots_heart_Sham_post_QC.pdf")
+VlnPlot(heart_Sham, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0)
+dev.off()
 heart_Sham$sample <- "Sham"
-# SCTransform normalisation
-heart_Sham <- SCTransform(heart_Sham, vars.to.regress = c("percent.mt"), verbose = FALSE)
+
+# Compare retained vs removed cells: nCount vs percent.mt
+heart_Sham_raw$QC_status <- ifelse(colnames(heart_Sham_raw) %in% colnames(heart_Sham), "retained", "removed")
+pdf("QC_nCount_vs_percent_mt_heart_Sham.pdf")
+ggplot(heart_Sham_raw@meta.data, aes(x = nCount_RNA, y = percent.mt, color = QC_status)) +
+  geom_point(size = 0.5, alpha = 0.5) +
+  scale_color_manual(values = c("retained" = "blue", "removed" = "red")) +
+  labs(title = "QC Filtering: nCount_RNA vs Percent MT (Sham)", x = "nCount_RNA", y = "Percent MT") +
+  theme_minimal()
+dev.off()
+
+
+# # Filter with ddqcR
+# heart_Sham <- initialQC(heart_Sham, mt.prefix = mt.prefix, rb.prefix = rb.prefix)
+# summary(heart_Sham$percent.mt)
+# summary(heart_Sham$percent.rb)
+# pdf("ddqcR_QC_metrics_heart_Sham.pdf")
+# df.qc <- ddqc.metrics(heart_Sham)
+# dev.off()
+# heart_Sham <- filterData(heart_Sham, df.qc)
+# heart_Sham$sample <- "Sham"
+# # SCTransform normalisation
+# heart_Sham <- SCTransform(heart_Sham, vars.to.regress = c("percent.mt"), verbose = FALSE)
+
+# TAC mouse heart
+heart_TAC <- Read10X_h5('Hearts_OCM/outs/per_sample_outs/He_TAC_28d_snRNA_XBxC_het_XX/count/sample_raw_feature_bc_matrix_cellbender_filtered_seurat.h5')
+heart_TAC <- CreateSeuratObject(heart_TAC)
+heart_TAC
+
+heart_TAC$percent.mt <- PercentageFeatureSet(heart_TAC, pattern = "^mt-")
+heart_TAC_raw <- heart_TAC
+
+pdf("QC_violin_plots_heart_TAC_pre_QC.pdf")
+VlnPlot(heart_TAC_raw, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0)
+dev.off()
+
+heart_TAC <- subset(
+  heart_TAC_raw,
+  subset =
+	nCount_RNA > 500 &
+	nCount_RNA < 20000 &
+	nFeature_RNA > 200 &
+	nFeature_RNA < 5000 &
+	percent.mt < 5
+)
+pdf("QC_violin_plots_heart_TAC_post_QC.pdf")
+VlnPlot(heart_TAC, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size = 0)
+dev.off()
+heart_TAC$sample <- "TAC"
+
+# Compare retained vs removed cells: nCount vs percent.mt
+heart_TAC_raw$QC_status <- ifelse(colnames(heart_TAC_raw) %in% colnames(heart_TAC), "retained", "removed")
+pdf("QC_nCount_vs_percent_mt_heart_TAC.pdf")
+ggplot(heart_TAC_raw@meta.data, aes(x = nCount_RNA, y = percent.mt, color = QC_status)) +
+  geom_point(size = 0.5, alpha = 0.5) +
+  scale_color_manual(values = c("retained" = "blue", "removed" = "red")) +
+  labs(title = "QC Filtering: nCount_RNA vs Percent MT (TAC)", x = "nCount_RNA", y = "Percent MT") +
+  theme_minimal()
+dev.off()
+
+# # Filter with ddqcR
+# heart_TAC <- initialQC(heart_TAC, mt.prefix = mt.prefix, rb.prefix = rb.prefix)
+# summary(heart_TAC$percent.mt)
+# summary(heart_TAC$percent.rb)
+# pdf("ddqcR_QC_metrics_heart_TAC.pdf")
+# df.qc <- ddqc.metrics(heart_TAC)
+# dev.off()
+# heart_TAC <- filterData(heart_TAC, df.qc)
+# heart_TAC$sample <- "TAC"
+# # SCTransform normalisation
+# heart_TAC <- SCTransform(heart_TAC, vars.to.regress = c("percent.mt"), verbose = FALSE)
+
+
 
 
 # Merge all samples into one Seurat object
@@ -142,14 +256,7 @@ write.table(cell_ID_Sham, file = "Hearts_OCM/outs/per_sample_outs/He_Sham_28d_sn
 
 # Violin plots of key metrics per samples
 pdf("QC_violin_plots_heart.pdf")
-VlnPlot(heart, features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"), group.by = "sample", ncol = 2, pt.size = 0)
-dev.off()
-
-pdf("QC_histogram_plots_heart.pdf")
-hist(heart$percent.mt, main = "Mitochondrial Percentage", xlab = "Percent MT")
-# hist(heart$percent.rb, main = "Ribosomal Percentage", xlab = "Percent RB")
-hist(heart$nFeature_RNA, main = "Number of Detected Genes", xlab = "nFeature_RNA")
-hist(heart$nCount_RNA, main = "Total Counts", xlab = "nCount_RNA")
+VlnPlot(heart, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), group.by = "sample", ncol = 2, pt.size = 0)
 dev.off()
 
 pdf("QC_density_plots_heart.pdf")
@@ -162,7 +269,7 @@ table(heart$sample)
 
 # SCTransform normalisation on merged object (raw counts) and regressing out percent.mt
 DefaultAssay(heart) <- "RNA"
-heart <- SCTransform(heart, vars.to.regress = "percent.mt", verbose = FALSE)
+heart <- SCTransform(heart, verbose = FALSE)
 
 # PCA and UMAP
 heart <- RunPCA(heart, features = VariableFeatures(heart), npcs = 50)
@@ -173,9 +280,6 @@ dev.off()
 
 # Construct UMAP embedding
 heart <- RunUMAP(heart, dims = 1:20)
-
-heart <- readRDS('heart_seurat_object_SCT.rds')
-
 
 # Clustering
 heart <- FindNeighbors(heart, dims = 1:20)
@@ -197,23 +301,26 @@ pdf('Heart_UMAP_markers.pdf')
 FeaturePlot(heart, features = c("Tnnt2", "Myh6", "Actc1", "Col1a1", "Pecam1", "Ptprc"))
 dev.off()
 
-saveRDS(heart, file = "heart_seurat_object_SCT.rds")
-heart <- readRDS("heart_seurat_object_SCT.rds")
-
 # Find markers for each cluster
 heart <- PrepSCTFindMarkers(heart)
 heart.markers <- FindAllMarkers(heart, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.5)
+heart.markers <- read.table("heart_cluster_markers_logfc_0.5_resolution_0.1.txt", header = TRUE)
 
 # Save markers to file
-write.table(heart.markers, file = "heart_cluster_markers_logfc_0.5_resolution_0.1.RData")
+write.table(heart.markers, file = "heart_cluster_markers_logfc_0.5_resolution_0.1.txt")
 
-lapply(split(heart.markers, heart.markers$cluster), function(x){
-    x[order(x$avg_log2FC, decreasing = TRUE),][1:5,'gene']
-})
-
-pdf('fibroblast_markers.pdf')
-FeaturePlot(heart, features = c("Col1a1", "Col1a2", "Dcn", "Postn", "Pdgfra"))
+pdf('marker_genes_dotplot.pdf', width = 10, height = 8)
+DotPlot(heart, features = subset(heart.markers, ) + RotatedAxis() +
+theme(axis.text.x = element_text(angle = 90, vjust=1, size=8))
 dev.off()
+
+saveRDS(heart, file = "heart_seurat_object_SCT.rds")
+heart <- readRDS("heart_seurat_object_SCT.rds")
+
+findallmarkers.markers <- unique(unlist(lapply(split(heart.markers, heart.markers$cluster), function(x){
+    x[order(x$avg_log2FC, decreasing = TRUE),][1:10,'gene']
+})))
+
 
 # Using Sarah's marker genes
 marker_genes <- read.table('../adult_aged_heart_snRNAseq/marker.genes.txt', header = FALSE)
@@ -243,11 +350,38 @@ heart <- ScaleData(heart)
 pdf('marker_genes_heatmap_0.1.pdf', width = 10, height = 8)
 DoHeatmap(
   heart,
-  features = marker_genes$V1,
+  features = marker_genes,
   assay = "RNA",
   cells = cells_equal
 ) + scale_fill_gradient2(low = "blue", mid = "white", high = "red")
 dev.off()
 
+pdf('findallmarkers_top10_heatmap_0.1.pdf', width = 15, height = 15)
+DoHeatmap(
+  heart,
+  features = findallmarkers.markers,
+  assay = "RNA",
+  cells = cells_equal
+) + scale_fill_gradient2(low = "blue", mid = "white", high = "red")
+dev.off()
 
-save(heart, file = "heart_seurat_object_SCT.RData")
+pdf('Sarah_findallmarkers_top10_heatmap_0.1.pdf', width = 20, height = 20)
+DoHeatmap(
+  heart,
+  features = unique(c(findallmarkers.markers, marker_genes$V1)),
+  assay = "RNA",
+  cells = cells_equal
+) + scale_fill_gradient2(low = "blue", mid = "white", high = "red")
+dev.off()
+
+celltype <- c('Fibroblasts', 'Ventricular Cardiomyocytes', 'Endothelial cells', 
+'Macrophages', 'Pericytes - Smooth muscle cells', 'Endocardium', 'Lymphatic endothelial', 
+'B cells', 'T cells', 'Cardiomyocytes (stressed)', 'Epicardial - Mesothelial cells')
+names(celltype) <- levels(heart)
+heart <- RenameIdents(heart, celltype)
+
+pdf("Heart_UMAP_celltypes.pdf")
+DimPlot(heart, reduction = "umap", label = TRUE, raster = FALSE) + theme(legend.position = "none")
+dev.off()
+
+saveRDS(heart, file = "heart_seurat_object_SCT.rds")
