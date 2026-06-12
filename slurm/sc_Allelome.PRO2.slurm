@@ -43,11 +43,11 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM
 # module load parallel
 # parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/9w/task-list_noXist.txt
 
-nproc=$((SLURM_CPUS_PER_TASK - 2))
-if [ "$nproc" -lt 1 ]; then nproc=1; fi
+# nproc=$((SLURM_CPUS_PER_TASK - 2))
+# if [ "$nproc" -lt 1 ]; then nproc=1; fi
 
-module load parallel
-parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/9w/task-list_noXist.txt
+# module load parallel
+# parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/9w/task-list_noXist.txt
 
 # # # ######------ make task-list ------######
 # # # #generate the task-db file
@@ -63,9 +63,11 @@ parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OC
 #   echo "$pipeline -i "$SCRATCH/sinto_182412/$line" -a $annotation -s $snps -r $min_read -t $total_read -o $output_dir"
 #   done < "$input" > Allelome.PRO2/78w/task-list_noXist.txt
 
-# nproc=$((SLURM_CPUS_PER_TASK > 10 ? SLURM_CPUS_PER_TASK - 10 : 1))
-# module load parallel
-# parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/78w/task-list_noXist.txt
+nproc=$((SLURM_CPUS_PER_TASK - 2))
+if [ "$nproc" -lt 1 ]; then nproc=1; fi
+
+module load parallel
+parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/78w/task-list_noXist.txt
 
 # # ######------ make task-list ------######
 # # #generate the task-db file
@@ -81,7 +83,9 @@ parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OC
 #   echo "$pipeline -i "$SCRATCH/sinto_182410/$line" -a $annotation -s $snps -r $min_read -t $total_read -o $output_dir"
 #   done < "$input" > Allelome.PRO2/Sham/task-list_noXist.txt
 
-# nproc=$((SLURM_CPUS_PER_TASK > 10 ? SLURM_CPUS_PER_TASK - 10 : 1))
+# nproc=$((SLURM_CPUS_PER_TASK - 2))
+# if [ "$nproc" -lt 1 ]; then nproc=1; fi
+
 # module load parallel
 # parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/Sham/task-list_noXist.txt
 
@@ -99,6 +103,8 @@ parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OC
 #   echo "$pipeline -i "$SCRATCH/sinto_182413/$line" -a $annotation -s $snps -r $min_read -t $total_read -o $output_dir"
 #   done < "$input" > Allelome.PRO2/TAC/task-list_noXist.txt
 
-# nproc=$((SLURM_CPUS_PER_TASK > 10 ? SLURM_CPUS_PER_TASK - 10 : 1))
+# nproc=$((SLURM_CPUS_PER_TASK - 2))
+# if [ "$nproc" -lt 1 ]; then nproc=1; fi
+
 # module load parallel
 # parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/TAC/task-list_noXist.txt
