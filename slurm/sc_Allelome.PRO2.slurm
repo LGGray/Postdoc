@@ -9,10 +9,10 @@
 #SBATCH --clusters=cm4
 #SBATCH --partition=cm4_tiny
 #SBATCH --cpus-per-task=18
-#SBATCH --mem=50G
+#SBATCH --mem=80G
 #SBATCH --ntasks=1
 #SBATCH --qos=cm4_tiny
-#SBATCH --time=8:00:00
+#SBATCH --time=24:00:00
 #SBATCH --export=NONE
 
 
@@ -39,7 +39,13 @@ cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM
 #   echo "$pipeline -i $SCRATCH/sinto_180476/$line -a $annotation -s $snps -r $min_read -t $total_read -o $output_dir"
 #   done < "$input" > Allelome.PRO2/9w/task-list_noXist.txt
 
-nproc=$((SLURM_CPUS_PER_TASK > 10 ? SLURM_CPUS_PER_TASK - 10 : 1))
+# nproc=$((SLURM_CPUS_PER_TASK > 10 ? SLURM_CPUS_PER_TASK - 10 : 1))
+# module load parallel
+# parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/9w/task-list_noXist.txt
+
+nproc=$((SLURM_CPUS_PER_TASK - 2))
+if [ "$nproc" -lt 1 ]; then nproc=1; fi
+
 module load parallel
 parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/9w/task-list_noXist.txt
 
