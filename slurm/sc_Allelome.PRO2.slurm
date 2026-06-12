@@ -9,7 +9,7 @@
 #SBATCH --clusters=cm4
 #SBATCH --partition=cm4_tiny
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=80G
+#SBATCH --mem=150G
 #SBATCH --ntasks=1
 #SBATCH --qos=cm4_tiny
 #SBATCH --time=8:00:00
