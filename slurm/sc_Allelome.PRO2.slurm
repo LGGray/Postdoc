@@ -24,29 +24,75 @@ conda activate RNAseq
 
 cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM
 
-# ######------ make task-list ------######
-# #generate the task-db file
+
+# # ######------ make task-list ------######
+# # #generate the task-db file
 # pipeline="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh"
-# input="$SCRATCH/sinto_182144/bamfiles.txt"
+# input="$SCRATCH/sinto_180476/bamfiles.txt"
 # annotation="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/chr_annotation_mm39.bed"
-# snps="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.clean.bed "
+# snps="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.clean.bed"
 # output_dir="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/9w"
 # min_read=1
 # total_read=1
 
 # while IFS= read -r line; do
-#   echo "$pipeline -i $SCRATCH/sinto_182144/$line -a $annotation -s $snps -r $min_read -t $total_read -o $output_dir"
+#   echo "$pipeline -i $SCRATCH/sinto_180476/$line -a $annotation -s $snps -r $min_read -t $total_read -o $output_dir"
 #   done < "$input" > Allelome.PRO2/9w/task-list_noXist.txt
 
 nproc=$((SLURM_CPUS_PER_TASK > 10 ? SLURM_CPUS_PER_TASK - 10 : 1))
 module load parallel
 parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/9w/task-list_noXist.txt
 
+# # # ######------ make task-list ------######
+# # # #generate the task-db file
+# # pipeline="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh"
+# # input="$SCRATCH/sinto_182412/bamfiles.txt"
+# # annotation="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/chr_annotation_mm39.bed"
+# # snps="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.clean.bed"
+# # output_dir="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/78w"
+# # min_read=1
+# # total_read=1
 
-bash /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh \
-  -i  /dss/lxclscratch/06/go93qiw2/sinto_182144/9w_sc_sinto/9w_AAACCAAAGCAGTCTA-1.bam\
-  -a /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/annotation_us.bed \
-  -s /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.clean.bed \
-  -r 1 \
-  -t 1 \
-  -o /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/9w
+# while IFS= read -r line; do
+#   echo "$pipeline -i "$SCRATCH/sinto_182412/$line" -a $annotation -s $snps -r $min_read -t $total_read -o $output_dir"
+#   done < "$input" > Allelome.PRO2/78w/task-list_noXist.txt
+
+# nproc=$((SLURM_CPUS_PER_TASK > 10 ? SLURM_CPUS_PER_TASK - 10 : 1))
+# module load parallel
+# parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/78w/task-list_noXist.txt
+
+# # ######------ make task-list ------######
+# # #generate the task-db file
+# pipeline="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh"
+# input="$SCRATCH/sinto_182410/bamfiles.txt"
+# annotation="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/chr_annotation_mm39.bed"
+# snps="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.clean.bed"
+# output_dir="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/Sham"
+# min_read=1
+# total_read=1
+
+# while IFS= read -r line; do
+#   echo "$pipeline -i "$SCRATCH/sinto_182410/$line" -a $annotation -s $snps -r $min_read -t $total_read -o $output_dir"
+#   done < "$input" > Allelome.PRO2/Sham/task-list_noXist.txt
+
+# nproc=$((SLURM_CPUS_PER_TASK > 10 ? SLURM_CPUS_PER_TASK - 10 : 1))
+# module load parallel
+# parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/Sham/task-list_noXist.txt
+
+# # ######------ make task-list ------######
+# # #generate the task-db file
+# pipeline="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh"
+# input="$SCRATCH/sinto_182413/bamfiles.txt"
+# annotation="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/chr_annotation_mm39.bed"
+# snps="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.clean.bed"
+# output_dir="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/TAC"
+# min_read=1
+# total_read=1
+
+# while IFS= read -r line; do
+#   echo "$pipeline -i "$SCRATCH/sinto_182413/$line" -a $annotation -s $snps -r $min_read -t $total_read -o $output_dir"
+#   done < "$input" > Allelome.PRO2/TAC/task-list_noXist.txt
+
+# nproc=$((SLURM_CPUS_PER_TASK > 10 ? SLURM_CPUS_PER_TASK - 10 : 1))
+# module load parallel
+# parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/TAC/task-list_noXist.txt

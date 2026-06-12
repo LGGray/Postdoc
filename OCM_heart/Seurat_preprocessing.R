@@ -244,15 +244,26 @@ heart@meta.data$sample <- factor(heart@meta.data$sample, levels = c("9w", "78w",
 
 
 # Export cell IDs file for sinto per sample
+# Create the base dataframe
 cell_ID <- data.frame(V1=rownames(heart@meta.data), V2=rownames(heart@meta.data))
-cell_ID_adult <- cell_ID[grep('^9w', cell_ID$V1), ]
-cell_ID_aged <- cell_ID[grep('^78w', cell_ID$V1), ]
-cell_ID_TAC <- cell_ID[grep('^TAC', cell_ID$V1), ]
-cell_ID_Sham <- cell_ID[grep('^Sham', cell_ID$V1), ]
-write.table(cell_ID_adult, file = "Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE)
-write.table(cell_ID_aged, file = "Hearts_OCM/outs/per_sample_outs/He_78w_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE)
-write.table(cell_ID_TAC, file = "Hearts_OCM/outs/per_sample_outs/He_TAC_28d_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE)
-write.table(cell_ID_Sham, file = "Hearts_OCM/outs/per_sample_outs/He_Sham_28d_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE)
+
+# 1. Subset based on prefixes (added underscores for cleaner matching)
+cell_ID_adult <- cell_ID[grep('^9w_', cell_ID$V1), ]
+cell_ID_aged <- cell_ID[grep('^78w_', cell_ID$V1), ]
+cell_ID_TAC <- cell_ID[grep('^TAC_', cell_ID$V1), ]
+cell_ID_Sham <- cell_ID[grep('^Sham_', cell_ID$V1), ]
+
+# 2. Strip the prefix ONLY from Column 1 (V1) so it matches the BAM file
+cell_ID_adult$V1 <- gsub('^9w_', '', cell_ID_adult$V1)
+cell_ID_aged$V1 <- gsub('^78w_', '', cell_ID_aged$V1)
+cell_ID_TAC$V1 <- gsub('^TAC_', '', cell_ID_TAC$V1)
+cell_ID_Sham$V1 <- gsub('^Sham_', '', cell_ID_Sham$V1)
+
+# 3. Write tables (added sep="\t" because sinto requires tab-separated files)
+write.table(cell_ID_adult, file = "Hearts_OCM/outs/per_sample_outs/He_9w_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE, sep = "\t")
+write.table(cell_ID_aged, file = "Hearts_OCM/outs/per_sample_outs/He_78w_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE, sep = "\t")
+write.table(cell_ID_TAC, file = "Hearts_OCM/outs/per_sample_outs/He_TAC_28d_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE, sep = "\t")
+write.table(cell_ID_Sham, file = "Hearts_OCM/outs/per_sample_outs/He_Sham_28d_snRNA_XBxC_het_XX/count/sinto_ID.txt", quote = FALSE, row.names = FALSE, col.names = FALSE, sep = "\t")
 
 # Violin plots of key metrics per samples
 pdf("QC_violin_plots_heart.pdf")
@@ -385,3 +396,4 @@ DimPlot(heart, reduction = "umap", label = TRUE, raster = FALSE) + theme(legend.
 dev.off()
 
 saveRDS(heart, file = "heart_seurat_object_SCT.rds")
+heart <- readRDS("heart_seurat_object_SCT.rds")
