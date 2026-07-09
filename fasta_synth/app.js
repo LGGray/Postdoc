@@ -38,8 +38,7 @@ const stopBtn = document.getElementById("stopBtn");
 const fastaInput = document.getElementById("fastaInput");
 const maxNotesInput = document.getElementById("maxNotes");
 const keySelect = document.getElementById("keySelect");
-const octaveMinSelect = document.getElementById("octaveMin");
-const octaveMaxSelect = document.getElementById("octaveMax");
+const registerSelect = document.getElementById("registerSelect");
 const waveformSelect = document.getElementById("waveformSelect");
 const lfoRateInput = document.getElementById("lfoRate");
 const lfoDepthInput = document.getElementById("lfoDepth");
@@ -56,6 +55,7 @@ const dismissReminderBtn = document.getElementById("dismissReminderBtn");
 const defaultPlayLabel = playBtn?.textContent?.trim() || "Play Sequence";
 let reminderActive = false;
 const helixContainer = document.getElementById("helixVisualizer");
+const browserEl = document.getElementById("genomeBrowser");
 const controls = {
   noteLength: document.getElementById("noteLength"),
   filterCutoff: document.getElementById("filterCutoff"),
@@ -244,14 +244,147 @@ const pushHelixEvent = (base, midi) => {
   renderHelix();
 };
 
+const PX_PER_BASE = 32;
+const BROWSER_PLAYHEAD_PCT = 15;
+const SIGNAL_HEIGHT = 96;
+const SVG_NS = "http://www.w3.org/2000/svg";
+let browserScrollEl = null;
+let browserBaseCells = [];
+let browserCells = [];
+let browserActiveCell = null;
+let coordReadout = null;
+
+const initGenomeBrowser = () => {
+  if (!browserEl) return;
+  const head = browserEl.querySelector(".browser__playhead");
+  if (head) head.style.left = `${BROWSER_PLAYHEAD_PCT}%`;
+  coordReadout = document.getElementById("browserCoord");
+};
+
+const resetGenomeBrowser = () => {
+  browserScrollEl = null;
+  browserBaseCells = [];
+  browserCells = [];
+  browserActiveCell = null;
+  const viewport = document.getElementById("browserViewport");
+  if (viewport) {
+    viewport.innerHTML = '<div class="browser__empty">Press play to scan the sequence</div>';
+  }
+  if (coordReadout) coordReadout.textContent = "—";
+};
+
+const playheadOffsetPx = () => (browserEl.clientWidth * BROWSER_PLAYHEAD_PCT) / 100;
+
+// Lay out the full windowed sequence as a genome-browser track: a coordinate
+// ruler, the raw base letters, and a pitch "wiggle" trace. Built once per play;
+// playback just pans the strip so the current base sits under the playhead.
+const buildGenomeBrowser = (notes, genomicStart) => {
+  if (!browserEl) return;
+  const viewport = document.getElementById("browserViewport");
+  if (!viewport) return;
+
+  const { min, max } = getOctaveLimits();
+  const span = Math.max(1, max - min);
+  const total = notes.length;
+  const width = total * PX_PER_BASE;
+
+  browserCells = notes.map((n) => ({
+    base: (n.base || "N").toUpperCase(),
+    midi: clampToOctaveWindow(n.midi),
+    coord: genomicStart + n.idx,
+  }));
+
+  const scroll = document.createElement("div");
+  scroll.className = "browser__scroll";
+  scroll.style.width = `${width}px`;
+
+  const ruler = document.createElement("div");
+  ruler.className = "browser__ruler";
+  const tickEvery = total > 400 ? 50 : total > 120 ? 20 : 10;
+  browserCells.forEach((c, i) => {
+    if (i % tickEvery !== 0) return;
+    const tick = document.createElement("div");
+    tick.className = "browser__tick";
+    tick.style.left = `${i * PX_PER_BASE + PX_PER_BASE / 2}px`;
+    const label = document.createElement("span");
+    label.textContent = c.coord.toLocaleString();
+    tick.appendChild(label);
+    ruler.appendChild(tick);
+  });
+
+  const bases = document.createElement("div");
+  bases.className = "browser__bases";
+  browserBaseCells = browserCells.map((c, i) => {
+    const cell = document.createElement("div");
+    cell.className = "browser__base";
+    cell.style.left = `${i * PX_PER_BASE}px`;
+    cell.style.width = `${PX_PER_BASE}px`;
+    cell.style.color = BASE_COLORS[c.base] || "#f8fafc";
+    cell.textContent = c.base;
+    bases.appendChild(cell);
+    return cell;
+  });
+
+  const yOf = (midi) => SIGNAL_HEIGHT - 8 - ((midi - min) / span) * (SIGNAL_HEIGHT - 16);
+  const svg = document.createElementNS(SVG_NS, "svg");
+  svg.setAttribute("class", "browser__signal");
+  svg.setAttribute("width", String(width));
+  svg.setAttribute("height", String(SIGNAL_HEIGHT));
+  svg.setAttribute("viewBox", `0 0 ${width} ${SIGNAL_HEIGHT}`);
+  svg.setAttribute("preserveAspectRatio", "none");
+  const points = browserCells
+    .map((c, i) => `${i * PX_PER_BASE + PX_PER_BASE / 2},${yOf(c.midi).toFixed(1)}`)
+    .join(" ");
+  const poly = document.createElementNS(SVG_NS, "polyline");
+  poly.setAttribute("class", "browser__trace");
+  poly.setAttribute("points", points);
+  svg.appendChild(poly);
+  if (total <= 300) {
+    browserCells.forEach((c, i) => {
+      const dot = document.createElementNS(SVG_NS, "circle");
+      dot.setAttribute("cx", String(i * PX_PER_BASE + PX_PER_BASE / 2));
+      dot.setAttribute("cy", yOf(c.midi).toFixed(1));
+      dot.setAttribute("r", "2.4");
+      dot.setAttribute("fill", BASE_COLORS[c.base] || "#f8fafc");
+      svg.appendChild(dot);
+    });
+  }
+
+  scroll.appendChild(ruler);
+  scroll.appendChild(bases);
+  scroll.appendChild(svg);
+  viewport.innerHTML = "";
+  viewport.appendChild(scroll);
+  browserScrollEl = scroll;
+  browserActiveCell = null;
+
+  scroll.style.transitionDuration = "0s";
+  scroll.style.transform = `translateX(${playheadOffsetPx() - PX_PER_BASE / 2}px)`;
+};
+
+const advanceGenome = (i, durSec) => {
+  if (!browserScrollEl) return;
+  const targetX = playheadOffsetPx() - (i * PX_PER_BASE + PX_PER_BASE / 2);
+  browserScrollEl.style.transitionDuration = `${Math.max(0.03, durSec)}s`;
+  browserScrollEl.style.transform = `translateX(${targetX}px)`;
+
+  if (browserActiveCell) browserActiveCell.classList.remove("active");
+  const cell = browserBaseCells[i];
+  if (cell) {
+    cell.classList.add("active");
+    browserActiveCell = cell;
+  }
+  const c = browserCells[i];
+  if (c && coordReadout) coordReadout.textContent = `${c.base} · ${c.coord.toLocaleString()}`;
+};
+
 const getRootMidi = () => {
   const key = keySelect?.value || "A";
   return KEY_ROOTS[key] ?? KEY_ROOTS.A;
 };
 
 const getOctaveLimits = () => {
-  const minRaw = Number(octaveMinSelect?.value ?? 48);
-  const maxRaw = Number(octaveMaxSelect?.value ?? 72);
+  const [minRaw, maxRaw] = (registerSelect?.value || "48,72").split(",").map(Number);
   return {
     min: Math.min(minRaw, maxRaw),
     max: Math.max(minRaw, maxRaw),
@@ -353,6 +486,7 @@ const loadDefaultFasta = async (announce = true) => {
     }
     fastaInput.value = text.trim();
     setFastaStatus("Loaded XIST.fasta reference.", "#22c55e");
+    resetGenomeBrowser();
     if (announce) {
       reportStatus("Loaded default XIST.fasta reference.");
     }
@@ -369,6 +503,7 @@ const handleCustomFasta = (label, contents) => {
   fastaInput.value = contents;
   setFastaStatus(`Loaded ${label}.`, "#22c55e");
   reportStatus(`Loaded ${label}.`);
+  resetGenomeBrowser();
 };
 
 const handleFileSelection = (file) => {
@@ -578,6 +713,7 @@ const playNotes = async (ctx, notes, abortHandle) => {
     const event = notes[i];
     const midi = clampToOctaveWindow(event.midi);
     pushHelixEvent(event.base, midi);
+    advanceGenome(i, params.lengthSec);
     const voice = triggerNote(ctx, midi, params);
     activeVoices.push(voice);
     await wait(params.lengthSec * 1000);
@@ -637,6 +773,7 @@ const handlePlay = async () => {
   }
 
   resetHelix();
+  buildGenomeBrowser(notes, windowed.start);
 
   abortPlayback = { stopped: false };
   const keyName = keySelect?.value || "A";
@@ -670,12 +807,10 @@ if (keySelect) {
 }
 
 const handleOctaveChange = () => {
-  reportStatus(`Octave window set to ${getOctaveRangeLabel()}.`);
+  reportStatus(`Register set to ${getOctaveRangeLabel()}.`);
 };
 
-[octaveMinSelect, octaveMaxSelect].forEach((select) => {
-  select?.addEventListener("change", handleOctaveChange);
-});
+registerSelect?.addEventListener("change", handleOctaveChange);
 
 dismissReminderBtn?.addEventListener("click", dismissMobileReminder);
 
@@ -700,6 +835,7 @@ fastaFileInput?.addEventListener("change", (event) => {
 
 window.addEventListener("load", () => {
   initHelix();
+  initGenomeBrowser();
   loadDefaultFasta(false);
   if (isMobileDevice()) {
     showMobileReminder();
