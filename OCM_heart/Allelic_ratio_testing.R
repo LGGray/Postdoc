@@ -34,8 +34,80 @@ run_dispersion_lrt <- function(df, ref_level, comparison_level) {
   lrt_row
 }
 
+# Logistic regression LRT testing whether the proportion of monoallelic-like
+# cells (allelic_ratio <= 0.1 or >= 0.9) differs between two sample levels.
+run_monoallelic_lrt <- function(df, ref_level, comparison_level) {
+  df$sample <- factor(df$sample, levels = c(ref_level, comparison_level))
+
+  fit_null <- glm(monoallelic ~ 1, family = binomial, data = df)
+  fit_full <- glm(monoallelic ~ sample, family = binomial, data = df)
+
+  lrt <- anova(fit_null, fit_full, test = "LRT")
+
+  coef_name <- paste0("sample", comparison_level)
+  beta <- unname(coef(fit_full)[coef_name])
+
+  direction <- if (is.na(beta)) {
+    NA_character_
+  } else if (beta > 0) {
+    paste(comparison_level, "more monoallelic")
+  } else {
+    paste(comparison_level, "less monoallelic")
+  }
+
+  data.frame(
+    Df = lrt$Df[2],
+    Deviance = lrt$Deviance[2],
+    p_value = lrt[["Pr(>Chi)"]][2],
+    beta = beta,
+    direction = direction
+  )
+}
+
+fdr_to_stars <- function(fdr) {
+  ifelse(is.na(fdr), "ns",
+         ifelse(fdr <= 0.001, "***",
+                ifelse(fdr <= 0.01, "**",
+        ifelse(fdr <= 0.05, "*", "ns"))))
+}
+
 heart <- readRDS('heart_seurat_object_SCT.rds')
 heart$celltype <- Idents(heart)
+
+heart_metadata <- heart@meta.data
+# box plot of nCount_RNA per sample, split by celltype
+pdf('Allelic_ratio_results/nCount_RNA_boxplot_by_celltype.pdf')
+ggplot(heart_metadata, aes(x = celltype, y = nCount_RNA, fill = sample)) +
+  geom_boxplot(outlier.size = 0.5) +
+  facet_wrap(~sample) +
+  labs(y = "nCount_RNA", x = NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+dev.off()
+
+# Boxplot of Xist expression (approximate TPM) per sample, split by celltype
+# Xist gene length from mm10 chrX:102,503,972-102,537,573
+xist_length_kb <- (102537573 - 102503972 + 1) / 1000
+
+xist_counts <- GetAssayData(heart, assay = "RNA", layer = "counts")["Xist", ]
+total_counts <- heart$nCount_RNA
+
+xist_df <- data.frame(
+  sample = heart$sample,
+  celltype = heart$celltype,
+  Xist_TPM = (xist_counts / xist_length_kb) / (total_counts / 1e6)
+)
+
+pdf('Allelic_ratio_results/xist_expression_TPM_boxplot_by_celltype.pdf')
+ggplot(xist_df, aes(x = sample, y = Xist_TPM, fill = sample)) +
+  geom_boxplot(outlier.size = 0.5) +
+  facet_wrap(~celltype) +
+  labs(y = "Xist TPM (approx.)", x = NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "none")
+dev.off()
 
 ###############################
 # Whole X chromosome analysis #
@@ -51,7 +123,11 @@ cellid <- strsplit(dirname(barcodes), '_') %>% sapply(function(x) x[5])
 chr_allelic_ratio <- lapply(barcodes, function(x) {
   if (file.exists(x)) {
     tmp <- read.delim(x, header = TRUE)
-    subset(tmp, chr=="chrX")
+    if (nrow(tmp) == 0) return(NULL)
+    tmp$chr <- as.character(tmp$chr)
+    tmp <- subset(tmp, chr=="chrX")
+    if (nrow(tmp) == 0) return(NULL)
+    tmp
   } else {
     NULL
   }
@@ -72,20 +148,17 @@ subset_heart$A2_reads <- chr_allelic_ratio$A2_reads
 
 # Plot distribution of total reads
 pdf('Allelic_ratio_results/whole_chr_total_reads_distribution.pdf')
-hist(subset_heart$total_reads, breaks = 10, main = "Total Reads Distribution", xlab = "Total Reads")
+plot(
+  density(subset_heart$total_reads, na.rm = TRUE),
+  main = "Total Reads Distribution",
+  xlab = "Total Reads"
+)
 dev.off()
 #
 ################################################### 
 # filter for cells with at least 20 reads on chrX #
 ###################################################
 subset_heart_flt <- subset(subset_heart, subset = total_reads >= 20)
-
-pdf('Allelic_ratio_results/whole_chr_allelic_ratio_celltype_violin_plot_facet_wrap.pdf')
-ggplot(subset_heart_flt@meta.data, aes(x = sample, y = allelic_ratio, fill = sample)) +
-  geom_violin() +
-  facet_wrap(~celltype) +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-dev.off()
 
 # UMAP plot coloured by allelic ratio split by sample
 pdf('Allelic_ratio_results/allelic_ratio_umap_plot.pdf')
@@ -100,12 +173,26 @@ FeaturePlot(subset_heart_flt,
                         name = "Allelic ratio")
 dev.off()
 
+# UMAP plot coloured by allelic ratio split by sample
+pdf('Allelic_ratio_results/allelic_ratio_umap_plot_split_by_sample.pdf')
+FeaturePlot(subset_heart_flt,
+            features = "allelic_ratio",
+            min.cutoff = 0,
+            max.cutoff = 1,
+            split.by = "sample") +
+  scale_color_gradientn(colors = my_colors,
+                        breaks = seq(0, 1, by = 0.1),
+                        limits = c(0, 1),
+                        oob = scales::squish,
+                        name = "Allelic ratio")
+dev.off()
+
 # Create metadata for statistical testing
-metadata <- subset_heart_flt@meta.data
+metadata_whole_chr <- subset_heart_flt@meta.data
 
 
 # number of cells per celltype and condition
-cell_counts <- metadata %>%
+cell_counts <- metadata_whole_chr %>%
   group_by(celltype, sample) %>%
   summarise(n_cells = n(), .groups = "drop")
 write.table(cell_counts, 'Allelic_ratio_results/whole_chr_cell_counts_per_celltype_and_condition.txt', sep = '\t', row.names = FALSE, quote = FALSE)
@@ -124,7 +211,7 @@ ggplot(cell_ids, aes(x = sample, fill = celltype)) +
 dev.off()
 
 # Statistical testing - Does the variation in allelic ratio differ between conditions for each cell type?
-adult_vs_aged_lrt <- split(metadata, metadata$celltype) %>%
+adult_vs_aged_lrt <- split(metadata_whole_chr, metadata_whole_chr$celltype) %>%
   lapply(function(x) {
     df <- subset(x, sample %in% c("9w", "78w"))
     if (length(unique(df$sample)) < 2) return(NULL)
@@ -135,7 +222,7 @@ adult_vs_aged_lrt$FDR <- p.adjust(adult_vs_aged_lrt$Pr..Chisq., method = "fdr")
 
 subset(adult_vs_aged_lrt, FDR < 0.05)
 
-Sham_vs_TAC_lrt <- split(metadata, metadata$celltype) %>%
+Sham_vs_TAC_lrt <- split(metadata_whole_chr, metadata_whole_chr$celltype) %>%
   lapply(function(x) {
     df <- subset(x, sample %in% c("Sham", "TAC"))
     if (length(unique(df$sample)) < 2) return(NULL)
@@ -147,15 +234,9 @@ Sham_vs_TAC_lrt$FDR <- p.adjust(Sham_vs_TAC_lrt$Pr..Chisq., method = "fdr")
 subset(Sham_vs_TAC_lrt, FDR < 0.05)
 
 
-# Plotting Fraction of biallelic-like cells per cell type and condition
-fdr_to_stars <- function(fdr) {
-  ifelse(is.na(fdr), "ns",
-         ifelse(fdr <= 0.001, "***",
-                ifelse(fdr <= 0.01, "**",
-        ifelse(fdr <= 0.05, "*", "ns"))))
-}
 
-violin_tbl <- metadata %>%
+
+violin_tbl <- metadata_whole_chr  %>%
   mutate(
     sample = factor(sample, levels = c("9w", "78w", "Sham", "TAC")),
     sample_idx = as.numeric(sample)
@@ -239,7 +320,7 @@ ggplot(prop_tbl, aes(x = sample, y = p_biallelic, color = sample)) +
   theme(legend.position = "none")
 dev.off()
 
-save(subset_heart_flt, file = "Allelic_ratio_results/whole_chr_subset_heart_flt.RData")
+saveRDS(subset_heart_flt, file = "Allelic_ratio_results/whole_chr_subset_heart_flt.RDS")
 
 ##############################
 # Core escape genes analysis #
@@ -583,4 +664,339 @@ if (exists("bayes_gene") && nrow(bayes_gene) > 0) {
     }
   }
 }
+
+#####################
+# All gene analysis #
+#####################
+barcodes <- lapply(c('9w', '78w', 'Sham', 'TAC'), function(x) {
+  list.files(paste0('Allelome.PRO2_all_genes/', x), pattern = 'locus_table.txt', recursive = TRUE, full.names = TRUE)
+})
+barcodes <- unlist(barcodes)
+
+condition <- strsplit(dirname(barcodes), '_') %>% sapply(function(x) x[6])
+cellid <- strsplit(dirname(barcodes), '_') %>% sapply(function(x) x[7])
+
+read_gene_table <- function(path, sample_name, cell_name) {
+  if (!file.exists(path)) return(NULL)
+
+  tmp <- tryCatch(
+    read.delim(path, header = TRUE, stringsAsFactors = FALSE),
+    error = function(e) NULL
+  )
+
+  if (is.null(tmp)) return(NULL)
+
+  tmp <- as.data.frame(tmp)
+  if (!"chr" %in% names(tmp) || !"name" %in% names(tmp) || nrow(tmp) == 0) return(NULL)
+
+  tmp$chr <- as.character(tmp$chr)
+  tmp$name <- as.character(tmp$name)
+
+  tmp %>%
+    dplyr::mutate(
+      sample = sample_name,
+      cellid = cell_name,
+      cell_barcode = paste0(sample_name, "_", cell_name)
+    )
+}
+
+gene_df <- lapply(seq_along(barcodes), function(i) {
+  read_gene_table(barcodes[i], condition[i], cellid[i])
+}) %>%
+  bind_rows()
+
+# pseudobulk analysis for top 4 genes
+gene_df$celltype <- Idents(heart)[gene_df$cell_barcode]
+
+gene_df_top4 <- gene_df %>%
+  filter(!is.na(A1_reads), !is.na(A2_reads), !is.na(total_reads), total_reads > 0)
+
+if (nrow(gene_df_top4) > 0) {
+  top4_genes <- gene_df_top4 %>%
+    group_by(name) %>%
+    summarise(total_reads_sum = sum(total_reads, na.rm = TRUE), .groups = "drop") %>%
+    arrange(desc(total_reads_sum)) %>%
+    slice_head(n = 4)
+
+  write.table(top4_genes,
+              'Allelic_ratio_results/all_genes_top4_by_total_reads.txt',
+              sep = '\t', row.names = FALSE, quote = FALSE)
+
+  pb_gene_top4 <- gene_df_top4 %>%
+    filter(name %in% top4_genes$name) %>%
+    group_by(sample, celltype, name) %>%
+    summarise(
+      A1_reads = sum(A1_reads, na.rm = TRUE),
+      A2_reads = sum(A2_reads, na.rm = TRUE),
+      total_reads = sum(total_reads, na.rm = TRUE),
+      allelic_ratio = A1_reads / pmax(total_reads, 1),
+      n_cells = n_distinct(cell_barcode),
+      .groups = "drop"
+    )
+
+  pb_gene_top4$sample <- factor(pb_gene_top4$sample, levels = c("9w", "78w", "Sham", "TAC"))
+  pb_gene_top4$name <- factor(pb_gene_top4$name, levels = top4_genes$name)
+
+  write.table(pb_gene_top4,
+              'Allelic_ratio_results/all_genes_pseudobulk_top4_by_gene.txt',
+              sep = '\t', row.names = FALSE, quote = FALSE)
+
+  pdf('Allelic_ratio_results/all_genes_top4_total_reads_barplot.pdf')
+  ggplot(top4_genes, aes(x = reorder(name, total_reads_sum), y = total_reads_sum)) +
+    geom_col(fill = '#3b7a57', width = 0.7) +
+    coord_flip() +
+    labs(x = NULL, y = 'Total reads (summed across cells)', title = 'Top 4 genes by total reads') +
+    theme_bw()
+  dev.off()
+
+  pdf('Allelic_ratio_results/all_genes_pseudobulk_top4_heatmap_by_gene.pdf')
+  ggplot(pb_gene_top4, aes(x = sample, y = celltype, fill = allelic_ratio)) +
+    geom_tile() +
+    facet_wrap(~name) +
+    scale_fill_gradientn(colors = my_colors,
+                         breaks = my_breaks,
+                         limits = c(0.5, 1),
+                         oob = scales::squish) +
+    labs(fill = 'A1 / total', x = NULL, y = NULL) +
+    theme_bw() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  dev.off()
+}
+
+#################################################
+# Core escape genes analysis (block, whole-chr) #
+#################################################
+barcodes <- lapply(c('9w', '78w', 'Sham', 'TAC'), function(x) {
+  list.files(paste0('Allelome.PRO2_core_escape/', x), pattern = 'locus_table.txt', recursive = TRUE, full.names = TRUE)
+})
+barcodes <- unlist(barcodes)
+
+condition <- strsplit(dirname(barcodes), '_') %>% sapply(function(x) x[6])
+cellid <- strsplit(dirname(barcodes), '_') %>% sapply(function(x) x[7])
+
+core_escape_block_ratio <- lapply(barcodes, function(x) {
+  if (file.exists(x)) {
+    tmp <- read.delim(x, header = TRUE)
+    if (nrow(tmp) == 0) return(NULL)
+    tmp$chr <- as.character(tmp$chr)
+    tmp <- subset(tmp, chr == "chrX")
+    if (nrow(tmp) == 0) return(NULL)
+    tmp
+  } else {
+    NULL
+  }
+})
+names(core_escape_block_ratio) <- paste0(condition, "_", cellid)
+core_escape_block_ratio <- core_escape_block_ratio[!sapply(core_escape_block_ratio, is.null)]
+core_escape_block_ratio <- bind_rows(core_escape_block_ratio, .id = "cell_barcode")
+
+# Subset seurat object by barcodes
+subset_heart_ceb <- subset(heart, cells = core_escape_block_ratio$cell_barcode)
+core_escape_block_ratio <- core_escape_block_ratio[core_escape_block_ratio$cell_barcode %in% colnames(subset_heart_ceb), ]
+core_escape_block_ratio <- core_escape_block_ratio[match(colnames(subset_heart_ceb), core_escape_block_ratio$cell_barcode), ]
+subset_heart_ceb$allelic_ratio <- core_escape_block_ratio$allelic_ratio
+subset_heart_ceb$total_reads <- core_escape_block_ratio$total_reads
+subset_heart_ceb$A1_reads <- core_escape_block_ratio$A1_reads
+subset_heart_ceb$A2_reads <- core_escape_block_ratio$A2_reads
+
+# Plot distribution of total reads
+pdf('Allelic_ratio_results/core_escape_block_total_reads_distribution.pdf')
+plot(
+  density(subset_heart_ceb$total_reads, na.rm = TRUE),
+  main = "Total Reads Distribution",
+  xlab = "Total Reads"
+)
+dev.off()
+
+###################################################
+# filter for cells with at least 5 reads on chrX #
+###################################################
+subset_heart_ceb_flt <- subset(subset_heart_ceb, subset = total_reads >= 5)
+
+table(subset_heart_ceb_flt$sample)
+
+# UMAP plot coloured by allelic ratio
+pdf('Allelic_ratio_results/core_escape_block_allelic_ratio_umap_plot.pdf')
+FeaturePlot(subset_heart_ceb_flt,
+            features = "allelic_ratio",
+            min.cutoff = 0,
+            max.cutoff = 1) +
+  scale_color_gradientn(colors = my_colors,
+                        breaks = seq(0, 1, by = 0.1),
+                        limits = c(0, 1),
+                        oob = scales::squish,
+                        name = "Allelic ratio")
+dev.off()
+
+# UMAP plot coloured by allelic ratio split by sample
+pdf('Allelic_ratio_results/core_escape_block_allelic_ratio_umap_plot_split_by_sample.pdf')
+FeaturePlot(subset_heart_ceb_flt,
+            features = "allelic_ratio",
+            min.cutoff = 0,
+            max.cutoff = 1,
+            split.by = "sample") +
+  scale_color_gradientn(colors = my_colors,
+                        breaks = seq(0, 1, by = 0.1),
+                        limits = c(0, 1),
+                        oob = scales::squish,
+                        name = "Allelic ratio")
+dev.off()
+
+# Create metadata for statistical testing
+metadata_ceb <- subset_heart_ceb_flt@meta.data
+
+# sort by total read count
+metadata_ceb <- metadata_ceb[order(metadata_ceb$total_reads, decreasing = TRUE), ]
+head(metadata_ceb)
+
+# number of cells per celltype and condition
+cell_counts_ceb <- metadata_ceb %>%
+  group_by(celltype, sample) %>%
+  summarise(n_cells = n(), .groups = "drop")
+write.table(cell_counts_ceb, 'Allelic_ratio_results/core_escape_block_cell_counts_per_celltype_and_condition.txt', sep = '\t', row.names = FALSE, quote = FALSE)
+
+# Statistical testing - is the proportion of putative LOX cells
+# (allelic_ratio >= 0.9, i.e. no reads from the inactive/paternal allele of a
+# gene expected to escape XCI) higher between conditions for each cell type?
+# One-sided by design: under skewed XCI (maternal always active), AR <= 0.1
+# would imply loss of the active allele, a distinct and much rarer event.
+metadata_ceb$monoallelic <- as.integer(metadata_ceb$allelic_ratio >= 0.9)
+
+adult_vs_aged_monoallelic_lrt_ceb <- split(metadata_ceb, metadata_ceb$celltype) %>%
+  lapply(function(x) {
+    df <- subset(x, sample %in% c("9w", "78w"))
+    if (length(unique(df$sample)) < 2) return(NULL)
+    run_monoallelic_lrt(df, ref_level = "9w", comparison_level = "78w")
+  })
+adult_vs_aged_monoallelic_lrt_ceb <- bind_rows(adult_vs_aged_monoallelic_lrt_ceb, .id = "celltype")
+adult_vs_aged_monoallelic_lrt_ceb$FDR <- p.adjust(adult_vs_aged_monoallelic_lrt_ceb$p_value, method = "fdr")
+
+subset(adult_vs_aged_monoallelic_lrt_ceb, FDR < 0.05)
+
+Sham_vs_TAC_monoallelic_lrt_ceb <- split(metadata_ceb, metadata_ceb$celltype) %>%
+  lapply(function(x) {
+    df <- subset(x, sample %in% c("Sham", "TAC"))
+    if (length(unique(df$sample)) < 2) return(NULL)
+    run_monoallelic_lrt(df, ref_level = "Sham", comparison_level = "TAC")
+  })
+Sham_vs_TAC_monoallelic_lrt_ceb <- bind_rows(Sham_vs_TAC_monoallelic_lrt_ceb, .id = "celltype")
+Sham_vs_TAC_monoallelic_lrt_ceb$FDR <- p.adjust(Sham_vs_TAC_monoallelic_lrt_ceb$p_value, method = "fdr")
+
+subset(Sham_vs_TAC_monoallelic_lrt_ceb, FDR < 0.05)
+
+# Stacked barplot of the number of putative LOX cells (AR >= 0.9) vs other
+# cells, per sample and cell type. Raw counts (N=1 per sample, so proportions
+# would overstate precision the data doesn't support).
+metadata_ceb$LOX_status <- factor(
+  ifelse(metadata_ceb$monoallelic == 1, "LOX-like (AR >= 0.9)", "Other"),
+  levels = c("Other", "LOX-like (AR >= 0.9)")
+)
+metadata_ceb$sample <- factor(metadata_ceb$sample, levels = c("9w", "78w", "Sham", "TAC"))
+
+# Plotting allelic ratio per cell type and condition
+violin_tbl_ceb <- metadata_ceb %>%
+  mutate(
+    sample = factor(sample, levels = c("9w", "78w", "Sham", "TAC")),
+    sample_idx = as.numeric(sample)
+  )
+
+pdf('Allelic_ratio_results/core_escape_block_allelic_ratio_celltype_violin_plot_facet_wrap.pdf')
+ggplot(violin_tbl_ceb, aes(x = sample_idx, y = allelic_ratio, fill = sample)) +
+  geom_violin(trim = TRUE, scale = "width") +
+  geom_jitter(width = 0.15, size = 0.3, alpha = 0.3, color = "black") +
+  facet_wrap(~celltype) +
+  scale_x_continuous(breaks = 1:4, labels = levels(violin_tbl_ceb$sample)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(y = "Allelic ratio", x = NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.margin = margin(5.5, 18, 5.5, 5.5),
+        legend.position = "none")
+dev.off()
+
+pdf('Allelic_ratio_results/core_escape_block_LOX_cell_counts_stacked_barplot.pdf')
+ggplot(metadata_ceb, aes(x = sample, fill = LOX_status)) +
+  geom_bar(position = "stack") +
+  facet_wrap(~celltype) +
+  labs(y = "Number of cells", x = NULL, fill = NULL) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "bottom")
+dev.off()
+
+# Per-gene breakdown for cells flagged as putative LOX (block-level AR >= 0.9),
+# to eyeball concordance across the 4 core escape genes before committing to a
+# formal multi-gene threshold.
+lox_barcodes <- rownames(subset(metadata_ceb, monoallelic == 1))
+
+gene_df_percell <- read.table('Allelic_ratio_results/core_escape_genes_gene_df.txt',
+                               sep = '\t', header = TRUE, stringsAsFactors = FALSE)
+
+lox_gene_breakdown <- gene_df_percell %>%
+  dplyr::filter(cell_barcode %in% lox_barcodes) %>%
+  dplyr::select(cell_barcode, sample, celltype, name, allelic_ratio, A1_reads, A2_reads, total_reads) %>%
+  dplyr::arrange(cell_barcode, name)
+
+write.table(lox_gene_breakdown,
+            'Allelic_ratio_results/core_escape_block_LOX_cells_per_gene_breakdown.txt',
+            sep = '\t', row.names = FALSE, quote = FALSE)
+
+lox_gene_breakdown_wide <- reshape(
+  as.data.frame(lox_gene_breakdown),
+  idvar = c("cell_barcode", "sample", "celltype"),
+  timevar = "name",
+  direction = "wide"
+)
+
+write.table(lox_gene_breakdown_wide,
+            'Allelic_ratio_results/core_escape_block_LOX_cells_per_gene_breakdown_wide.txt',
+            sep = '\t', row.names = FALSE, quote = FALSE)
+
+# Confirm LOX status: require AR >= 0.9 independently at all four core escape
+# genes (missing coverage at any gene fails this - only cells with full
+# 4-gene support are counted as confirmed).
+gene_cols <- grep("^allelic_ratio\\.", colnames(lox_gene_breakdown_wide), value = TRUE)
+
+lox_gene_breakdown_wide$confirmed_LOX <- apply(
+  lox_gene_breakdown_wide[, gene_cols, drop = FALSE], 1,
+  function(x) all(!is.na(x) & x >= 0.9)
+)
+sum(lox_gene_breakdown_wide$confirmed_LOX)
+
+write.table(lox_gene_breakdown_wide,
+            'Allelic_ratio_results/core_escape_block_LOX_cells_per_gene_breakdown_wide.txt',
+            sep = '\t', row.names = FALSE, quote = FALSE)
+
+confirmed_lox_barcodes <- lox_gene_breakdown_wide$cell_barcode[lox_gene_breakdown_wide$confirmed_LOX]
+
+# Repeat the dispersion/heterogeneity test after excluding putative LOX cells
+# (AR >= 0.9) - a lost inactive allele collapses a cell's ratio to a fixed
+# point with no sampling variance, which can trivially shift/mask the
+# between-condition dispersion comparison for an escape gene.
+lox_barcodes_ceb <- rownames(subset(metadata_ceb, monoallelic == 1))
+
+metadata_whole_chr <- metadata_whole_chr[!rownames(metadata_whole_chr) %in% lox_barcodes_ceb, ]
+
+adult_vs_aged_lrt_noLOX <- split(metadata_whole_chr, metadata_whole_chr$celltype) %>%
+  lapply(function(x) {
+    df <- subset(x, sample %in% c("9w", "78w"))
+    if (length(unique(df$sample)) < 2) return(NULL)
+    run_dispersion_lrt(df, ref_level = "9w", comparison_level = "78w")
+  })
+adult_vs_aged_lrt_noLOX <- bind_rows(adult_vs_aged_lrt_noLOX, .id = "celltype")
+adult_vs_aged_lrt_noLOX$FDR <- p.adjust(adult_vs_aged_lrt_noLOX$Pr..Chisq., method = "fdr")
+
+subset(adult_vs_aged_lrt_noLOX, FDR < 0.05)
+
+Sham_vs_TAC_lrt_noLOX <- split(metadata_whole_chr, metadata_whole_chr$celltype) %>%
+  lapply(function(x) {
+    df <- subset(x, sample %in% c("Sham", "TAC"))
+    if (length(unique(df$sample)) < 2) return(NULL)
+    run_dispersion_lrt(df, ref_level = "Sham", comparison_level = "TAC")
+  })
+Sham_vs_TAC_lrt_noLOX <- bind_rows(Sham_vs_TAC_lrt_noLOX, .id = "celltype")
+Sham_vs_TAC_lrt_noLOX$FDR <- p.adjust(Sham_vs_TAC_lrt_noLOX$Pr..Chisq., method = "fdr")
+
+subset(Sham_vs_TAC_lrt_noLOX, FDR < 0.05)
+
 
