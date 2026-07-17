@@ -35,3 +35,5 @@ lncRNA_prediction/lncRNA_5kb_flank.bed
 lncRNA_prediction/lncRNA_enhancing_repressive.txt
 lncRNA_prediction/modified_coords.txt
 CLAUDE.md
+.DS_Store
+**/.DS_Store
