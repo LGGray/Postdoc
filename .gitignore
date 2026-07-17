@@ -34,3 +34,4 @@ lncRNA_prediction/Homo_sapiens.GRCh38.dna.primary_assembly.fa.fai
 lncRNA_prediction/lncRNA_5kb_flank.bed
 lncRNA_prediction/lncRNA_enhancing_repressive.txt
 lncRNA_prediction/modified_coords.txt
+CLAUDE.md
