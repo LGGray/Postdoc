@@ -1,0 +1,387 @@
+{
+  ".claude/settings.json": {
+    "mtime": 1784540272.8929832,
+    "ast_hash": "02f4a29789584d761f0388c51d3bd76d",
+    "semantic_hash": "02f4a29789584d761f0388c51d3bd76d"
+  },
+  ".vscode/settings.json": {
+    "mtime": 1759994275.0,
+    "ast_hash": "e31e1c85933f6292ad0a7e3e942ac730",
+    "semantic_hash": "e31e1c85933f6292ad0a7e3e942ac730"
+  },
+  "ASE/Allelome_LINK.analysis.R": {
+    "mtime": 1759759498.0,
+    "ast_hash": "566dcbf067f1906ac5fe2d859655c6c5",
+    "semantic_hash": "566dcbf067f1906ac5fe2d859655c6c5"
+  },
+  "ASE/Allelome_PRO2_update.R": {
+    "mtime": 1757331818.0,
+    "ast_hash": "64d9bf4c93db1def181a1a651d399cc3",
+    "semantic_hash": "64d9bf4c93db1def181a1a651d399cc3"
+  },
+  "ASE/DESeq2.R": {
+    "mtime": 1780406435.0,
+    "ast_hash": "1e06b1d7a501016d62c60f6ca7666d5f",
+    "semantic_hash": "1e06b1d7a501016d62c60f6ca7666d5f"
+  },
+  "ASE/GTEx_LINK.R": {
+    "mtime": 1761055323.0,
+    "ast_hash": "ed628cf47996c8fa44e484b1b3593f4d",
+    "semantic_hash": "ed628cf47996c8fa44e484b1b3593f4d"
+  },
+  "ASE/IGV_visualisation.R": {
+    "mtime": 1762338064.0,
+    "ast_hash": "b633b0464f709f4a723f89fbb095a428",
+    "semantic_hash": "b633b0464f709f4a723f89fbb095a428"
+  },
+  "ASE/NMF.R": {
+    "mtime": 1765541873.0,
+    "ast_hash": "d6b12d4bdbac763c841ae2c397d0aa1d",
+    "semantic_hash": "d6b12d4bdbac763c841ae2c397d0aa1d"
+  },
+  "ASE/adult_age_bodymap_TAC.R": {
+    "mtime": 1780406424.0,
+    "ast_hash": "80cad259937f33ed424c6fd6c3996693",
+    "semantic_hash": "80cad259937f33ed424c6fd6c3996693"
+  },
+  "ASE/adult_aged_snRNAseq.R": {
+    "mtime": 1779804184.0,
+    "ast_hash": "e5f656b53cbb1fe8de800a2adccecb46",
+    "semantic_hash": "e5f656b53cbb1fe8de800a2adccecb46"
+  },
+  "ASE/compare_refseq.R": {
+    "mtime": 1762244232.0,
+    "ast_hash": "812dbf32d83b62544606244babfe7947",
+    "semantic_hash": "812dbf32d83b62544606244babfe7947"
+  },
+  "ASE/delta_AR.R": {
+    "mtime": 1762790657.0,
+    "ast_hash": "978ee5c5b82c8a9ad3f0698962b31ea6",
+    "semantic_hash": "978ee5c5b82c8a9ad3f0698962b31ea6"
+  },
+  "ASE/filter_bedpe.R": {
+    "mtime": 1763723087.0,
+    "ast_hash": "cec8a664a083141c3fcc20e041b62677",
+    "semantic_hash": "cec8a664a083141c3fcc20e041b62677"
+  },
+  "ASE/gene_correlation_rewiring.R": {
+    "mtime": 1779371431.0,
+    "ast_hash": "e29d2ea988e332e8197454567efc52b1",
+    "semantic_hash": "e29d2ea988e332e8197454567efc52b1"
+  },
+  "ASE/gnomAD.R": {
+    "mtime": 1767957408.0,
+    "ast_hash": "a2a7cd33501328b19892b025d0cb1821",
+    "semantic_hash": "a2a7cd33501328b19892b025d0cb1821"
+  },
+  "ASE/overlapping_links_DE.R": {
+    "mtime": 1780394998.0,
+    "ast_hash": "a8e17f0733fd0cfced92387d1c6cdeb7",
+    "semantic_hash": "a8e17f0733fd0cfced92387d1c6cdeb7"
+  },
+  "ASE/visualise_conservation.sh": {
+    "mtime": 1770651599.0,
+    "ast_hash": "aadcef65387252f7218f1d902bdbefbe",
+    "semantic_hash": "aadcef65387252f7218f1d902bdbefbe"
+  },
+  "Allelome_PRO2_Bayes.R": {
+    "mtime": 1773241033.0,
+    "ast_hash": "430d6555918ce3e75653fd8412f8e596",
+    "semantic_hash": "430d6555918ce3e75653fd8412f8e596"
+  },
+  "Bulk_cardiac_bayesian_update.R": {
+    "mtime": 1773318929.0,
+    "ast_hash": "6647969234615e64bcbdece2813cff28",
+    "semantic_hash": "6647969234615e64bcbdece2813cff28"
+  },
+  "OCM_heart/Allelic_ratio_testing.R": {
+    "mtime": 1784538171.4289188,
+    "ast_hash": "7ea870d25b4c8a7caa3a59d171cc7679",
+    "semantic_hash": "7ea870d25b4c8a7caa3a59d171cc7679"
+  },
+  "OCM_heart/Seurat_preprocessing.R": {
+    "mtime": 1781279256.0,
+    "ast_hash": "0a0f72a88c4fef531792fd9669e45bd5",
+    "semantic_hash": "0a0f72a88c4fef531792fd9669e45bd5"
+  },
+  "OCM_heart/core_escape_SNPs.R": {
+    "mtime": 1784127845.0,
+    "ast_hash": "8a37b3509142b69c57564ca265ab9e01",
+    "semantic_hash": "8a37b3509142b69c57564ca265ab9e01"
+  },
+  "OCM_heart/export_seurat_to_h5ad.R": {
+    "mtime": 1780658011.0,
+    "ast_hash": "6e21844f260b9e4838992f00e97197ff",
+    "semantic_hash": "6e21844f260b9e4838992f00e97197ff"
+  },
+  "Pytorch/learning_pytorch.py": {
+    "mtime": 1754398024.0,
+    "ast_hash": "dae2940b129e228a31214114c68410d2",
+    "semantic_hash": "dae2940b129e228a31214114c68410d2"
+  },
+  "SLE_paper/01_model_comparison.R": {
+    "mtime": 1770632682.0,
+    "ast_hash": "ebf26efca0af0a870e3e26e0941f413b",
+    "semantic_hash": "ebf26efca0af0a870e3e26e0941f413b"
+  },
+  "SLE_paper/02_feature_concordance.R": {
+    "mtime": 1770632752.0,
+    "ast_hash": "e523fca7b53fe4557f9928d8065c3e0e",
+    "semantic_hash": "e523fca7b53fe4557f9928d8065c3e0e"
+  },
+  "SLE_paper/03_independent_validation.R": {
+    "mtime": 1770632763.0,
+    "ast_hash": "42e768e7f01399cc96e3c0ac0cf7b692",
+    "semantic_hash": "42e768e7f01399cc96e3c0ac0cf7b692"
+  },
+  "SLE_paper/04_chrX_feature_analysis.R": {
+    "mtime": 1770632778.0,
+    "ast_hash": "b2cd27480510aad498110c36c77f35b5",
+    "semantic_hash": "b2cd27480510aad498110c36c77f35b5"
+  },
+  "SLE_paper/SHAP.py": {
+    "mtime": 1770631326.0,
+    "ast_hash": "69fdcca192dd7a4f643fe84648182b42",
+    "semantic_hash": "69fdcca192dd7a4f643fe84648182b42"
+  },
+  "SLE_paper/analysis_pipeline.R": {
+    "mtime": 1772011273.0,
+    "ast_hash": "b3d026cf03e710eba3289c07bf0a1136",
+    "semantic_hash": "b3d026cf03e710eba3289c07bf0a1136"
+  },
+  "SLE_paper/boruta_enet.py": {
+    "mtime": 1770631240.0,
+    "ast_hash": "31fb39e5968ae653d59eee75b54360a1",
+    "semantic_hash": "31fb39e5968ae653d59eee75b54360a1"
+  },
+  "SLE_paper/gradient.boosting.machine.py": {
+    "mtime": 1770631256.0,
+    "ast_hash": "4aba6c7a37dced447c4d22d31716fe38",
+    "semantic_hash": "4aba6c7a37dced447c4d22d31716fe38"
+  },
+  "SLE_paper/logit.regression.py": {
+    "mtime": 1770631267.0,
+    "ast_hash": "25f258cb0defcd5de4a019b29009fe59",
+    "semantic_hash": "25f258cb0defcd5de4a019b29009fe59"
+  },
+  "SLE_paper/multicollinearity.R": {
+    "mtime": 1777456840.0,
+    "ast_hash": "23fe03e66b05c277998e34da9a868702",
+    "semantic_hash": "23fe03e66b05c277998e34da9a868702"
+  },
+  "SLE_paper/multilayer.perceptron.py": {
+    "mtime": 1770631299.0,
+    "ast_hash": "41b5c0c9d07f43ffe5e51521f78560c0",
+    "semantic_hash": "41b5c0c9d07f43ffe5e51521f78560c0"
+  },
+  "SLE_paper/plot.all.curves.py": {
+    "mtime": 1770631326.0,
+    "ast_hash": "9dc55d8083c8a7bef301bfabac1c1e57",
+    "semantic_hash": "9dc55d8083c8a7bef301bfabac1c1e57"
+  },
+  "SLE_paper/predict_independent_SLE.py": {
+    "mtime": 1770631326.0,
+    "ast_hash": "e1e01a217836698a563e1e40504bc7fb",
+    "semantic_hash": "e1e01a217836698a563e1e40504bc7fb"
+  },
+  "SLE_paper/random.forest.py": {
+    "mtime": 1770631276.0,
+    "ast_hash": "5baab5d539da52f42bad204ecec25a48",
+    "semantic_hash": "5baab5d539da52f42bad204ecec25a48"
+  },
+  "SLE_paper/rename_celltypes.R": {
+    "mtime": 1770631333.0,
+    "ast_hash": "7aa9badce8d3faff689f65732f305728",
+    "semantic_hash": "7aa9badce8d3faff689f65732f305728"
+  },
+  "SLE_paper/setup_directories.sh": {
+    "mtime": 1770651909.0,
+    "ast_hash": "14ea38e98d39d6d4e504ba483373a514",
+    "semantic_hash": "14ea38e98d39d6d4e504ba483373a514"
+  },
+  "SLE_paper/support.vector.machine.py": {
+    "mtime": 1770631286.0,
+    "ast_hash": "32f5ff33f98c664349c6714ff2ddb20f",
+    "semantic_hash": "32f5ff33f98c664349c6714ff2ddb20f"
+  },
+  "SLE_paper/voting.classifier.py": {
+    "mtime": 1770631310.0,
+    "ast_hash": "b2d49b78ae843dc42ba3eb62c62fa12e",
+    "semantic_hash": "b2d49b78ae843dc42ba3eb62c62fa12e"
+  },
+  "Xist_TPM.r": {
+    "mtime": 1769596653.0,
+    "ast_hash": "a045abc5f55f8182d7ceed4f36f04eb7",
+    "semantic_hash": "a045abc5f55f8182d7ceed4f36f04eb7"
+  },
+  "cardiac_RNAseq_Xist.R": {
+    "mtime": 1776434280.0,
+    "ast_hash": "13e3b3f977acc85c11f95028436baf09",
+    "semantic_hash": "13e3b3f977acc85c11f95028436baf09"
+  },
+  "fasta_synth/.claude/launch.json": {
+    "mtime": 1783597327.0,
+    "ast_hash": "6ab8f8fc18369012624f7a75d20a0ba1",
+    "semantic_hash": "6ab8f8fc18369012624f7a75d20a0ba1"
+  },
+  "fasta_synth/app.js": {
+    "mtime": 1783597327.0,
+    "ast_hash": "d1d1006c8279664e71e2e57fe3c9ab70",
+    "semantic_hash": "d1d1006c8279664e71e2e57fe3c9ab70"
+  },
+  "fasta_synth/knobs.js": {
+    "mtime": 1783597327.0,
+    "ast_hash": "8c32cff10a4470dab2f06f98f1459b2a",
+    "semantic_hash": "8c32cff10a4470dab2f06f98f1459b2a"
+  },
+  "infer_experiment.py": {
+    "mtime": 1666294233.0,
+    "ast_hash": "012664218fb660a2fb9a4a5b41f272a8",
+    "semantic_hash": "012664218fb660a2fb9a4a5b41f272a8"
+  },
+  "lncRNA_prediction/modify_coords.py": {
+    "mtime": 1754395051.0,
+    "ast_hash": "c886d7d46a6b458ccde67e137c5c9a3d",
+    "semantic_hash": "c886d7d46a6b458ccde67e137c5c9a3d"
+  },
+  "merge_replicates.R": {
+    "mtime": 1780042416.0,
+    "ast_hash": "41682f9f8a0b59381b8c7b6809a89d03",
+    "semantic_hash": "41682f9f8a0b59381b8c7b6809a89d03"
+  },
+  "merge_strands.R": {
+    "mtime": 1762518545.0,
+    "ast_hash": "2c694201bcea810b630f6096fd05f602",
+    "semantic_hash": "2c694201bcea810b630f6096fd05f602"
+  },
+  "miRNA/Grant_figures.R": {
+    "mtime": 1754981236.0,
+    "ast_hash": "1a5435d4a5e4d0f8d3c8d297227546b5",
+    "semantic_hash": "1a5435d4a5e4d0f8d3c8d297227546b5"
+  },
+  "miRNA/edgeR_DEG.R": {
+    "mtime": 1753971357.0,
+    "ast_hash": "b822fb44a49c2914a4fa5b1505adc845",
+    "semantic_hash": "b822fb44a49c2914a4fa5b1505adc845"
+  },
+  "miRNA/map_escape_to_miRNA.R": {
+    "mtime": 1753781284.0,
+    "ast_hash": "99a48ff2b52d4513a139883cb3e91928",
+    "semantic_hash": "99a48ff2b52d4513a139883cb3e91928"
+  },
+  "miRNA/miRNA_SNP.R": {
+    "mtime": 1755855382.0,
+    "ast_hash": "e808b9e624283cd1f75b9fdc3abafc8c",
+    "semantic_hash": "e808b9e624283cd1f75b9fdc3abafc8c"
+  },
+  "pSS_preprocessing.R": {
+    "mtime": 1771417190.0,
+    "ast_hash": "b69255c14455720dac1f96a68d84eb87",
+    "semantic_hash": "b69255c14455720dac1f96a68d84eb87"
+  },
+  "parse_sc_allelome_err.py": {
+    "mtime": 1779357582.0,
+    "ast_hash": "259aa2b9db18eb82884007337f730d6c",
+    "semantic_hash": "259aa2b9db18eb82884007337f730d6c"
+  },
+  "power_calculation_IL2RG.R": {
+    "mtime": 1770023594.0,
+    "ast_hash": "7df152f78b0eaa5d3f15f3b0a9a78c5c",
+    "semantic_hash": "7df152f78b0eaa5d3f15f3b0a9a78c5c"
+  },
+  "slurm/submit_sc_allelome_chunks.sh": {
+    "mtime": 1779365578.0,
+    "ast_hash": "eac0d2f61ad527bdb272afb55aaf1c67",
+    "semantic_hash": "eac0d2f61ad527bdb272afb55aaf1c67"
+  },
+  "README.md": {
+    "mtime": 1752649559.0,
+    "ast_hash": "ea389e374d800bbb1b84df7566964f4b",
+    "semantic_hash": "ea389e374d800bbb1b84df7566964f4b"
+  },
+  "SLE_paper/README.md": {
+    "mtime": 1770651950.0,
+    "ast_hash": "a21f92252079755fd192743cc5723c50",
+    "semantic_hash": "a21f92252079755fd192743cc5723c50"
+  },
+  "SLE_paper/analysis_pipeline_README.md": {
+    "mtime": 1772011295.0,
+    "ast_hash": "0b6826a5276d716a2b4b2395a0811a18",
+    "semantic_hash": "0b6826a5276d716a2b4b2395a0811a18"
+  },
+  "SLE_paper/requirements.txt": {
+    "mtime": 1770631337.0,
+    "ast_hash": "3d9d2852ff0ec52420107c20887aaa29",
+    "semantic_hash": "3d9d2852ff0ec52420107c20887aaa29"
+  },
+  "fasta_synth/index.html": {
+    "mtime": 1783597327.0,
+    "ast_hash": "6bf643e140b0da12378476fc33138a9c",
+    "semantic_hash": "6bf643e140b0da12378476fc33138a9c"
+  },
+  "miRNA/adult_host_miRNAs.txt": {
+    "mtime": 1752680824.0,
+    "ast_hash": "cbe3c3d45c5bc9439c12e1057febd1e0",
+    "semantic_hash": "cbe3c3d45c5bc9439c12e1057febd1e0"
+  },
+  "miRNA/adult_organ.txt": {
+    "mtime": 1752659628.0,
+    "ast_hash": "0ce79b484f06f3d3f2534e65d0199f9a",
+    "semantic_hash": "0ce79b484f06f3d3f2534e65d0199f9a"
+  },
+  "miRNA/aged_host_miRNAs.txt": {
+    "mtime": 1752680824.0,
+    "ast_hash": "dfb4ed6045ce3b8580159741db38b32e",
+    "semantic_hash": "dfb4ed6045ce3b8580159741db38b32e"
+  },
+  "miRNA/aged_organ.txt": {
+    "mtime": 1752659901.0,
+    "ast_hash": "239644b7662917f65539aeb1637f2679",
+    "semantic_hash": "239644b7662917f65539aeb1637f2679"
+  },
+  "miRNA/cardiac_cell_types_host_miRNAs.txt": {
+    "mtime": 1752680823.0,
+    "ast_hash": "9a8f572f784acaf9c374243cc1ff066e",
+    "semantic_hash": "9a8f572f784acaf9c374243cc1ff066e"
+  },
+  "miRNA/cardiac_celltypes.txt": {
+    "mtime": 1752659129.0,
+    "ast_hash": "254ae7e2db7a2d3350656d4137284750",
+    "semantic_hash": "254ae7e2db7a2d3350656d4137284750"
+  },
+  "miRNA/embryo_host_miRNAs.txt": {
+    "mtime": 1752680823.0,
+    "ast_hash": "931ffaa94bca9ac8ce258f87246ae6f0",
+    "semantic_hash": "931ffaa94bca9ac8ce258f87246ae6f0"
+  },
+  "miRNA/embryo_organ.txt": {
+    "mtime": 1752659722.0,
+    "ast_hash": "8051149f6b57e7e230d9e6f29aebc81f",
+    "semantic_hash": "8051149f6b57e7e230d9e6f29aebc81f"
+  },
+  "miRNA/host_miRNAs.txt": {
+    "mtime": 1752669636.0,
+    "ast_hash": "73126a637c2a3e197538809b1d8c4cad",
+    "semantic_hash": "73126a637c2a3e197538809b1d8c4cad"
+  },
+  "miRNA/young_host_miRNAs.txt": {
+    "mtime": 1752680823.0,
+    "ast_hash": "30ab32a308ab559a65910452de6bb1ee",
+    "semantic_hash": "30ab32a308ab559a65910452de6bb1ee"
+  },
+  "miRNA/young_organ.txt": {
+    "mtime": 1752659856.0,
+    "ast_hash": "49c983d3d4f3106eaa65d3e0f2b938ba",
+    "semantic_hash": "49c983d3d4f3106eaa65d3e0f2b938ba"
+  },
+  "miRNA/figures/celltype_all_miRNA_target_histogram.pdf": {
+    "mtime": 1752662717.0,
+    "ast_hash": "030e7566e62cfec0b20842b0de8a364b",
+    "semantic_hash": "030e7566e62cfec0b20842b0de8a364b"
+  },
+  "miRNA/figures/celltype_chrX_miRNA_target_histogram.pdf": {
+    "mtime": 1752663321.0,
+    "ast_hash": "9996867397675058733fb419b7952b60",
+    "semantic_hash": "9996867397675058733fb419b7952b60"
+  }
+}

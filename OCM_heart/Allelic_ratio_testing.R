@@ -156,9 +156,9 @@ plot(
 dev.off()
 #
 ################################################### 
-# filter for cells with at least 20 reads on chrX #
+# filter for cells with at least 10 reads on chrX #
 ###################################################
-subset_heart_flt <- subset(subset_heart, subset = total_reads >= 20)
+subset_heart_flt <- subset(subset_heart, subset = total_reads >= 10)
 
 # UMAP plot coloured by allelic ratio split by sample
 pdf('Allelic_ratio_results/allelic_ratio_umap_plot.pdf')
@@ -174,17 +174,18 @@ FeaturePlot(subset_heart_flt,
 dev.off()
 
 # UMAP plot coloured by allelic ratio split by sample
-pdf('Allelic_ratio_results/allelic_ratio_umap_plot_split_by_sample.pdf')
+pdf('Allelic_ratio_results/allelic_ratio_umap_plot_split_by_sample.pdf', width = 12, height = 6)
 FeaturePlot(subset_heart_flt,
             features = "allelic_ratio",
             min.cutoff = 0,
             max.cutoff = 1,
-            split.by = "sample") +
+            split.by = "sample") &
   scale_color_gradientn(colors = my_colors,
                         breaks = seq(0, 1, by = 0.1),
                         limits = c(0, 1),
                         oob = scales::squish,
-                        name = "Allelic ratio")
+                        name = "Allelic ratio") &
+  theme(axis.title.y = element_blank())
 dev.off()
 
 # Create metadata for statistical testing
@@ -834,7 +835,7 @@ FeaturePlot(subset_heart_ceb_flt,
             features = "allelic_ratio",
             min.cutoff = 0,
             max.cutoff = 1,
-            split.by = "sample") +
+            split.by = "sample") &
   scale_color_gradientn(colors = my_colors,
                         breaks = seq(0, 1, by = 0.1),
                         limits = c(0, 1),
