@@ -179,7 +179,8 @@ FeaturePlot(subset_heart_flt,
             features = "allelic_ratio",
             min.cutoff = 0,
             max.cutoff = 1,
-            split.by = "sample") &
+            split.by = "sample",
+            ncol = 2) &
   scale_color_gradientn(colors = my_colors,
                         breaks = seq(0, 1, by = 0.1),
                         limits = c(0, 1),
@@ -187,6 +188,26 @@ FeaturePlot(subset_heart_flt,
                         name = "Allelic ratio") &
   theme(axis.title.y = element_blank())
 dev.off()
+
+samples <- levels(subset_heart_flt$sample)
+plots <- lapply(samples, function(s) {
+  FeaturePlot(subset(subset_heart_flt, subset = sample == s),
+              features = "allelic_ratio",
+              min.cutoff = 0,
+              max.cutoff = 1) +
+    scale_color_gradientn(colors = my_colors,
+                          breaks = seq(0, 1, by = 0.1),
+                          limits = c(0, 1),
+                          oob = scales::squish,
+                          name = "Allelic ratio") +
+    theme(axis.title.y = element_blank()) +
+    ggtitle(s)
+})
+library(patchwork)
+pdf('Allelic_ratio_results/allelic_ratio_umap_plot_split_by_sample.pdf', width = 10, height = 10)
+wrap_plots(plots, ncol = 2, nrow = 2) + plot_layout(guides = "collect")
+dev.off()
+
 
 # Create metadata for statistical testing
 metadata_whole_chr <- subset_heart_flt@meta.data
