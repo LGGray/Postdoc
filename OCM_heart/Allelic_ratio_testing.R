@@ -153,6 +153,7 @@ plot(
   main = "Total Reads Distribution",
   xlab = "Total Reads"
 )
+abline(v = 10, col = "red", lty = 2)
 dev.off()
 #
 ################################################### 
@@ -160,35 +161,12 @@ dev.off()
 ###################################################
 subset_heart_flt <- subset(subset_heart, subset = total_reads >= 10)
 
-# UMAP plot coloured by allelic ratio split by sample
-pdf('Allelic_ratio_results/allelic_ratio_umap_plot.pdf')
-FeaturePlot(subset_heart_flt,
-            features = "allelic_ratio",
-            min.cutoff = 0,
-            max.cutoff = 1) +
-  scale_color_gradientn(colors = my_colors,
-                        breaks = seq(0, 1, by = 0.1),
-                        limits = c(0, 1),
-                        oob = scales::squish,
-                        name = "Allelic ratio")
+pdf('Allelic_ratio_results/whole_chr_UMAP_celltypes.pdf')
+DimPlot(subset_heart_flt, reduction = "umap", group.by = "celltype", label = TRUE, label.size = 3) +
+  theme(legend.position = "none")
 dev.off()
 
 # UMAP plot coloured by allelic ratio split by sample
-pdf('Allelic_ratio_results/allelic_ratio_umap_plot_split_by_sample.pdf', width = 12, height = 6)
-FeaturePlot(subset_heart_flt,
-            features = "allelic_ratio",
-            min.cutoff = 0,
-            max.cutoff = 1,
-            split.by = "sample",
-            ncol = 2) &
-  scale_color_gradientn(colors = my_colors,
-                        breaks = seq(0, 1, by = 0.1),
-                        limits = c(0, 1),
-                        oob = scales::squish,
-                        name = "Allelic ratio") &
-  theme(axis.title.y = element_blank())
-dev.off()
-
 samples <- levels(subset_heart_flt$sample)
 plots <- lapply(samples, function(s) {
   FeaturePlot(subset(subset_heart_flt, subset = sample == s),
@@ -200,7 +178,9 @@ plots <- lapply(samples, function(s) {
                           limits = c(0, 1),
                           oob = scales::squish,
                           name = "Allelic ratio") +
-    theme(axis.title.y = element_blank()) +
+    theme(axis.title.y = element_blank(),
+          legend.text = element_text(size = 8),
+          legend.title = element_text(size = 9)) +
     ggtitle(s)
 })
 library(patchwork)
@@ -208,10 +188,8 @@ pdf('Allelic_ratio_results/allelic_ratio_umap_plot_split_by_sample.pdf', width =
 wrap_plots(plots, ncol = 2, nrow = 2) + plot_layout(guides = "collect")
 dev.off()
 
-
 # Create metadata for statistical testing
 metadata_whole_chr <- subset_heart_flt@meta.data
-
 
 # number of cells per celltype and condition
 cell_counts <- metadata_whole_chr %>%
@@ -222,7 +200,7 @@ write.table(cell_counts, 'Allelic_ratio_results/whole_chr_cell_counts_per_cellty
 cell_ids <- data.frame(barcode = colnames(subset_heart_flt), cell_id = colnames(subset_heart_flt), age = subset_heart_flt$sample, celltype = subset_heart_flt$celltype)
 cell_ids$sample <- factor(cell_ids$age, levels = c("TAC", "Sham", "78w", "9w"))
 cell_ids$barcode <- gsub('9w_|78w_|Sham_|TAC_', '', cell_ids$barcode)
-pdf('Allelic_ratio_results/whole_chr_cell_counts_per_celltype_and_condition.pdf')
+pdf('Allelic_ratio_results/whole_chr_cell_counts_per_celltype_and_condition.pdf', width = 10, height = 10)
 ggplot(cell_ids, aes(x = sample, fill = celltype)) +
   geom_bar(position = "fill") +
   labs(x = "", y = "Cell composition", title = "") +
@@ -256,8 +234,6 @@ Sham_vs_TAC_lrt$FDR <- p.adjust(Sham_vs_TAC_lrt$Pr..Chisq., method = "fdr")
 subset(Sham_vs_TAC_lrt, FDR < 0.05)
 
 
-
-
 violin_tbl <- metadata_whole_chr  %>%
   mutate(
     sample = factor(sample, levels = c("9w", "78w", "Sham", "TAC")),
@@ -287,7 +263,7 @@ violin_ann <- bind_rows(
 
 pdf('Allelic_ratio_results/whole_chr_allelic_ratio_celltype_violin_plot_facet_wrap.pdf')
 ggplot(violin_tbl, aes(x = sample_idx, y = allelic_ratio, fill = sample)) +
-  geom_violin(trim = FALSE, scale = "width") +
+  geom_violin(trim = FALSE, scale = "width", bounds = c(0, 1)) +
   geom_segment(data = violin_ann,
                aes(x = x1, xend = x2, y = y, yend = y),
                inherit.aes = FALSE,
@@ -311,6 +287,7 @@ ggplot(violin_tbl, aes(x = sample_idx, y = allelic_ratio, fill = sample)) +
             vjust = 0) +
   facet_wrap(~celltype) +
   scale_x_continuous(breaks = 1:4, labels = levels(violin_tbl$sample)) +
+  scale_y_continuous(breaks = c(0, 0.3, 0.6, 0.9, 1.0)) +
   coord_cartesian(ylim = c(0, 1.12), clip = "off") +
   labs(y = "Allelic ratio", x = NULL) +
   theme_bw() +
@@ -344,204 +321,236 @@ dev.off()
 
 saveRDS(subset_heart_flt, file = "Allelic_ratio_results/whole_chr_subset_heart_flt.RDS")
 
+# Cell IDs for the highest-read-count Ventricular Cardiomyocyte per sample (for IGV inspection)
+metadata_whole_chr$cell_barcode <- rownames(metadata_whole_chr)
+
+cm_cells <- metadata_whole_chr %>%
+  filter(celltype == "Ventricular Cardiomyocytes")
+
+top_reads_cells <- cm_cells %>%
+  group_by(sample) %>%
+  slice_max(total_reads, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(selection = "top_reads")
+
+biallelic_cells <- cm_cells %>%
+  filter(allelic_ratio < 0.7) %>%
+  group_by(sample) %>%
+  slice_max(total_reads, n = 1, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(selection = "biallelic")
+
+top_cm_cells <- bind_rows(top_reads_cells, biallelic_cells) %>%
+  mutate(barcode_stripped = gsub('9w_|78w_|Sham_|TAC_', '', cell_barcode)) %>%
+  select(sample, selection, cell_barcode, barcode_stripped, total_reads, allelic_ratio)
+
+write.table(top_cm_cells, 'Allelic_ratio_results/top_ventricular_cardiomyocyte_per_sample.txt',
+            sep = '\t', row.names = FALSE, quote = FALSE)
+
+top_cm_cells
+
 ##############################
 # Core escape genes analysis #
 ##############################
-barcodes <- lapply(c('9w', '78w', 'Sham', 'TAC'), function(x) {
-  list.files(paste0('Allelome.PRO2_core_escape_genes/', x), pattern = 'locus_table.txt', recursive = TRUE, full.names = TRUE)
-})
-barcodes <- unlist(barcodes)
+# barcodes <- lapply(c('9w', '78w', 'Sham', 'TAC'), function(x) {
+#   list.files(paste0('Allelome.PRO2_core_escape/', x), pattern = 'locus_table.txt', recursive = TRUE, full.names = TRUE)
+# })
+# barcodes <- unlist(barcodes)
 
-condition <- strsplit(dirname(barcodes), '_') %>% sapply(function(x) x[7])
-cellid <- strsplit(dirname(barcodes), '_') %>% sapply(function(x) x[8])
+# condition <- strsplit(dirname(barcodes), '_') %>% sapply(function(x) x[6])
+# cellid <- strsplit(dirname(barcodes), '_') %>% sapply(function(x) x[7])
 
-read_gene_table <- function(path, sample_name, cell_name) {
-  if (!file.exists(path)) return(NULL)
+# read_gene_table <- function(path, sample_name, cell_name) {
+#   if (!file.exists(path)) return(NULL)
 
-  tmp <- tryCatch(
-    read.delim(path, header = TRUE, stringsAsFactors = FALSE),
-    error = function(e) NULL
-  )
+#   tmp <- tryCatch(
+#     read.delim(path, header = TRUE, stringsAsFactors = FALSE),
+#     error = function(e) NULL
+#   )
 
-  if (is.null(tmp)) return(NULL)
+#   if (is.null(tmp)) return(NULL)
 
-  tmp <- as.data.frame(tmp)
-  if (!"chr" %in% names(tmp) || !"name" %in% names(tmp) || nrow(tmp) == 0) return(NULL)
+#   tmp <- as.data.frame(tmp)
+#   if (!"chr" %in% names(tmp) || !"name" %in% names(tmp) || nrow(tmp) == 0) return(NULL)
 
-  tmp$chr <- as.character(tmp$chr)
-  tmp$name <- as.character(tmp$name)
+#   tmp$chr <- as.character(tmp$chr)
+#   tmp$name <- as.character(tmp$name)
 
-  tmp %>%
-    dplyr::mutate(
-      sample = sample_name,
-      cellid = cell_name,
-      cell_barcode = paste0(sample_name, "_", cell_name)
-    )
-}
+#   tmp %>%
+#     dplyr::mutate(
+#       sample = sample_name,
+#       cellid = cell_name,
+#       cell_barcode = paste0(sample_name, "_", cell_name)
+#     )
+# }
 
-gene_df <- lapply(seq_along(barcodes), function(i) {
-  read_gene_table(barcodes[i], condition[i], cellid[i])
-}) %>%
-  bind_rows()
+# gene_df <- lapply(seq_along(barcodes), function(i) {
+#   read_gene_table(barcodes[i], condition[i], cellid[i])
+# }) %>%
+#   bind_rows()
 
-# match cell types from Seurat object
-gene_df$celltype <- Idents(heart)[gene_df$cell_barcode]
+# # match cell types from Seurat object
+# gene_df$celltype <- Idents(heart)[gene_df$cell_barcode]
 
-write.table(gene_df, 'Allelic_ratio_results/core_escape_genes_gene_df.txt', sep = '\t', row.names = FALSE, quote = FALSE)
-gene_df <- read.table('Allelic_ratio_results/core_escape_genes_gene_df.txt', sep = '\t', header = TRUE, stringsAsFactors = FALSE)
-
-
-pdf('Allelic_ratio_results/core_escape_genes_total_reads_distribution.pdf')
-hist(gene_df$total_reads, breaks = 2, main = "Total Reads Distribution", xlab = "Total Reads")
-dev.off()
+# write.table(gene_df, 'Allelic_ratio_results/core_escape_genes_gene_df.txt', sep = '\t', row.names = FALSE, quote = FALSE)
+# gene_df <- read.table('Allelic_ratio_results/core_escape_genes_gene_df.txt', sep = '\t', header = TRUE, stringsAsFactors = FALSE)
 
 
-# Plot a PCA of allelic ratios across core escape genes coloured by cell type and shape by sample
-pca_input <- gene_df %>%
-  dplyr::select(cell_barcode, sample, celltype, name, allelic_ratio) %>%
-  dplyr::distinct()
+# pdf('Allelic_ratio_results/core_escape_total_reads_distribution.pdf')
+# plot(
+#   density(gene_df$total_reads, na.rm = TRUE),
+#   main = "Total Reads Distribution",
+#   xlab = "Total Reads"
+# )
+# dev.off()
 
-pca_wide <- reshape(
-  as.data.frame(pca_input),
-  idvar = c("cell_barcode", "sample", "celltype"),
-  timevar = "name",
-  direction = "wide"
-)
 
-gene_cols <- grep("^allelic_ratio\\.", colnames(pca_wide), value = TRUE)
+# # Plot a PCA of allelic ratios across core escape genes coloured by cell type and shape by sample
+# pca_input <- gene_df %>%
+#   dplyr::select(cell_barcode, sample, celltype, name, allelic_ratio) %>%
+#   dplyr::distinct()
 
-if (length(gene_cols) >= 2 && nrow(pca_wide) >= 3) {
-  # Use only complete observations (no imputation).
-  complete_rows <- complete.cases(pca_wide[, gene_cols, drop = FALSE])
-  pca_wide_cc <- pca_wide[complete_rows, , drop = FALSE]
-  pca_mat <- as.matrix(pca_wide_cc[, gene_cols, drop = FALSE])
+# pca_wide <- reshape(
+#   as.data.frame(pca_input),
+#   idvar = c("cell_barcode", "sample", "celltype"),
+#   timevar = "name",
+#   direction = "wide"
+# )
 
-  # Remove columns with no variance.
-  keep_cols <- apply(pca_mat, 2, function(x) stats::sd(x) > 0)
-  pca_mat <- pca_mat[, keep_cols, drop = FALSE]
+# gene_cols <- grep("^allelic_ratio\\.", colnames(pca_wide), value = TRUE)
 
-  if (ncol(pca_mat) >= 2 && nrow(pca_mat) >= 3) {
-    pca_fit <- prcomp(pca_mat, center = TRUE, scale. = TRUE)
-    pca_scores <- as.data.frame(pca_fit$x[, 1:2, drop = FALSE])
-    pca_scores$celltype <- pca_wide_cc$celltype
-    pca_scores$sample <- pca_wide_cc$sample
+# if (length(gene_cols) >= 2 && nrow(pca_wide) >= 3) {
+#   # Use only complete observations (no imputation).
+#   complete_rows <- complete.cases(pca_wide[, gene_cols, drop = FALSE])
+#   pca_wide_cc <- pca_wide[complete_rows, , drop = FALSE]
+#   pca_mat <- as.matrix(pca_wide_cc[, gene_cols, drop = FALSE])
 
-    var_exp <- (pca_fit$sdev^2) / sum(pca_fit$sdev^2)
-    pc1_lab <- paste0("PC1 (", round(100 * var_exp[1], 1), "%)")
-    pc2_lab <- paste0("PC2 (", round(100 * var_exp[2], 1), "%)")
+#   # Remove columns with no variance.
+#   keep_cols <- apply(pca_mat, 2, function(x) stats::sd(x) > 0)
+#   pca_mat <- pca_mat[, keep_cols, drop = FALSE]
 
-    pdf('Allelic_ratio_results/core_escape_genes_allelic_ratio_PCA.pdf')
-    print(ggplot(pca_scores, aes(x = PC1, y = PC2, color = celltype, shape = sample)) +
-      geom_point(alpha = 0.8, size = 1.6) +
-      labs(x = pc1_lab, y = pc2_lab) +
-      theme_bw())
-    dev.off()
-  }
-}
+#   if (ncol(pca_mat) >= 2 && nrow(pca_mat) >= 3) {
+#     pca_fit <- prcomp(pca_mat, center = TRUE, scale. = TRUE)
+#     pca_scores <- as.data.frame(pca_fit$x[, 1:2, drop = FALSE])
+#     pca_scores$celltype <- pca_wide_cc$celltype
+#     pca_scores$sample <- pca_wide_cc$sample
+
+#     var_exp <- (pca_fit$sdev^2) / sum(pca_fit$sdev^2)
+#     pc1_lab <- paste0("PC1 (", round(100 * var_exp[1], 1), "%)")
+#     pc2_lab <- paste0("PC2 (", round(100 * var_exp[2], 1), "%)")
+
+#     pdf('Allelic_ratio_results/core_escape_genes_allelic_ratio_PCA.pdf')
+#     print(ggplot(pca_scores, aes(x = PC1, y = PC2, color = celltype, shape = sample)) +
+#       geom_point(alpha = 0.8, size = 1.6) +
+#       labs(x = pc1_lab, y = pc2_lab) +
+#       theme_bw())
+#     dev.off()
+#   }
+# }
 
 ##############################
 ## Pseudobulk low-depth data ##
 ##############################
-gene_df <- gene_df %>%
-  filter(!is.na(A1_reads), !is.na(A2_reads), !is.na(total_reads), total_reads > 0)
+# gene_df <- gene_df %>%
+#   filter(!is.na(A1_reads), !is.na(A2_reads), !is.na(total_reads), total_reads > 0)
 
 
-# Pseudobulk at sample x celltype x gene level
-pb_gene <- gene_df %>%
-  group_by(sample, celltype, name) %>%
-  summarise(
-    A1_reads = sum(A1_reads, na.rm = TRUE),
-    A2_reads = sum(A2_reads, na.rm = TRUE),
-    total_reads = sum(total_reads, na.rm = TRUE),
-    allelic_ratio = A1_reads / pmax(total_reads, 1),
-    n_cells = n_distinct(cell_barcode),
-    .groups = "drop"
-  )
-pb_gene$sample <- factor(pb_gene$sample, levels = c("9w", "78w", "Sham", "TAC"))
-write.table(pb_gene,
-            'Allelic_ratio_results/core_escape_genes_pseudobulk_by_gene.txt',
-            sep = '\t', row.names = FALSE, quote = FALSE)
+# # Pseudobulk at sample x celltype x gene level
+# pb_gene <- gene_df %>%
+#   group_by(sample, celltype, name) %>%
+#   summarise(
+#     A1_reads = sum(A1_reads, na.rm = TRUE),
+#     A2_reads = sum(A2_reads, na.rm = TRUE),
+#     total_reads = sum(total_reads, na.rm = TRUE),
+#     allelic_ratio = A1_reads / pmax(total_reads, 1),
+#     n_cells = n_distinct(cell_barcode),
+#     .groups = "drop"
+#   )
+# pb_gene$sample <- factor(pb_gene$sample, levels = c("9w", "78w", "Sham", "TAC"))
+# write.table(pb_gene,
+#             'Allelic_ratio_results/core_escape_genes_pseudobulk_by_gene.txt',
+#             sep = '\t', row.names = FALSE, quote = FALSE)
 
-pdf('Allelic_ratio_results/core_escape_genes_pseudobulk_heatmap_by_gene.pdf')
-ggplot(pb_gene, aes(x = sample, y = celltype, fill = allelic_ratio)) +
-  geom_tile() +
-  facet_wrap(~name) +
-  scale_fill_gradientn(colors = my_colors,
-                        breaks = my_breaks,
-                        limits = c(0.5, 1),
-                        oob = scales::squish) +
-  labs(fill = 'A1 / total', x = NULL, y = NULL) +
-  theme_bw() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
-dev.off()
+# pdf('Allelic_ratio_results/core_escape_genes_pseudobulk_heatmap_by_gene.pdf')
+# ggplot(pb_gene, aes(x = sample, y = celltype, fill = allelic_ratio)) +
+#   geom_tile() +
+#   facet_wrap(~name) +
+#   scale_fill_gradientn(colors = my_colors,
+#                         breaks = my_breaks,
+#                         limits = c(0.5, 1),
+#                         oob = scales::squish) +
+#   labs(fill = 'A1 / total', x = NULL, y = NULL) +
+#   theme_bw() +
+#   theme(axis.text.x = element_text(angle = 45, hjust = 1))
+# dev.off()
 
-#####################################################################
-# Heirachical bayesian approach to update pseudobulk allelic ratios #
-# with informative priors from bulk median allelic ratios.          #
-#####################################################################
+# #####################################################################
+# # Heirachical bayesian approach to update pseudobulk allelic ratios #
+# # with informative priors from bulk median allelic ratios.          #
+# #####################################################################
 
-# Informative priors from bulk median allelic ratios.
-# Aged medians available for Ddx3x, Kdm5c, Kdm6a; Eif2s3x uses adult value.
-bulk_prior_tbl <- data.frame(
-  name = c("Ddx3x", "Eif2s3x", "Kdm5c", "Kdm6a"),
-  adult_median = c(0.68, 0.74, 0.68, 0.62),
-  aged_median = c(0.68, 0.74, 0.65, 0.67),
-  stringsAsFactors = FALSE
-) %>%
-  mutate(prior_mean = rowMeans(cbind(adult_median, aged_median), na.rm = TRUE))
+# # Informative priors from bulk median allelic ratios.
+# # Aged medians available for Ddx3x, Kdm5c, Kdm6a; Eif2s3x uses adult value.
+# bulk_prior_tbl <- data.frame(
+#   name = c("Ddx3x", "Eif2s3x", "Kdm5c", "Kdm6a"),
+#   adult_median = c(0.68, 0.74, 0.68, 0.62),
+#   aged_median = c(0.68, 0.74, 0.65, 0.67),
+#   stringsAsFactors = FALSE
+# ) %>%
+#   mutate(prior_mean = rowMeans(cbind(adult_median, aged_median), na.rm = TRUE))
 
-# Prior concentration controls how strongly bulk estimates regularize sparse scRNA counts.
-prior_kappa <- 20
+# # Prior concentration controls how strongly bulk estimates regularize sparse scRNA counts.
+# prior_kappa <- 20
 
-gene_df_bayes <- gene_df %>%
-  filter(name %in% bulk_prior_tbl$name,
-         !is.na(A1_reads), !is.na(A2_reads), !is.na(total_reads), total_reads > 0)
+# gene_df_bayes <- gene_df %>%
+#   filter(name %in% bulk_prior_tbl$name,
+#          !is.na(A1_reads), !is.na(A2_reads), !is.na(total_reads), total_reads > 0)
 
-if (nrow(gene_df_bayes) > 0) {
-  bayes_gene <- gene_df_bayes %>%
-    group_by(sample, celltype, name) %>%
-    summarise(
-      A1_reads = sum(A1_reads, na.rm = TRUE),
-      A2_reads = sum(A2_reads, na.rm = TRUE),
-      total_reads = sum(total_reads, na.rm = TRUE),
-      n_cells = n_distinct(cell_barcode),
-      .groups = "drop"
-    ) %>%
-    left_join(bulk_prior_tbl, by = "name") %>%
-    mutate(
-      alpha_prior = prior_mean * prior_kappa,
-      beta_prior = (1 - prior_mean) * prior_kappa,
-      post_alpha = alpha_prior + A1_reads,
-      post_beta = beta_prior + A2_reads,
-      post_mean = post_alpha / (post_alpha + post_beta),
-      post_median = qbeta(0.5, post_alpha, post_beta),
-      post_lower95 = qbeta(0.025, post_alpha, post_beta),
-      post_upper95 = qbeta(0.975, post_alpha, post_beta),
-      post_prob_gt_prior = 1 - pbeta(prior_mean, post_alpha, post_beta),
-      post_prob_gt_0.9 = 1 - pbeta(0.9, post_alpha, post_beta)
-    )
+# if (nrow(gene_df_bayes) > 0) {
+#   bayes_gene <- gene_df_bayes %>%
+#     group_by(sample, celltype, name) %>%
+#     summarise(
+#       A1_reads = sum(A1_reads, na.rm = TRUE),
+#       A2_reads = sum(A2_reads, na.rm = TRUE),
+#       total_reads = sum(total_reads, na.rm = TRUE),
+#       n_cells = n_distinct(cell_barcode),
+#       .groups = "drop"
+#     ) %>%
+#     left_join(bulk_prior_tbl, by = "name") %>%
+#     mutate(
+#       alpha_prior = prior_mean * prior_kappa,
+#       beta_prior = (1 - prior_mean) * prior_kappa,
+#       post_alpha = alpha_prior + A1_reads,
+#       post_beta = beta_prior + A2_reads,
+#       post_mean = post_alpha / (post_alpha + post_beta),
+#       post_median = qbeta(0.5, post_alpha, post_beta),
+#       post_lower95 = qbeta(0.025, post_alpha, post_beta),
+#       post_upper95 = qbeta(0.975, post_alpha, post_beta),
+#       post_prob_gt_prior = 1 - pbeta(prior_mean, post_alpha, post_beta),
+#       post_prob_gt_0.9 = 1 - pbeta(0.9, post_alpha, post_beta)
+#     )
 
-  bayes_gene$sample <- factor(bayes_gene$sample, levels = c("9w", "78w", "Sham", "TAC"))
+#   bayes_gene$sample <- factor(bayes_gene$sample, levels = c("9w", "78w", "Sham", "TAC"))
 
 
-  write.table(
-    bayes_gene,
-    'Allelic_ratio_results/core_escape_genes_bayes_posterior_by_gene.txt',
-    sep = '\t', row.names = FALSE, quote = FALSE
-  )
+#   write.table(
+#     bayes_gene,
+#     'Allelic_ratio_results/core_escape_genes_bayes_posterior_by_gene.txt',
+#     sep = '\t', row.names = FALSE, quote = FALSE
+#   )
 
-  pdf('Allelic_ratio_results/core_escape_genes_bayes_posterior_mean_heatmap_by_gene.pdf')
-  print(ggplot(bayes_gene, aes(x = sample, y = celltype, fill = post_mean)) +
-    geom_tile() +
-    facet_wrap(~name) +
-    scale_fill_gradientn(colors = my_colors,
-                         breaks = my_breaks,
-                         limits = c(0.5, 1),
-                         oob = scales::squish) +
-    labs(fill = 'Posterior mean', x = NULL, y = NULL) +
-    theme_bw() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)))
-  dev.off()
+#   pdf('Allelic_ratio_results/core_escape_genes_bayes_posterior_mean_heatmap_by_gene.pdf')
+#   print(ggplot(bayes_gene, aes(x = sample, y = celltype, fill = post_mean)) +
+#     geom_tile() +
+#     facet_wrap(~name) +
+#     scale_fill_gradientn(colors = my_colors,
+#                          breaks = my_breaks,
+#                          limits = c(0.5, 1),
+#                          oob = scales::squish) +
+#     labs(fill = 'Posterior mean', x = NULL, y = NULL) +
+#     theme_bw() +
+#     theme(axis.text.x = element_text(angle = 45, hjust = 1)))
+#   dev.off()
 
   # bayes_celltype <- bayes_gene %>%
   #   group_by(sample, celltype) %>%
@@ -590,102 +599,102 @@ if (nrow(gene_df_bayes) > 0) {
   # dev.off()
 }
 
-# Plot the confidence interval for each gene and cell type across samples
-if (exists("bayes_gene") && nrow(bayes_gene) > 0) {
-  forest_tbl <- bayes_gene %>%
-    mutate(
-      sample = factor(sample, levels = c("9w", "78w", "Sham", "TAC")),
-      celltype = factor(celltype)
-    )
+# # Plot the confidence interval for each gene and cell type across samples
+# if (exists("bayes_gene") && nrow(bayes_gene) > 0) {
+#   forest_tbl <- bayes_gene %>%
+#     mutate(
+#       sample = factor(sample, levels = c("9w", "78w", "Sham", "TAC")),
+#       celltype = factor(celltype)
+#     )
 
-  prior_lines <- forest_tbl %>%
-    dplyr::distinct(name, prior_mean)
+#   prior_lines <- forest_tbl %>%
+#     dplyr::distinct(name, prior_mean)
 
-  pdf('Allelic_ratio_results/core_escape_genes_bayes_posterior_forest_by_gene.pdf')
-  print(
-    ggplot(
-      forest_tbl,
-      aes(x = post_mean, y = celltype, color = sample)
-    ) +
-      geom_vline(data = prior_lines,
-                 aes(xintercept = prior_mean),
-                 inherit.aes = FALSE,
-                 linetype = 2,
-                 color = 'grey60',
-                 linewidth = 0.3) +
-      geom_errorbarh(
-        aes(xmin = post_lower95, xmax = post_upper95),
-        position = position_dodge(width = 0.6),
-        height = 0.25,
-        linewidth = 0.4
-      ) +
-      geom_point(
-        position = position_dodge(width = 0.6),
-        size = 1.8
-      ) +
-      facet_wrap(~name) +
-      scale_x_continuous(
-        limits = c(0, 1),
-        breaks = seq(0, 1, by = 0.1),
-        expand = expansion(mult = c(0.01, 0.01))
-      ) +
-      labs(
-        x = 'Posterior mean allelic ratio (95% CrI)',
-        y = 'Cell type',
-        color = 'Sample'
-      ) +
-      theme_bw() +
-      theme(
-        axis.text.y = element_text(size = 8),
-        axis.text.x = element_text(size = 8),
-        strip.text = element_text(size = 9)
-      )
-  )
-  dev.off()
-}
+#   pdf('Allelic_ratio_results/core_escape_genes_bayes_posterior_forest_by_gene.pdf')
+#   print(
+#     ggplot(
+#       forest_tbl,
+#       aes(x = post_mean, y = celltype, color = sample)
+#     ) +
+#       geom_vline(data = prior_lines,
+#                  aes(xintercept = prior_mean),
+#                  inherit.aes = FALSE,
+#                  linetype = 2,
+#                  color = 'grey60',
+#                  linewidth = 0.3) +
+#       geom_errorbarh(
+#         aes(xmin = post_lower95, xmax = post_upper95),
+#         position = position_dodge(width = 0.6),
+#         height = 0.25,
+#         linewidth = 0.4
+#       ) +
+#       geom_point(
+#         position = position_dodge(width = 0.6),
+#         size = 1.8
+#       ) +
+#       facet_wrap(~name) +
+#       scale_x_continuous(
+#         limits = c(0, 1),
+#         breaks = seq(0, 1, by = 0.1),
+#         expand = expansion(mult = c(0.01, 0.01))
+#       ) +
+#       labs(
+#         x = 'Posterior mean allelic ratio (95% CrI)',
+#         y = 'Cell type',
+#         color = 'Sample'
+#       ) +
+#       theme_bw() +
+#       theme(
+#         axis.text.y = element_text(size = 8),
+#         axis.text.x = element_text(size = 8),
+#         strip.text = element_text(size = 9)
+#       )
+#   )
+#   dev.off()
+# }
 
-# PCA for bayes_gene posterior means
-if (exists("bayes_gene") && nrow(bayes_gene) > 0) {
-  pca_input_bayes <- bayes_gene %>%
-    dplyr::select(sample, celltype, name, post_mean) %>%
-    dplyr::distinct()
+# # PCA for bayes_gene posterior means
+# if (exists("bayes_gene") && nrow(bayes_gene) > 0) {
+#   pca_input_bayes <- bayes_gene %>%
+#     dplyr::select(sample, celltype, name, post_mean) %>%
+#     dplyr::distinct()
 
-  pca_wide_bayes <- reshape(
-    as.data.frame(pca_input_bayes),
-    idvar = c("sample", "celltype"),
-    timevar = "name",
-    direction = "wide"
-  )
+#   pca_wide_bayes <- reshape(
+#     as.data.frame(pca_input_bayes),
+#     idvar = c("sample", "celltype"),
+#     timevar = "name",
+#     direction = "wide"
+#   )
 
-  gene_cols_bayes <- grep("^post_mean\\.", colnames(pca_wide_bayes), value = TRUE)
+#   gene_cols_bayes <- grep("^post_mean\\.", colnames(pca_wide_bayes), value = TRUE)
 
-  if (length(gene_cols_bayes) >= 2 && nrow(pca_wide_bayes) >= 3) {
-    complete_rows_bayes <- complete.cases(pca_wide_bayes[, gene_cols_bayes, drop = FALSE])
-    pca_wide_bayes_cc <- pca_wide_bayes[complete_rows_bayes, , drop = FALSE]
-    pca_mat_bayes <- as.matrix(pca_wide_bayes_cc[, gene_cols_bayes, drop = FALSE])
+#   if (length(gene_cols_bayes) >= 2 && nrow(pca_wide_bayes) >= 3) {
+#     complete_rows_bayes <- complete.cases(pca_wide_bayes[, gene_cols_bayes, drop = FALSE])
+#     pca_wide_bayes_cc <- pca_wide_bayes[complete_rows_bayes, , drop = FALSE]
+#     pca_mat_bayes <- as.matrix(pca_wide_bayes_cc[, gene_cols_bayes, drop = FALSE])
 
-    keep_cols_bayes <- apply(pca_mat_bayes, 2, function(x) stats::sd(x) > 0)
-    pca_mat_bayes <- pca_mat_bayes[, keep_cols_bayes, drop = FALSE]
+#     keep_cols_bayes <- apply(pca_mat_bayes, 2, function(x) stats::sd(x) > 0)
+#     pca_mat_bayes <- pca_mat_bayes[, keep_cols_bayes, drop = FALSE]
 
-    if (ncol(pca_mat_bayes) >= 2 && nrow(pca_mat_bayes) >= 3) {
-      pca_fit_bayes <- prcomp(pca_mat_bayes, center = TRUE, scale. = TRUE)
-      pca_scores_bayes <- as.data.frame(pca_fit_bayes$x[, 1:2, drop = FALSE])
-      pca_scores_bayes$celltype <- pca_wide_bayes_cc$celltype
-      pca_scores_bayes$sample <- pca_wide_bayes_cc$sample
+#     if (ncol(pca_mat_bayes) >= 2 && nrow(pca_mat_bayes) >= 3) {
+#       pca_fit_bayes <- prcomp(pca_mat_bayes, center = TRUE, scale. = TRUE)
+#       pca_scores_bayes <- as.data.frame(pca_fit_bayes$x[, 1:2, drop = FALSE])
+#       pca_scores_bayes$celltype <- pca_wide_bayes_cc$celltype
+#       pca_scores_bayes$sample <- pca_wide_bayes_cc$sample
 
-      var_exp_bayes <- (pca_fit_bayes$sdev^2) / sum(pca_fit_bayes$sdev^2)
-      pc1_lab_bayes <- paste0("PC1 (", round(100 * var_exp_bayes[1], 1), "%)")
-      pc2_lab_bayes <- paste0("PC2 (", round(100 * var_exp_bayes[2], 1), "%)")
+#       var_exp_bayes <- (pca_fit_bayes$sdev^2) / sum(pca_fit_bayes$sdev^2)
+#       pc1_lab_bayes <- paste0("PC1 (", round(100 * var_exp_bayes[1], 1), "%)")
+#       pc2_lab_bayes <- paste0("PC2 (", round(100 * var_exp_bayes[2], 1), "%)")
 
-      pdf('Allelic_ratio_results/core_escape_genes_bayes_posterior_PCA.pdf')
-      print(ggplot(pca_scores_bayes, aes(x = PC1, y = PC2, color = celltype, shape = sample)) +
-        geom_point(alpha = 0.8, size = 2) +
-        labs(x = pc1_lab_bayes, y = pc2_lab_bayes) +
-        theme_bw())
-      dev.off()
-    }
-  }
-}
+#       pdf('Allelic_ratio_results/core_escape_genes_bayes_posterior_PCA.pdf')
+#       print(ggplot(pca_scores_bayes, aes(x = PC1, y = PC2, color = celltype, shape = sample)) +
+#         geom_point(alpha = 0.8, size = 2) +
+#         labs(x = pc1_lab_bayes, y = pc2_lab_bayes) +
+#         theme_bw())
+#       dev.off()
+#     }
+#   }
+# }
 
 #####################
 # All gene analysis #
@@ -831,37 +840,32 @@ plot(
 dev.off()
 
 ###################################################
-# filter for cells with at least 5 reads on chrX #
+# filter for cells with at least 3 reads on chrX #
 ###################################################
-subset_heart_ceb_flt <- subset(subset_heart_ceb, subset = total_reads >= 5)
+subset_heart_ceb_flt <- subset(subset_heart_ceb, subset = total_reads >= 3)
 
 table(subset_heart_ceb_flt$sample)
 
-# UMAP plot coloured by allelic ratio
-pdf('Allelic_ratio_results/core_escape_block_allelic_ratio_umap_plot.pdf')
-FeaturePlot(subset_heart_ceb_flt,
-            features = "allelic_ratio",
-            min.cutoff = 0,
-            max.cutoff = 1) +
-  scale_color_gradientn(colors = my_colors,
-                        breaks = seq(0, 1, by = 0.1),
-                        limits = c(0, 1),
-                        oob = scales::squish,
-                        name = "Allelic ratio")
-dev.off()
 
 # UMAP plot coloured by allelic ratio split by sample
-pdf('Allelic_ratio_results/core_escape_block_allelic_ratio_umap_plot_split_by_sample.pdf')
-FeaturePlot(subset_heart_ceb_flt,
-            features = "allelic_ratio",
-            min.cutoff = 0,
-            max.cutoff = 1,
-            split.by = "sample") &
-  scale_color_gradientn(colors = my_colors,
-                        breaks = seq(0, 1, by = 0.1),
-                        limits = c(0, 1),
-                        oob = scales::squish,
-                        name = "Allelic ratio")
+samples_ceb <- levels(subset_heart_ceb_flt$sample)
+plots_ceb <- lapply(samples_ceb, function(s) {
+  FeaturePlot(subset(subset_heart_ceb_flt, subset = sample == s),
+              features = "allelic_ratio",
+              min.cutoff = 0,
+              max.cutoff = 1) +
+    scale_color_gradientn(colors = my_colors,
+                          breaks = seq(0, 1, by = 0.1),
+                          limits = c(0, 1),
+                          oob = scales::squish,
+                          name = "Allelic ratio") +
+    theme(axis.title.y = element_blank(),
+          legend.text = element_text(size = 8),
+          legend.title = element_text(size = 9)) +
+    ggtitle(s)
+})
+pdf('Allelic_ratio_results/core_escape_block_allelic_ratio_umap_plot_split_by_sample.pdf', width = 10, height = 10)
+wrap_plots(plots_ceb, ncol = 2, nrow = 2) + plot_layout(guides = "collect")
 dev.off()
 
 # Create metadata for statistical testing
@@ -869,7 +873,6 @@ metadata_ceb <- subset_heart_ceb_flt@meta.data
 
 # sort by total read count
 metadata_ceb <- metadata_ceb[order(metadata_ceb$total_reads, decreasing = TRUE), ]
-head(metadata_ceb)
 
 # number of cells per celltype and condition
 cell_counts_ceb <- metadata_ceb %>%
@@ -910,8 +913,12 @@ subset(Sham_vs_TAC_monoallelic_lrt_ceb, FDR < 0.05)
 # cells, per sample and cell type. Raw counts (N=1 per sample, so proportions
 # would overstate precision the data doesn't support).
 metadata_ceb$LOX_status <- factor(
-  ifelse(metadata_ceb$monoallelic == 1, "LOX-like (AR >= 0.9)", "Other"),
-  levels = c("Other", "LOX-like (AR >= 0.9)")
+  case_when(
+    metadata_ceb$allelic_ratio <= 0.10 ~ "LOX-like (AR <= 0.10)",
+    metadata_ceb$monoallelic == 1 ~ "LOX-like (AR >= 0.9)",
+    TRUE ~ "Other"
+  ),
+  levels = c("LOX-like (AR <= 0.10)", "Other", "LOX-like (AR >= 0.9)")
 )
 metadata_ceb$sample <- factor(metadata_ceb$sample, levels = c("9w", "78w", "Sham", "TAC"))
 
@@ -928,6 +935,7 @@ ggplot(violin_tbl_ceb, aes(x = sample_idx, y = allelic_ratio, fill = sample)) +
   geom_jitter(width = 0.15, size = 0.3, alpha = 0.3, color = "black") +
   facet_wrap(~celltype) +
   scale_x_continuous(breaks = 1:4, labels = levels(violin_tbl_ceb$sample)) +
+  scale_y_continuous(breaks = c(0, 0.3, 0.6, 0.9, 1.0)) +
   coord_cartesian(ylim = c(0, 1)) +
   labs(y = "Allelic ratio", x = NULL) +
   theme_bw() +
@@ -945,6 +953,57 @@ ggplot(metadata_ceb, aes(x = sample, fill = LOX_status)) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         legend.position = "bottom")
 dev.off()
+
+# Save file 
+saveRDS(subset_heart_ceb, 'Allelic_ratio_results/subset_heart_core_escape_block.RDS')
+
+
+# Correlation of Xist expression and AR
+AR_Xist_df <- data.frame(
+  Xist = GetAssayData(subset_heart_ceb_flt, assay = "SCT", layer = "data")["Xist", ],
+  allelic_ratio = subset_heart_ceb_flt$allelic_ratio,
+  sample = subset_heart_ceb_flt$sample,
+  celltype = subset_heart_ceb_flt$celltype
+)
+
+AR_Xist_cor <- split(AR_Xist_df, list(AR_Xist_df$celltype, AR_Xist_df$sample), drop = TRUE) %>%
+  lapply(function(x) {
+    if (nrow(x) < 3) return(NULL)
+    tmp <- cor.test(x$Xist, x$allelic_ratio, method = "spearman")
+    data.frame(sample = unique(x$sample), celltype = unique(x$celltype), cor = tmp$estimate, p_value = tmp$p.value)
+  }) %>%
+  bind_rows()
+AR_Xist_cor$FDR <- p.adjust(AR_Xist_cor$p_value, method = "fdr")
+
+# Scatter of Xist expression vs allelic ratio, per celltype and sample
+ann_df <- AR_Xist_cor %>%
+  mutate(star = fdr_to_stars(FDR),
+         label = paste0(sample, ": rho=", round(cor, 2), " ", star)) %>%
+  group_by(celltype) %>%
+  summarise(label = paste(label, collapse = "\n"), .groups = "drop")
+
+pdf('Allelic_ratio_results/core_escape_block_Xist_vs_AR_scatter.pdf', width = 10, height = 10)
+ggplot(AR_Xist_df, aes(x = allelic_ratio, y = Xist, color = sample)) +
+  geom_point(size = 0.6, alpha = 0.4) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.5) +
+  geom_text(data = ann_df, aes(x = 0.02, y = Inf, label = label),
+            inherit.aes = FALSE, hjust = 0, vjust = 1.05, size = 2.2) +
+  facet_wrap(~celltype) +
+  labs(x = "Allelic ratio (core escape genes)", y = "Xist expression (SCT, normalized)", color = NULL) +
+  theme_bw() +
+  theme(legend.position = "bottom")
+dev.off()
+
+
+
+
+
+
+
+
+
+
+
 
 # Per-gene breakdown for cells flagged as putative LOX (block-level AR >= 0.9),
 # to eyeball concordance across the 4 core escape genes before committing to a
