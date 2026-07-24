@@ -43,9 +43,9 @@ mkdir -p "$scratch_dir"
 
 while IFS= read -r line; do
   echo "$pipeline -i sinto/9w/$line -a $annotation -s $snps -r $min_read -t $total_read -o $scratch_dir"
-  done < "$input" > Allelome.PRO2/9w/task-list_noXist.txt
+  done < "$input" > Allelome.PRO2_all_genes/9w/task-list_noXist.txt
 
-parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2/9w/task-list_noXist.txt
+parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2_all_genes/9w/task-list_noXist.txt
 
 # move locus_table.txt and BED_files/*.bed from scratch into permanent storage, one destination dir per sample
 for sample_dir in "$scratch_dir"/*/; do
