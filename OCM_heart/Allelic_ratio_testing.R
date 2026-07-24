@@ -125,7 +125,7 @@ chr_allelic_ratio <- lapply(barcodes, function(x) {
     tmp <- read.delim(x, header = TRUE)
     if (nrow(tmp) == 0) return(NULL)
     tmp$chr <- as.character(tmp$chr)
-    tmp <- subset(tmp, chr=="chrX")
+    # tmp <- subset(tmp, chr=="chrX")
     if (nrow(tmp) == 0) return(NULL)
     tmp
   } else {
@@ -135,6 +135,9 @@ chr_allelic_ratio <- lapply(barcodes, function(x) {
 names(chr_allelic_ratio) <- paste0(condition, "_", cellid)
 chr_allelic_ratio <- chr_allelic_ratio[!sapply(chr_allelic_ratio, is.null)]
 chr_allelic_ratio <- bind_rows(chr_allelic_ratio, .id = "cell_barcode")
+
+# save table of allelic ratios for whole chrX
+write.table(chr_allelic_ratio, 'Allelic_ratio_results/whole_chr_allelic_ratios.txt', sep = '\t', row.names = FALSE, quote = FALSE)
 
 # Subset seurat object by barcodes
 subset_heart <- subset(heart, cells = chr_allelic_ratio$cell_barcode)
@@ -233,6 +236,35 @@ Sham_vs_TAC_lrt$FDR <- p.adjust(Sham_vs_TAC_lrt$Pr..Chisq., method = "fdr")
 
 subset(Sham_vs_TAC_lrt, FDR < 0.05)
 
+# Effect sizes: fraction of cells escaping XCI (AR <= 0.9) and median AR per
+# celltype/condition. Complements the dispersion LRT p-values above with an
+# interpretable magnitude.
+AR_COL <- "allelic_ratio"
+MIN_READS <- 10
+
+frac_escaping <- metadata_whole_chr %>%
+  rename(AR = all_of(AR_COL)) %>%
+  { if ("total_reads" %in% names(.)) filter(., total_reads >= MIN_READS) else . } %>%
+  mutate(sample = factor(sample, levels = c("9w", "78w", "Sham", "TAC"))) %>%
+  group_by(celltype, sample) %>%
+  summarise(n = n(),
+            escaping = mean(AR <= 0.9),
+            median_AR = median(AR),
+            .groups = "drop") %>%
+  filter(n >= 20)
+
+write.table(frac_escaping, 'Allelic_ratio_results/whole_chr_fraction_escaping_per_celltype_and_condition.txt',
+            sep = '\t', row.names = FALSE, quote = FALSE)
+
+pdf('Allelic_ratio_results/whole_chr_fraction_escaping_barplot.pdf')
+ggplot(frac_escaping, aes(sample, 100*escaping, fill = sample)) +
+  geom_col() +
+  facet_wrap(~celltype, labeller = label_wrap_gen(14)) +
+  labs(x = NULL, y = "Escaping cells (%)  [AR ≤ 0.9]", fill = "Condition") +
+  theme_bw(base_size = 9) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        panel.grid.minor = element_blank())
+dev.off()
 
 violin_tbl <- metadata_whole_chr  %>%
   mutate(
@@ -285,7 +317,7 @@ ggplot(violin_tbl, aes(x = sample_idx, y = allelic_ratio, fill = sample)) +
             color = "black",
             size = 3.2,
             vjust = 0) +
-  facet_wrap(~celltype) +
+  facet_wrap(~celltype, labeller = label_wrap_gen(width = 18)) +
   scale_x_continuous(breaks = 1:4, labels = levels(violin_tbl$sample)) +
   scale_y_continuous(breaks = c(0, 0.3, 0.6, 0.9, 1.0)) +
   coord_cartesian(ylim = c(0, 1.12), clip = "off") +
@@ -821,6 +853,9 @@ names(core_escape_block_ratio) <- paste0(condition, "_", cellid)
 core_escape_block_ratio <- core_escape_block_ratio[!sapply(core_escape_block_ratio, is.null)]
 core_escape_block_ratio <- bind_rows(core_escape_block_ratio, .id = "cell_barcode")
 
+# Write out the core escape block allelic ratio table
+write.table(core_escape_block_ratio, 'Allelic_ratio_results/core_escape_block_allelic_ratio_table.txt', sep = '\t', row.names = FALSE, quote = FALSE)
+
 # Subset seurat object by barcodes
 subset_heart_ceb <- subset(heart, cells = core_escape_block_ratio$cell_barcode)
 core_escape_block_ratio <- core_escape_block_ratio[core_escape_block_ratio$cell_barcode %in% colnames(subset_heart_ceb), ]
@@ -994,6 +1029,25 @@ ggplot(AR_Xist_df, aes(x = allelic_ratio, y = Xist, color = sample)) +
   theme(legend.position = "bottom")
 dev.off()
 
+# Same, subset to Ventricular Cardiomyocytes only, faceted by sample
+vcm_xist_df <- AR_Xist_df %>%
+  filter(celltype == "Ventricular Cardiomyocytes")
+
+vcm_ann <- AR_Xist_cor %>%
+  filter(celltype == "Ventricular Cardiomyocytes") %>%
+  mutate(label = paste0("rho=", round(cor, 2), " ", fdr_to_stars(FDR)))
+
+pdf('Allelic_ratio_results/core_escape_block_Xist_vs_AR_scatter_VCM.pdf', width = 10, height = 3.5)
+ggplot(vcm_xist_df, aes(x = allelic_ratio, y = Xist)) +
+  geom_point(size = 0.8, alpha = 0.4, color = "steelblue") +
+  geom_smooth(method = "lm", se = TRUE, color = "black", linewidth = 0.6) +
+  geom_text(data = vcm_ann, aes(x = 0.02, y = Inf, label = label),
+            inherit.aes = FALSE, hjust = 0, vjust = 1.2, size = 3) +
+  facet_wrap(~sample, nrow = 1) +
+  labs(x = "Allelic ratio (core escape genes)", y = "Xist expression\n(SCT, normalized)",
+       title = "Ventricular Cardiomyocytes") +
+  theme_bw()
+dev.off()
 
 
 
