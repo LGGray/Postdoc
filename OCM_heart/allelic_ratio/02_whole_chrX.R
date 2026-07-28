@@ -6,7 +6,7 @@
 # Writes:   Allelic_ratio_results/whole_chr_cell_metadata.txt, which 03 and 05
 #           read back so they can run as independent jobs.
 # ---------------------------------------------------------------------------
-source("allelic_ratio/00_functions.R")
+source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
 
 heart <- readRDS('heart_seurat_object_SCT.rds')
 heart$celltype <- Idents(heart)

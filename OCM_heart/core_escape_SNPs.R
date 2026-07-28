@@ -22,8 +22,10 @@ write.table(annotation_chrX, "annotation_us_mm39_chrX.bed", row.names=F, col.nam
 # Subset SNP file for core escape genes
 core_escape_genes <- c("Kdm5c", "Kdm6a", "Ddx3x", "Eif2s3x")
 
+new_core_escape_genes <- c("Kdm5c", "Kdm6a", "Ddx3x", "Eif2s3x", 'Ftx', '5530601H04Rik', 'Jpx', 'Pbdc1', 'Utp14a', 'Akap17a', 'Sts')
+
 #load SNP file
-core_escape <- annotation[V4 %in% core_escape_genes,]
+core_escape <- annotation[V4 %in% new_core_escape_genes,]
 
 # create a vector with all positions
 core_escape_span <- unlist(Map(seq, core_escape$V2, core_escape$V3))
@@ -32,7 +34,7 @@ core_escape_span <- unlist(Map(seq, core_escape$V2, core_escape$V3))
 SNPfile_core_escape <- SNPfile %>%  dplyr::filter(V1 == "chrX" & V2 %in% core_escape_span)
 
 #Save file
-write.table(SNPfile_core_escape, "SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_core_escape.bed",row.names=F,col.names=F,quote=F,sep="\t")
+write.table(SNPfile_core_escape, "SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_core_escape_new.bed",row.names=F,col.names=F,quote=F,sep="\t")
 
 
 

@@ -7,7 +7,7 @@
 #
 # Run this FIRST -- 02-04 expect the saved object to carry celltype_sub.
 # ---------------------------------------------------------------------------
-source("allelic_ratio/00_functions.R")
+source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
 
 ############################
 # Read in single cell data #

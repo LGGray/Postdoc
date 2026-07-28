@@ -32,20 +32,24 @@ module load parallel
 # ######------ Sham ------######
 pipeline="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Allelome.LINK/00_src/Allelome.PRO2.sh"
 input="sinto/Sham/bamfiles.txt"
-annotation="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/annotation_us_mm39_chrX.bed"
-snps="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_no_Xist.bed"
+annotation="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/chr_annotation_mm39.bed"
+snps="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_core_escape_new.bed"
 scratch_dir="$SCRATCH/Sham"
-final_dir="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2_all_genes/Sham"
+final_dir="/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2_core_escape_new/Sham"
 min_read=1
 total_read=1
 
+if [ -z "$SCRATCH" ]; then echo "SCRATCH is not set - aborting" >&2; exit 1; fi
+
+# clear any output left over from a previous run before repopulating
+rm -rf "$scratch_dir"
 mkdir -p "$scratch_dir"
 
 while IFS= read -r line; do
   echo "$pipeline -i sinto/Sham/$line -a $annotation -s $snps -r $min_read -t $total_read -o $scratch_dir"
-  done < "$input" > Allelome.PRO2_all_genes/Sham/task-list_noXist.txt
+  done < "$input" > /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2_core_escape_new/Sham/task-list.txt
 
-parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2_all_genes/Sham/task-list_noXist.txt
+parallel -j "$nproc" :::: /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM/Allelome.PRO2_core_escape_new/Sham/task-list.txt
 
 # move locus_table.txt and BED_files/*.bed from scratch into permanent storage, one destination dir per sample
 for sample_dir in "$scratch_dir"/*/; do
