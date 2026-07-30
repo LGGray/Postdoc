@@ -95,9 +95,9 @@
     "semantic_hash": "6647969234615e64bcbdece2813cff28"
   },
   "OCM_heart/Allelic_ratio_testing.R": {
-    "mtime": 1785244193.710461,
+    "mtime": 1785244193.0,
     "ast_hash": "eed2950b23b28398e9cd3ee566d2340b",
-    "semantic_hash": ""
+    "semantic_hash": "eed2950b23b28398e9cd3ee566d2340b"
   },
   "OCM_heart/Seurat_preprocessing.R": {
     "mtime": 1781279256.0,
@@ -105,9 +105,9 @@
     "semantic_hash": "0a0f72a88c4fef531792fd9669e45bd5"
   },
   "OCM_heart/core_escape_SNPs.R": {
-    "mtime": 1784127845.0,
-    "ast_hash": "8a37b3509142b69c57564ca265ab9e01",
-    "semantic_hash": "8a37b3509142b69c57564ca265ab9e01"
+    "mtime": 1785246056.0,
+    "ast_hash": "ca626e758c0b92f09d2dfd109244ec55",
+    "semantic_hash": "ca626e758c0b92f09d2dfd109244ec55"
   },
   "OCM_heart/export_seurat_to_h5ad.R": {
     "mtime": 1780658011.0,
@@ -385,33 +385,213 @@
     "semantic_hash": "9996867397675058733fb419b7952b60"
   },
   "OCM_heart/allelic_ratio/00_functions.R": {
-    "mtime": 1785244457.8700306,
+    "mtime": 1785244457.0,
     "ast_hash": "ed0b9d1267d812577015a2bc7bae69fc",
-    "semantic_hash": ""
+    "semantic_hash": "ed0b9d1267d812577015a2bc7bae69fc"
   },
   "OCM_heart/allelic_ratio/01_setup.R": {
-    "mtime": 1785244460.8114543,
-    "ast_hash": "8bd5aceeecfa2703e6e59381de7ba15f",
-    "semantic_hash": ""
+    "mtime": 1785246090.0,
+    "ast_hash": "79593eedc8d40f25e1e79659547dae65",
+    "semantic_hash": "79593eedc8d40f25e1e79659547dae65"
   },
   "OCM_heart/allelic_ratio/02_whole_chrX.R": {
-    "mtime": 1785244465.5656943,
-    "ast_hash": "fc0696ce97eca56c0f7009cf73aca30d",
-    "semantic_hash": ""
+    "mtime": 1785337217.0,
+    "ast_hash": "ad8793b3ce9240d2fecf38725497e59c",
+    "semantic_hash": "ad8793b3ce9240d2fecf38725497e59c"
   },
   "OCM_heart/allelic_ratio/03_all_genes.R": {
-    "mtime": 1785244474.8534017,
+    "mtime": 1785244474.0,
     "ast_hash": "017d49cdf606e03de3c2aef113c0736c",
-    "semantic_hash": ""
+    "semantic_hash": "017d49cdf606e03de3c2aef113c0736c"
   },
   "OCM_heart/allelic_ratio/04_core_escape.R": {
-    "mtime": 1785244566.514375,
-    "ast_hash": "9cc7719d1bd0e6d3196fa9d55acb0182",
-    "semantic_hash": ""
+    "mtime": 1785333420.0,
+    "ast_hash": "d980661d75921279b255e466ac449626",
+    "semantic_hash": "d980661d75921279b255e466ac449626"
   },
   "OCM_heart/allelic_ratio/05_lox_sensitivity.R": {
-    "mtime": 1785244569.4822533,
+    "mtime": 1785244569.0,
     "ast_hash": "a51a7dfdcfc6e839c3977b8ea9e51b13",
-    "semantic_hash": ""
+    "semantic_hash": "a51a7dfdcfc6e839c3977b8ea9e51b13"
+  },
+  "slurm/Allelome.LINK.bodymap.slurm": {
+    "mtime": 1762773553.0,
+    "ast_hash": "d1ef4d098606fd979c5640dd2827147a",
+    "semantic_hash": "d1ef4d098606fd979c5640dd2827147a"
+  },
+  "slurm/Allelome.LINK.pseudobulk.slurm": {
+    "mtime": 1762166039.0,
+    "ast_hash": "3f74126ba6dfa21d7969f8993370cd91",
+    "semantic_hash": "3f74126ba6dfa21d7969f8993370cd91"
+  },
+  "slurm/Allelome.LINK.snRNAseq.slurm": {
+    "mtime": 1762947672.0,
+    "ast_hash": "6603cbf8eeb782408e2ba04848c0068c",
+    "semantic_hash": "6603cbf8eeb782408e2ba04848c0068c"
+  },
+  "slurm/Allelome.PRO.slurm": {
+    "mtime": 1756197539.0,
+    "ast_hash": "7864d3dca3822352af580168c943752c",
+    "semantic_hash": "7864d3dca3822352af580168c943752c"
+  },
+  "slurm/ML.analysis.slurm": {
+    "mtime": 1763713613.0,
+    "ast_hash": "73072087bf06115b2bfd598039abfc9a",
+    "semantic_hash": "73072087bf06115b2bfd598039abfc9a"
+  },
+  "slurm/RNAseq.slurm": {
+    "mtime": 1762354103.0,
+    "ast_hash": "0ca2ee3eb29092b575e595605e1a8816",
+    "semantic_hash": "0ca2ee3eb29092b575e595605e1a8816"
+  },
+  "slurm/archive.directories.slurm": {
+    "mtime": 1784807908.0,
+    "ast_hash": "82a3fc474fb9d17af76a7e570fd262ed",
+    "semantic_hash": "82a3fc474fb9d17af76a7e570fd262ed"
+  },
+  "slurm/bowtie_build.slurm": {
+    "mtime": 1754580210.0,
+    "ast_hash": "e744a15cdbb9898bcc3a2a37bb2d7c7e",
+    "semantic_hash": "e744a15cdbb9898bcc3a2a37bb2d7c7e"
+  },
+  "slurm/cellbender.slurm": {
+    "mtime": 1780301398.0,
+    "ast_hash": "4be7aa853a9f37528397501f2bcadac1",
+    "semantic_hash": "4be7aa853a9f37528397501f2bcadac1"
+  },
+  "slurm/cellbender_OCM.slurm": {
+    "mtime": 1781192102.0,
+    "ast_hash": "ffff982aac1e8a6be04465f49dff5249",
+    "semantic_hash": "ffff982aac1e8a6be04465f49dff5249"
+  },
+  "slurm/cellranger_multi.slurm": {
+    "mtime": 1781169825.0,
+    "ast_hash": "77153d1e733d5d2aad26248c2b78cf21",
+    "semantic_hash": "77153d1e733d5d2aad26248c2b78cf21"
+  },
+  "slurm/cellranger_snRNAseq.slurm": {
+    "mtime": 1756468786.0,
+    "ast_hash": "8db69246f4baebc8fbf02e03eaaf9408",
+    "semantic_hash": "8db69246f4baebc8fbf02e03eaaf9408"
+  },
+  "slurm/chipseq.slurm": {
+    "mtime": 1770824494.0,
+    "ast_hash": "941eb25eebd012bc0c284169d3cab0c9",
+    "semantic_hash": "941eb25eebd012bc0c284169d3cab0c9"
+  },
+  "slurm/create_bigwig.slurm": {
+    "mtime": 1780065773.0,
+    "ast_hash": "9d97c55b01739bae1e4c04832c3c87f1",
+    "semantic_hash": "9d97c55b01739bae1e4c04832c3c87f1"
+  },
+  "slurm/download_SRA.slurm": {
+    "mtime": 1758287214.0,
+    "ast_hash": "28f7262058c0e97cbceb67166d4ab7e2",
+    "semantic_hash": "28f7262058c0e97cbceb67166d4ab7e2"
+  },
+  "slurm/index_igv_bams.slurm": {
+    "mtime": 1784731182.0,
+    "ast_hash": "e835300534695d73d42d2a5a9bf0b819",
+    "semantic_hash": "e835300534695d73d42d2a5a9bf0b819"
+  },
+  "slurm/map_F1_TAC.slurm": {
+    "mtime": 1762962575.0,
+    "ast_hash": "7079b2d31f5fddc04fd41b97e55b304e",
+    "semantic_hash": "7079b2d31f5fddc04fd41b97e55b304e"
+  },
+  "slurm/map_TAC_FACS.slurm": {
+    "mtime": 1780048385.0,
+    "ast_hash": "91f1923f52c7121118c09906f4713ecf",
+    "semantic_hash": "91f1923f52c7121118c09906f4713ecf"
+  },
+  "slurm/map_adult_FACS.slurm": {
+    "mtime": 1780048384.0,
+    "ast_hash": "afefeee39c1bbc28412005d1d9074a4b",
+    "semantic_hash": "afefeee39c1bbc28412005d1d9074a4b"
+  },
+  "slurm/map_adult_bodymap.slurm": {
+    "mtime": 1762962299.0,
+    "ast_hash": "e94ef2389f6edc3295e89266610b181b",
+    "semantic_hash": "e94ef2389f6edc3295e89266610b181b"
+  },
+  "slurm/map_aged_FACS.slurm": {
+    "mtime": 1780048390.0,
+    "ast_hash": "e82087f78c19b93602cb12f013403079",
+    "semantic_hash": "e82087f78c19b93602cb12f013403079"
+  },
+  "slurm/map_aged_bodymap.slurm": {
+    "mtime": 1762962458.0,
+    "ast_hash": "92bd38e2dd6f8c23b174a06b8c34c04c",
+    "semantic_hash": "92bd38e2dd6f8c23b174a06b8c34c04c"
+  },
+  "slurm/map_miRNA.slurm": {
+    "mtime": 1754643374.0,
+    "ast_hash": "76d60a6c818018e636b42d367f864941",
+    "semantic_hash": "76d60a6c818018e636b42d367f864941"
+  },
+  "slurm/mm10_analysis.slurm": {
+    "mtime": 1762503119.0,
+    "ast_hash": "96f91d262eac6d87f64ac012929c5825",
+    "semantic_hash": "96f91d262eac6d87f64ac012929c5825"
+  },
+  "slurm/scAllelome.slurm": {
+    "mtime": 1784882640.0,
+    "ast_hash": "3033f02ac2ece54b4a224dc090581c18",
+    "semantic_hash": "3033f02ac2ece54b4a224dc090581c18"
+  },
+  "slurm/scAllelome_78w.slurm": {
+    "mtime": 1785246434.0,
+    "ast_hash": "e34b3ba95b4b0ce5e7fd9432c9f8ffd8",
+    "semantic_hash": "e34b3ba95b4b0ce5e7fd9432c9f8ffd8"
+  },
+  "slurm/scAllelome_9w.slurm": {
+    "mtime": 1785246431.0,
+    "ast_hash": "68d4d87eb5e81ec36e4665a1b33d0083",
+    "semantic_hash": "68d4d87eb5e81ec36e4665a1b33d0083"
+  },
+  "slurm/scAllelome_Sham.slurm": {
+    "mtime": 1785246436.0,
+    "ast_hash": "6dad3323c1c78e0ffbd42b2ad703b43d",
+    "semantic_hash": "6dad3323c1c78e0ffbd42b2ad703b43d"
+  },
+  "slurm/scAllelome_TAC.slurm": {
+    "mtime": 1785246439.0,
+    "ast_hash": "891e3a998248c11bf6eb7447b8fdf549",
+    "semantic_hash": "891e3a998248c11bf6eb7447b8fdf549"
+  },
+  "slurm/sc_Allelome.PRO2.slurm": {
+    "mtime": 1782977334.0,
+    "ast_hash": "79a78fedecfe38c017df3a328280cb48",
+    "semantic_hash": "79a78fedecfe38c017df3a328280cb48"
+  },
+  "slurm/sinto.slurm": {
+    "mtime": 1782977334.0,
+    "ast_hash": "9c7aedea2cc2e258174595e72f4e426a",
+    "semantic_hash": "9c7aedea2cc2e258174595e72f4e426a"
+  },
+  "slurm/spaceranger.slurm": {
+    "mtime": 1780406478.0,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "slurm/testing.code.slurm": {
+    "mtime": 1760014150.0,
+    "ast_hash": "82ec30da64c2471df1170f22470c5cba",
+    "semantic_hash": "82ec30da64c2471df1170f22470c5cba"
+  },
+  "slurm/visualise_snRNAseq.slurm": {
+    "mtime": 1770825075.0,
+    "ast_hash": "f309e861fa6fd842e1d1557749a2c467",
+    "semantic_hash": "f309e861fa6fd842e1d1557749a2c467"
+  },
+  "separate_BAM_strand.pl": {
+    "mtime": 1759999921.0,
+    "ast_hash": "bfc41b27f320a6876dc63186eff24faf",
+    "semantic_hash": "bfc41b27f320a6876dc63186eff24faf"
+  },
+  "OCM_heart/scVI_cardiac_finetune.ipynb": {
+    "mtime": 1780905726.0,
+    "ast_hash": "80243db6cecc23817982ee040cd84d96",
+    "semantic_hash": "80243db6cecc23817982ee040cd84d96"
   }
 }

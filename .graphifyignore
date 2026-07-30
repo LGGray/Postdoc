@@ -1,0 +1,11 @@
+# Excluded from the knowledge graph — not active work.
+# fasta_synth: side project (JS synth toy); its app.js alone was 43% of the old graph.
+# SLE_paper: published, frozen.
+fasta_synth/
+SLE_paper/
+
+# Generated figures and large data
+**/figures/
+*.pdf
+__pycache__/
+Pytorch/data/
