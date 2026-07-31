@@ -12,8 +12,8 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=56
-#SBATCH --mem=300G
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=128G
 #SBATCH --time=24:00:00
 #SBATCH --array=1-2
 
@@ -95,7 +95,7 @@ cd "$OUT_DIR" || exit 1
 
 # spaceranger wants a little headroom below the cgroup limit.
 LOCALCORES=$((SLURM_CPUS_PER_TASK - 2))
-LOCALMEM=280
+LOCALMEM=128
 
 spaceranger count \
   --id="$ID" \
