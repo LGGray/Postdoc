@@ -42,14 +42,19 @@ AREA_9W="A1"
 SLIDE_78W="H1-8H6HPK4"
 AREA_78W="D1"
 
-# CytAssist 3000x3000 TIFF for each capture area (ls $HISTO_DIR/CytAssist_Images)
-CYTA_9W=$HISTO_DIR/CytAssist_Images/
-CYTA_78W=$HISTO_DIR/CytAssist_Images/
+# CytAssist 3000x3000 TIFF for each capture area.
+CYTA_DIR=$HISTO_DIR/CytAssist_Images
+CYTA_9W=$CYTA_DIR/CAVG10444_2025-07-30_12-03-35_2025-07-30_10-46-49_H1-8H6HPK4_A1_Hoelzl_3HD_r1_20250730_19_4106A.tif
+CYTA_78W=$CYTA_DIR/CAVG10444_2025-07-30_12-03-35_2025-07-30_10-46-49_H1-8H6HPK4_D1_Hoelzl_3HD_r1_20250730_21_0561A.tif
 
 # High-resolution brightfield H&E taken before CytAssist.
-# DAN0561 / DAN4106 are the two tissue blocks — confirm which is which.
+# Confirmed by CytAssist filenames: A1 = 4106A, D1 = 0561A.
 IMAGE_9W=$HISTO_DIR/Hoelzl_vorCytassist_HE_RUN1_20250730_DAN4106.tif
 IMAGE_78W=$HISTO_DIR/Hoelzl_vorCytassist_HE_RUN1_20250730_DAN0561.tif
+
+# Manual fiducial/image registration exported from Loupe Browser.
+LOUPE_9W=$CYTA_DIR/H1-8H6HPK4-A1-DAN-4106-fiducials-image-registration.json
+LOUPE_78W=$CYTA_DIR/H1-8H6HPK4-D1-DAN-0561-fiducials-image-registration.json
 
 # Confirm 25L006362 = 9w and 25L006363 = 78w against Project_1618_lims.csv.
 SAMPLE_9W=25L006362
@@ -66,6 +71,7 @@ if [ "$SLURM_ARRAY_TASK_ID" -eq 1 ]; then
   FASTQS=$DATA_DIR/Sample_$SAMPLE_9W
   CYTAIMAGE=$CYTA_9W
   IMAGE=$IMAGE_9W
+  LOUPE=$LOUPE_9W
   SLIDE=$SLIDE_9W
   AREA=$AREA_9W
 elif [ "$SLURM_ARRAY_TASK_ID" -eq 2 ]; then
@@ -74,6 +80,7 @@ elif [ "$SLURM_ARRAY_TASK_ID" -eq 2 ]; then
   FASTQS=$DATA_DIR/Sample_$SAMPLE_78W
   CYTAIMAGE=$CYTA_78W
   IMAGE=$IMAGE_78W
+  LOUPE=$LOUPE_78W
   SLIDE=$SLIDE_78W
   AREA=$AREA_78W
 else
@@ -82,8 +89,13 @@ else
 fi
 
 # Fail before burning 24 h on a typo.
-for f in "$REF" "$FASTQS" "$CYTAIMAGE" "$IMAGE"; do
-  if [ ! -e "$f" ]; then echo "Missing input: $f" >&2; exit 1; fi
+for d in "$REF" "$FASTQS"; do
+  if [ ! -d "$d" ]; then echo "Missing input directory: $d" >&2; exit 1; fi
+done
+# These must be files, not directories - spaceranger only errors out after
+# the pipeline has already started.
+for f in "$CYTAIMAGE" "$IMAGE" "$LOUPE"; do
+  if [ ! -f "$f" ]; then echo "Not a file: $f" >&2; exit 1; fi
 done
 if [ -z "$SLIDE" ] || [ -z "$AREA" ]; then
   echo "SLIDE/AREA not set for $ID - fill them in or switch to --unknown-slide" >&2
@@ -106,6 +118,7 @@ spaceranger count \
   --image="$IMAGE" \
   --slide="$SLIDE" \
   --area="$AREA" \
+  --loupe-alignment="$LOUPE" \
   --custom-bin-size="$CUSTOM_BIN" \
   --create-bam=true \
   --localcores="$LOCALCORES" \
