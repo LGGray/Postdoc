@@ -107,7 +107,9 @@ cd "$OUT_DIR" || exit 1
 
 # spaceranger wants a little headroom below the cgroup limit.
 LOCALCORES=$((SLURM_CPUS_PER_TASK - 2))
-LOCALMEM=128
+# The enforced cgroup limit is slightly below the nominal --mem, so claiming the
+# full 128 risks an OOM kill. Leave 8 GB of slack.
+LOCALMEM=120
 
 spaceranger count \
   --id="$ID" \
