@@ -34,6 +34,11 @@ MARKERS <- list(
   Lymphoid      = c("Cd3e", "Cd79a", "Ms4a1")
 )
 
+# A module score built from one surviving marker is just that gene's expression
+# under a cell-type label, which is a claim the panel can't support. Require at
+# least this many detected markers before scoring a set.
+MIN_MARKERS <- 2
+
 # Endothelial subtypes - only plotted if they look detectable.
 EC_SUBTYPES <- c("Bmx", "Mecom", "Gja5", "Rgcc", "Ackr1", "Fabp4")
 
@@ -97,12 +102,59 @@ norm_bc <- function(df) {
 pos      <- norm_bc(pos)
 umap     <- norm_bc(umap)
 clusters <- norm_bc(clusters)
-names(umap)[names(umap) != "barcode"][1:2] <- c("UMAP_1", "UMAP_2")
+# Don't hardcode the coordinate/cluster column names - they vary across
+# spaceranger versions ("UMAP-1" vs "UMAP.1" after read.csv, "Cluster" vs
+# "graphclust"). Once barcode is normalised, take what's left positionally.
+umap_cols <- setdiff(names(umap), "barcode")
+clus_cols <- setdiff(names(clusters), "barcode")
+if (length(umap_cols) < 2) {
+  stop("UMAP projection has no coordinate columns: ", paste(names(umap), collapse = ", "))
+}
+if (length(clus_cols) < 1) {
+  stop("clusters.csv has no cluster column: ", paste(names(clusters), collapse = ", "))
+}
+message("UMAP columns: ", paste(umap_cols[1:2], collapse = ", "),
+        " | cluster column: ", clus_cols[1])
 
-# ---------------------------------------------------------------- assemble
+# ---- QC (3' WTA: mito/hemo/ribo are present, unlike probe-based) ----
+obj <- CreateSeuratObject(counts, project = SAMPLE, assay = "Spatial",
+                          min.cells = 3, min.features = 10)
 
-obj <- CreateSeuratObject(counts, project = SAMPLE, assay = "Spatial")
-obj <- NormalizeData(obj, verbose = FALSE)
+obj[["percent.mt"]]   <- PercentageFeatureSet(obj, pattern = "^mt-")
+obj[["percent.hb"]]   <- PercentageFeatureSet(obj, pattern = "^Hb[ab]-")
+obj[["percent.ribo"]] <- PercentageFeatureSet(obj, pattern = "^Rp[sl]")
+
+message("nCount  quantiles: ", paste(round(quantile(obj$nCount_Spatial,  c(.01,.05,.25,.5,.95))), collapse=" "))
+message("nFeature quantiles: ", paste(round(quantile(obj$nFeature_Spatial, c(.01,.05,.25,.5,.95))), collapse=" "))
+message("percent.mt median: ", round(median(obj$percent.mt), 1))
+
+MIN_COUNT <- 100   # 16um; drop to ~15 for 008um
+MIN_FEAT  <- 50
+MAX_MT    <- 50   # loose on purpose - cardiomyocytes are legitimately 30-40%
+
+keep <- obj$nCount_Spatial >= MIN_COUNT & obj$nFeature_Spatial >= MIN_FEAT & obj$percent.mt <= MAX_MT
+message("Keeping ", sum(keep), "/", ncol(obj), " bins (", round(100*mean(keep),1), "%)")
+obj <- obj[, keep]
+
+# Keep a log-normalised Spatial assay alongside SCT. The detection check and the
+# gene-of-interest panel have to read the raw scale: SCT stores *corrected*
+# counts, and its variance stabilisation is exactly the wrong lens when the
+# question is "is this gene seen at all".
+obj <- NormalizeData(obj, assay = "Spatial", verbose = FALSE)
+
+# SCTransform for the module scores and marker panels - better behaved than
+# LogNormalize when bins are shallow (median ~600 UMI here). vst.flavor "v2"
+# needs glmGamPoi; fall back to v1 rather than erroring on a fresh cluster env.
+vst_flavor <- if (requireNamespace("glmGamPoi", quietly = TRUE)) "v2" else NULL
+if (is.null(vst_flavor)) {
+  message("glmGamPoi not found - using sctransform v1 (slower). ",
+          "BiocManager::install('glmGamPoi') to speed this up.")
+}
+message("SCTransform ...")
+obj <- SCTransform(obj, assay = "Spatial", new.assay.name = "SCT",
+                   vst.flavor = vst_flavor, verbose = FALSE)
+DefaultAssay(obj) <- "SCT"
+
 
 bc <- colnames(obj)
 idx <- function(df) match(bc, df$barcode)
@@ -112,25 +164,49 @@ idx <- function(df) match(bc, df$barcode)
 meta <- data.frame(
   x       = pos$pxl_col_in_fullres[idx(pos)],
   y       = pos$pxl_row_in_fullres[idx(pos)],
-  UMAP_1  = umap$UMAP.1[idx(umap)],
-  UMAP_2  = umap$UMAP.2[idx(umap)],
-  cluster = factor(clusters$Cluster[idx(clusters)]),
+  UMAP_1  = umap[[umap_cols[1]]][idx(umap)],
+  UMAP_2  = umap[[umap_cols[2]]][idx(umap)],
+  cluster = factor(clusters[[clus_cols[1]]][idx(clusters)]),
   row.names = bc
 )
-if (anyNA(meta$x) || anyNA(meta$UMAP_1)) {
-  warning("Some barcodes had no coordinate or UMAP match - check bin size consistency")
+# Check each column explicitly. A NULL column is dropped silently by data.frame,
+# so testing meta$UMAP_1 alone can pass on an object that has no UMAP at all.
+for (cn in c("x", "y", "UMAP_1", "UMAP_2", "cluster")) {
+  if (!cn %in% names(meta)) stop("meta is missing column: ", cn)
+  n_na <- sum(is.na(meta[[cn]]))
+  if (n_na) warning(n_na, "/", nrow(meta), " bins have no ", cn,
+                    " - check bin size consistency between matrix and analysis outputs")
 }
 obj <- AddMetaData(obj, meta)
 
 # ---------------------------------------------------------------- scores
 
-present <- function(g) intersect(g, rownames(obj))
+# Genes now live in two places. The Spatial assay holds everything that survived
+# CreateSeuratObject; SCT additionally drops genes too sparse to fit (min_cells =
+# 5 by default). Keep the two reasons apart - "absent from the reference" and
+# "detected, but too sparse for SCT to model" are very different statements to
+# make about a gene.
+in_spatial <- rownames(obj[["Spatial"]])
+in_sct     <- rownames(obj[["SCT"]])
 
+present <- function(g) intersect(g, in_sct)
+
+report_missing <- function(g, nm) {
+  absent <- setdiff(g, in_spatial)
+  sparse <- setdiff(intersect(g, in_spatial), in_sct)
+  if (length(absent)) message("  ", nm, ": not in reference - ", paste(absent, collapse = ", "))
+  if (length(sparse)) message("  ", nm, ": too sparse for SCT - ", paste(sparse, collapse = ", "))
+}
+
+MIN_MARKERS <- 2
 for (nm in names(MARKERS)) {
   found <- present(MARKERS[[nm]])
-  missing <- setdiff(MARKERS[[nm]], found)
-  if (length(missing)) message("  ", nm, ": not in reference - ", paste(missing, collapse = ", "))
-  if (!length(found)) { message("  ", nm, ": skipped, no markers found"); next }
+  report_missing(MARKERS[[nm]], nm)
+  if (length(found) < MIN_MARKERS) {
+    message("  ", nm, ": skipped, only ", length(found), " of ",
+            length(MARKERS[[nm]]), " markers detected")
+    next
+  }
   obj <- AddModuleScore(obj, features = list(found), name = paste0(nm, "_"),
                         ctrl = 50, seed = 42)
   # AddModuleScore appends an index; rename to the plain cell-type name.
@@ -218,7 +294,15 @@ for (g in present(EC_SUBTYPES)) {
 }
 
 # Combined figure: endothelial and fibroblast, spatial beside UMAP.
-if (requireNamespace("patchwork", quietly = TRUE)) {
+# Guarded on both scores existing - a marker set skipped above would otherwise
+# take the script down here, after every other panel has already been written.
+combo_sets <- c("Endothelial", "Fibroblast")
+have_combo <- all(combo_sets %in% names(obj@meta.data))
+if (!have_combo) {
+  message("Skipping combined figure - missing score(s): ",
+          paste(setdiff(combo_sets, names(obj@meta.data)), collapse = ", "))
+}
+if (have_combo && requireNamespace("patchwork", quietly = TRUE)) {
   library(patchwork)
   combo <- (spatial_plot(obj, "Endothelial", "Endothelial score") |
             umap_plot(obj, "Endothelial", "Endothelial score")) /
@@ -234,7 +318,9 @@ if (requireNamespace("patchwork", quietly = TRUE)) {
 # Report raw counts, not normalized values - the question is whether the gene
 # is seen at all, and normalization can make a handful of counts look like
 # meaningful signal.
-raw <- GetAssayData(obj, layer = "counts")
+# assay = "Spatial" is load-bearing: DefaultAssay is SCT by this point, and SCT's
+# counts layer holds corrected counts, not the observed UMIs.
+raw <- GetAssayData(obj, assay = "Spatial", layer = "counts")
 total_umi <- sum(raw)
 
 detection_row <- function(g) {
@@ -264,9 +350,16 @@ print(detection[, c("gene", "total_counts", "bins_detected", "pct_bins", "per_mi
 
 # Plot the gene of interest regardless, so "not detected" is visible rather
 # than asserted.
-if (GENE_OF_INTEREST %in% rownames(obj)) {
+# Plotted off the Spatial assay on purpose. If the gene is barely there, SCT may
+# have dropped it entirely, and where it hasn't, the corrected values would
+# flatter a handful of counts into something that reads as signal.
+if (GENE_OF_INTEREST %in% in_spatial) {
+  DefaultAssay(obj) <- "Spatial"
   save_panel(spatial_plot(obj, GENE_OF_INTEREST), paste0("06_", GENE_OF_INTEREST))
   save_panel(umap_plot(obj, GENE_OF_INTEREST),    paste0("06_", GENE_OF_INTEREST, "_umap"))
+  DefaultAssay(obj) <- "SCT"
+} else {
+  message(GENE_OF_INTEREST, " not in the filtered matrix - no panel drawn")
 }
 
 saveRDS(obj, file.path(OUT_DIR, paste0(SAMPLE, "_", BIN, "_marker_panels.rds")))
