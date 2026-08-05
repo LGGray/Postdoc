@@ -39,6 +39,7 @@ core_escape_block_ratio <- bind_rows(core_escape_block_ratio, .id = "cell_barcod
 
 # Write out the core escape block allelic ratio table
 write.table(core_escape_block_ratio, 'Allelic_ratio_results/core_escape_block_new_allelic_ratio_table.txt', sep = '\t', row.names = FALSE, quote = FALSE)
+core_escape_block_ratio <- read.delim('Allelic_ratio_results/core_escape_block_new_allelic_ratio_table.txt', header = TRUE)
 
 # Subset seurat object by barcodes
 subset_heart_ceb <- subset(heart, cells = core_escape_block_ratio$cell_barcode)
@@ -56,6 +57,7 @@ plot(
   main = "Total Reads Distribution",
   xlab = "Total Reads"
 )
+abline(v = 5, col = "red", lty = 2)
 dev.off()
 
 ###################################################
