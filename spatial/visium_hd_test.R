@@ -3,19 +3,20 @@ library(ggplot2)
 library(patchwork)
 library(dplyr)
 
+
 localdir <- "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_spatial/9w/outs"
-object <- Load10X_Spatial(data.dir = localdir, bin.size = 16)
+object <- Load10X_Spatial(data.dir = localdir, bin.size = 8)
 
-DefaultAssay(object) <- "Spatial.016um"
+DefaultAssay(object) <- "Spatial.008um"
 
-vln.plot <- VlnPlot(object, features = 'nCount_Spatial.016um', pt.size = 0) + 
+vln.plot <- VlnPlot(object, features = 'nCount_Spatial.008um', pt.size = 0) + 
               theme(axis.text = element_text(size = 4)) + NoLegend()
 
-count.plot <- SpatialFeaturePlot(object, features = 'nCount_Spatial.016um') + 
+count.plot <- SpatialFeaturePlot(object, features = 'nCount_Spatial.008um') + 
                 theme(legend.position = "right")
 
 # Note that many spots have very few counts, in-part due to low cellular density in certain tissue regions
-pdf('test.figures/spatial_016um_count_distribution.pdf')
+pdf('test.figures/spatial_008um_count_distribution.pdf')
 vln.plot | count.plot
 dev.off()
 
@@ -27,17 +28,17 @@ object <- NormalizeData(object)
 lo <- "q02"; hi <- "q98"
 
 # Ttn: pan-cardiomyocyte sarcomere gene - confirms myocardium, near-uniform
-DefaultAssay(object) <- "Spatial.016um"
+DefaultAssay(object) <- "Spatial.008um"
 p1 <- SpatialFeaturePlot(object, features = "Ttn",
                          min.cutoff = lo, max.cutoff = hi) +
-        ggtitle("Ttn expression (16um)")
+        ggtitle("Ttn expression (8um)")
 
 # Myl7: atrial cardiomyocytes - marks the atrial region against ventricle
 p2 <- SpatialFeaturePlot(object, features = "Myl7",
                          min.cutoff = lo, max.cutoff = hi) +
-        ggtitle("Myl7 expression (16um)")
+        ggtitle("Myl7 expression (8um)")
 
-pdf('test.figures/spatial_016um_expression.pdf')
+pdf('test.figures/spatial_008um_Ttn_Myl7_expression.pdf')
 p1 | p2
 dev.off()
 
@@ -60,20 +61,25 @@ stromal.markers <- c("Postn", "Col1a1", "Pecam1", "Vwf", "Dcn")
 chrX.markers <- c("Xist", "Tsix", "Kdm5c", "Eif2s3x", "Ddx3x")
 
 cm.markers <- cm.markers[cm.markers %in% rownames(object)]
-pdf('test.figures/spatial_016um_cardiac_markers.pdf', width = 12, height = 8)
+pdf('test.figures/spatial_008um_cardiac_markers.pdf', width = 12, height = 8)
 SpatialFeaturePlot(object, features = cm.markers, ncol = 3,
                    min.cutoff = lo, max.cutoff = hi)
 dev.off()
 
 stromal.markers <- stromal.markers[stromal.markers %in% rownames(object)]
-pdf('test.figures/spatial_016um_stromal_markers.pdf', width = 12, height = 8)
+pdf('test.figures/spatial_008um_stromal_markers.pdf', width = 12, height = 8)
 SpatialFeaturePlot(object, features = stromal.markers, ncol = 3,
                    min.cutoff = lo, max.cutoff = hi)
 dev.off()
 
 chrX.markers <- chrX.markers[chrX.markers %in% rownames(object)]
-pdf('test.figures/spatial_016um_chrX_markers.pdf', width = 12, height = 8)
+pdf('test.figures/spatial_008um_chrX_markers.pdf', width = 12, height = 8)
 SpatialFeaturePlot(object, features = chrX.markers, ncol = 3,
+                   min.cutoff = lo, max.cutoff = hi)
+dev.off()
+
+pdf('test.figures/spatial_008um_DMD_plot.pdf')
+SpatialFeaturePlot(object, features = "Dmd",
                    min.cutoff = lo, max.cutoff = hi)
 dev.off()
 
@@ -96,7 +102,7 @@ object <- ScaleData(object)
 object <- RunPCA(object, assay = "sketch", reduction.name = "pca.sketch")
 
 # ElbowPlot to determine the number of PCs to use for clustering
-pdf('test.figures/sketch_elbow_plot.pdf')
+pdf('test.figures/sketch_elbow_plot_008um.pdf')
 ElbowPlot(object, ndims = 50, reduction = "pca.sketch")
 dev.off()
 
@@ -111,14 +117,14 @@ n.clust <- sapply(res.sweep, function(r)
 print(data.frame(resolution = res.sweep, n_clusters = n.clust))
 
 # Working resolution - revisit once the sweep above is inspected
-object$seurat_cluster.sketched <- object[["sketch_snn_res.0.3"]][, 1]
+object$seurat_cluster.sketched <- object[["sketch_snn_res.0.1"]][, 1]
 Idents(object) <- "seurat_cluster.sketched"
 
 object <- RunUMAP(object, reduction = "pca.sketch", reduction.name = "umap.sketch", return.model = T, dims = 1:15)
 
 object <- ProjectData(
   object = object,
-  assay = "Spatial.016um",
+  assay = "Spatial.008um",
   full.reduction = "full.pca.sketch",
   sketched.assay = "sketch",
   sketched.reduction = "pca.sketch",
@@ -132,58 +138,79 @@ Idents(object) <- "seurat_cluster.sketched"
 p1 <- DimPlot(object, reduction = "umap.sketch", label=F) + ggtitle("Sketched clustering (50,000 cells)") + theme(legend.position = "none")
 
 # switch to full dataset
-DefaultAssay(object) <- "Spatial.016um"
+DefaultAssay(object) <- "Spatial.008um"
 Idents(object) <- "seurat_cluster.projected"
 p2 <- DimPlot(object, reduction = "full.umap.sketch", label=F) + ggtitle("Projected clustering (full dataset)") + theme(legend.position = "none")
 
-pdf('test.figures/sketch_clustering.pdf', width = 12, height = 6)
+pdf('test.figures/sketch_clustering_008um.pdf', width = 12, height = 6)
 p1 | p2
 dev.off()
 
-pdf('test.figures/sketch_spatial.pdf', width = 12, height = 6)
+pdf('test.figures/sketch_spatial_008um.pdf', width = 12, height = 6)
 SpatialDimPlot(object, label = T, repel = T, label.size = 4)
 dev.off()
 
 Idents(object) <- "seurat_cluster.projected"
-cells <- CellsByIdentities(object, idents=0:13)
+cells <- CellsByIdentities(object, idents=0:length(levels(object))-1)
 p <- SpatialDimPlot(object, cells.highlight = cells[setdiff(names(cells), "NA")], 
                     cols.highlight = c("#FFFF00","grey50"), facet.highlight = T, combine=T) + NoLegend()
 
-pdf('test.figures/sketch_spatial_highlight.pdf', width = 12, height = 6)
+pdf('test.figures/sketch_spatial_highlight_008um.pdf', width = 12, height = 6)
 print(p)
 dev.off()
 
-# Crete downsampled object to make visualization either
-DefaultAssay(object) <- "Spatial.016um"
+# Create downsampled object to make visualization easier
+DefaultAssay(object) <- "Spatial.008um"
 Idents(object) <- "seurat_cluster.projected"
-object_subset <- subset(object, cells = Cells(object[['Spatial.016um']]), downsample=1000)
+object_subset <- subset(object, cells = Cells(object[['Spatial.008um']]), downsample=1000)
 
 # Order clusters by similarity
-DefaultAssay(object_subset) <- "Spatial.016um"
+DefaultAssay(object_subset) <- "Spatial.008um"
 Idents(object_subset) <- "seurat_cluster.projected"
-object_subset <- BuildClusterTree(object_subset, assay = "Spatial.016um", reduction = "full.pca.sketch", reorder = T)
+object_subset <- BuildClusterTree(object_subset, assay = "Spatial.008um", reduction = "full.pca.sketch", reorder = T)
 
-markers <- FindAllMarkers(object_subset, assay = 'Spatial.016um', only.pos = TRUE)
+markers <- FindAllMarkers(object_subset, assay = 'Spatial.008um', only.pos = TRUE)
 markers %>%
   group_by(cluster) %>%
   dplyr::filter(avg_log2FC > 1) %>%
   slice_head(n = 5) %>%
   ungroup() -> top5
 
-object_subset <- ScaleData(object_subset, assay = "Spatial.016um", features = top5$gene)
-p <- DoHeatmap(object_subset, assay = "Spatial.016um", features = top5$gene, size = 2.5) + theme(axis.text = element_text(size = 5.5)) + NoLegend()
+object_subset <- ScaleData(object_subset, assay = "Spatial.008um", features = top5$gene)
+p <- DoHeatmap(object_subset, assay = "Spatial.008um", features = top5$gene, size = 2.5) + theme(axis.text = element_text(size = 5.5)) + NoLegend()
 pdf('test.figures/top_gene_heatmap.pdf', width = 12, height = 6)
 print(p)
 dev.off()
 
+saveRDS(object, file = "spatial_008um_seurat_object.RDS")
+
+object <- readRDS("spatial_008um_seurat_object.RDS")
+
+.libPaths(c("~/R/matrix-dev", .libPaths()))
 library(SeuratWrappers)
 library(Banksy)
+before <- deparse(body(Banksy:::computeHarmonics))
+source("spatial/banksy_patch.R")
+after  <- deparse(body(Banksy:::computeHarmonics))
+setdiff(after, before)
+
+object <- RunBanksy(object, lambda = 0.8, verbose=TRUE, 
+                    assay = 'Spatial.008um', slot = 'data', features = 'variable',
+                    k_geom = 50, lazy=TRUE)
+
+
 
 # k_geom : Local neighborhood size. Larger values will yield larger domains
 # lambda : Influence of the neighborhood. Larger values yield more spatially coherent domains
 
+DefaultAssay(object) <- "Spatial.008um"
+object <- FindVariableFeatures(object, nfeatures = 3000)
+vf <- grep("^(mt-|Hb[ab]-|Rp[sl])", VariableFeatures(object),
+           value = TRUE, invert = TRUE)
+VariableFeatures(object) <- vf
+
 object <- RunBanksy(object, lambda = 0.8, verbose=TRUE, 
-                    assay = 'Spatial.016um', slot = 'data', features = 'variable',
+                    assay = 'Spatial.008um', slot = 'data', features = 'variable',
                     k_geom = 50)
 
 DefaultAssay(object) <- "BANKSY"
