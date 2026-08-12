@@ -182,6 +182,13 @@ pdf('test.figures/top_gene_heatmap.pdf', width = 12, height = 6)
 print(p)
 dev.off()
 
+DefaultAssay(object) <- "Spatial.008um"
+object <- FindVariableFeatures(object, nfeatures = 3000)
+vf <- grep("^(mt-|Hb[ab]-|Rp[sl])", VariableFeatures(object),
+           value = TRUE, invert = TRUE)
+VariableFeatures(object) <- vf
+
+
 saveRDS(object, file = "spatial_008um_seurat_object.RDS")
 
 object <- readRDS("spatial_008um_seurat_object.RDS")
@@ -189,29 +196,17 @@ object <- readRDS("spatial_008um_seurat_object.RDS")
 .libPaths(c("~/R/matrix-dev", .libPaths()))
 library(SeuratWrappers)
 library(Banksy)
-before <- deparse(body(Banksy:::computeHarmonics))
-source("spatial/banksy_patch.R")
-after  <- deparse(body(Banksy:::computeHarmonics))
-setdiff(after, before)
-
-object <- RunBanksy(object, lambda = 0.8, verbose=TRUE, 
-                    assay = 'Spatial.008um', slot = 'data', features = 'variable',
-                    k_geom = 50, lazy=TRUE)
-
+source("../Postdoc/spatial/banksy_patch.R")
 
 
 # k_geom : Local neighborhood size. Larger values will yield larger domains
 # lambda : Influence of the neighborhood. Larger values yield more spatially coherent domains
+object <- RunBanksy(object, lambda = 0.8, verbose = TRUE,
+                    assay = 'Spatial.008um', slot = 'data',
+                    features = 'variable',
+                    k_geom = 200, use_agf = FALSE, chunk_size = 5000)
 
-DefaultAssay(object) <- "Spatial.008um"
-object <- FindVariableFeatures(object, nfeatures = 3000)
-vf <- grep("^(mt-|Hb[ab]-|Rp[sl])", VariableFeatures(object),
-           value = TRUE, invert = TRUE)
-VariableFeatures(object) <- vf
-
-object <- RunBanksy(object, lambda = 0.8, verbose=TRUE, 
-                    assay = 'Spatial.008um', slot = 'data', features = 'variable',
-                    k_geom = 50)
+saveRDS(object, file = "spatial_008um_seurat_object_banksy.RDS")
 
 DefaultAssay(object) <- "BANKSY"
 object <- RunPCA(object, assay = 'BANKSY', reduction.name = "pca.banksy", features = rownames(object), npcs = 30)
@@ -220,12 +215,123 @@ pdf('test.figures/banksy_elbow_plot.pdf')
 ElbowPlot(object, reduction = "pca.banksy", ndims = 30)
 dev.off()
 
-object <- FindNeighbors(object, reduction = "pca.banksy", dims = 1:30)
-object <- FindClusters(object, cluster.name = "banksy_cluster", resolution = 0.5)
+object <- FindNeighbors(object, reduction = "pca.banksy", dims = 1:15)
 
-BiocManager::version()          # which Bioc release is it targeting?
-getOption("repos")
-curl::curl_fetch_memory("https://bioconductor.org/packages/3.22/bioc/src/contrib/PACKAGES")$status_code
+# Resolution sweep. res 0.1 gave 13 domains, but only one was a distinct tissue:
+# the Myl7+/Myl2- atrial appendage at top-right (45.6% Myl7 detection vs 0.5-2.9%
+# elsewhere). The other 12 split homogeneous ventricular myocardium along a
+# sequencing-depth gradient - their Myl2 detection rate tracks median nCount
+# almost monotonically (101 counts -> 76% detected, 194 counts -> 90%). This
+# section realistically holds 3-4 domains, so the useful range sits well below
+# the Seurat default. Reuses the existing graph, so the sweep is cheap.
+banksy.res <- c(0.02, 0.05, 0.1, 0.2, 0.3)
+object <- FindClusters(object, resolution = banksy.res, verbose = FALSE)
+n.domains <- sapply(banksy.res, function(r)
+  length(unique(object[[paste0("BANKSY_snn_res.", r)]][, 1])))
+print(data.frame(resolution = banksy.res, n_domains = n.domains))
+
+# Detection rate, not median: at 8um most bins are zero for any given gene, so a
+# median of 0 is uninformative and reads as "absent" when the gene is merely
+# sparse - that is what hid the atrium in the first pass. Atrium is Myl7+/Myl2-,
+# ventricle Myl2+/Myl7-, Nppa marks trabecular / subendocardial myocardium.
+# nCount is carried alongside to show whether a domain is a tissue or an artefact.
+DefaultAssay(object) <- "Spatial.008um"
+marker.df <- FetchData(object, vars = c("Myl7", "Myl2", "Nppa",
+                                        "nCount_Spatial.008um"))
+
+domain.summary <- do.call(rbind, lapply(banksy.res, function(r) {
+  d <- marker.df
+  d$domain <- object[[paste0("BANKSY_snn_res.", r)]][, 1]
+  out <- aggregate(cbind(Myl7, Myl2, Nppa) ~ domain, d,
+                   function(x) round(100 * mean(x > 0), 1))
+  out$median_nCount <- aggregate(nCount_Spatial.008um ~ domain, d, median)[, 2]
+  out$n_bins <- as.vector(table(d$domain))
+  cbind(resolution = r, out)
+}))
+print(domain.summary)
+write.csv(domain.summary, 'test.figures/banksy_resolution_sweep_summary.csv',
+          row.names = FALSE)
+
+# The domain map decides the resolution, not the domain count - one panel each.
+res.plots <- lapply(seq_along(banksy.res), function(i) {
+  col <- paste0("BANKSY_snn_res.", banksy.res[i])
+  SpatialDimPlot(object, images = "slice1.008um", group.by = col, label = FALSE) +
+    ggtitle(paste0("res = ", banksy.res[i], "  (", n.domains[i], " domains)")) +
+    theme(legend.position = "none",
+          plot.title = element_text(hjust = 0.5, size = 10))
+})
+pdf('test.figures/banksy_resolution_sweep_008um.pdf', width = 15, height = 10)
+print(wrap_plots(res.plots, ncol = 3))
+dev.off()
+
+# Working resolution - revisit once the sweep above is inspected
+object$banksy_cluster <- object[["BANKSY_snn_res.0.2"]][, 1]
+Idents(object) <- "banksy_cluster"
+p <- SpatialDimPlot(object, images = "slice1.008um", group.by = "banksy_cluster", label = T, repel = T, label.size = 4) 
+pdf('test.figures/banksy_spatial_008um.pdf')
+print(p)
+dev.off()
+
+banksy_cells <- CellsByIdentities(object)
+p <- SpatialDimPlot(object, cells.highlight = banksy_cells[setdiff(names(banksy_cells), "NA")], cols.highlight = c("#FFFF00","grey50"),facet.highlight = T, combine=T) + NoLegend()
+pdf('test.figures/banksy_spatial_highlight_008um.pdf')
+print(p)
+dev.off()
+
+# Integration with snRNA-seq
+ref <- readRDS('../OCM/heart_seurat_object_SCT.rds')
+ref$celltype <- Idents(ref)
+ref <- subset(ref, subset = !celltype %in% c("Cardiomyocytes (stressed)", "Epicardial - Mesothelial cells"))
+ref$celltype <- droplevels(factor(ref$celltype))
+
+
+ref <- NormalizeData(ref)
+ref <- FindVariableFeatures(ref); ref <- ScaleData(ref); ref <- RunPCA(ref)
+
+DefaultAssay(object) <- "sketch"
+anchors <- FindTransferAnchors(reference = ref, query = object,
+                               reference.reduction = "pca", dims = 1:30)
+preds <- TransferData(anchorset = anchors, refdata = ref$celltype, dims = 1:30)
+object <- AddMetaData(object, preds)
+
+# 1. Working partition - the sweep showed 0.2 is where atrium and background separate
+object$banksy_cluster <- object[["BANKSY_snn_res.0.2"]][, 1]
+
+# 2. Project labels from the 50k sketched bins to all 248k
+DefaultAssay(object) <- "sketch"
+object <- ProjectData(
+  object            = object,
+  assay             = "Spatial.008um",
+  full.reduction    = "full.pca.sketch",
+  sketched.assay    = "sketch",
+  sketched.reduction = "pca.sketch",
+  umap.model        = "umap.sketch",
+  dims              = 1:15,
+  refdata           = list(full_celltype = "predicted.id")
+)
+
+# 3. Composition per domain
+DefaultAssay(object) <- "Spatial.008um"
+comp <- object[[]] %>%
+  dplyr::filter(!is.na(full_celltype)) %>%
+  dplyr::count(banksy_cluster, full_celltype) %>%
+  dplyr::group_by(banksy_cluster) %>%
+  dplyr::mutate(prop = n / sum(n)) %>%
+  dplyr::ungroup()
+
+p <- ggplot(comp, aes(x = factor(banksy_cluster), y = prop, fill = full_celltype)) +
+  geom_col() +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "BANKSY domain", y = "% of bins", fill = "Cell type",
+       title = "Cell type composition of BANKSY domains (8um bins)") +
+  theme_minimal()
+
+pdf('test.figures/banksy_celltype_composition.pdf', width = 10, height = 6)
+print(p)
+dev.off()
+
+
+
 
 
 ##############
