@@ -305,6 +305,18 @@ if (nrow(ref) >= 200) {
       "versus ", sum(cells$lox_call_threshold), " (",
       sprintf("%.1f%%", 100 * mean(cells$lox_call_threshold)),
       ") by the AR >= ", LOX_AR_THRESHOLD, " rule.")
+  if (sum(cells$lox_call_test) == 0) {
+    say("  READ THIS AS: a diagnostic, not a failure to find anything. With rho = ",
+        sprintf("%.2f", fit_ref$rho), " the fitted Beta is U-shaped (alpha = ",
+        sprintf("%.2f", ab_ref[1]), ", beta = ", sprintf("%.2f", ab_ref[2]),
+        ", both below 1), so the null ALREADY expects a large share of cells at ",
+        "AR = 1 -- roughly a quarter even at 8 reads. No single cell's ratio can ",
+        "therefore be surprising enough to survive multiple-testing correction.")
+    say("  The conclusion is that this block cannot support PER-CELL ",
+        "classification at these depths, whatever test is used. Population-level ",
+        "comparisons like the Xist association below still work, because they ",
+        "aggregate over thousands of cells instead of asking each one alone.")
+  }
 
   # Do the two independent signals agree? If the allelic call is picking out
   # real lost-Xi cells, those cells should be depleted of Xist.
@@ -396,6 +408,12 @@ if (exists("ab_ref")) {
   }
   say("  If the two rows differ in depth, the raw odds ratios from 04 are ",
       "confounded and only the stratified result below is interpretable.")
+  say("  Note which way the LEFTOVER confound points. Stratifying on block reads ",
+      "closes the chance-LOX path, but Xist-zero cells still have smaller ",
+      "libraries, and by the whole-chrX depth analysis a smaller library means ",
+      "proportionally more ambient RNA, which pulls AR DOWN and so makes a LOX ",
+      "call LESS likely. The residual bias therefore works against the ",
+      "association, and cannot be what produces it.")
 
   # Stratify on the EXACT read count, not on quantile bins.
   #
@@ -469,6 +487,46 @@ if (exists("ab_ref")) {
           "longer significant, so the raw odds ratios in 04's Fisher tests are ",
           "consistent with being a depth artefact -- shallow cells lose Xist to ",
           "dropout AND gain chance LOX calls.")
+    }
+
+    # Mantel-Haenszel reports a single pooled odds ratio, which assumes the true
+    # odds ratio is the SAME in every stratum. The per-stratum differences above
+    # visibly grow with depth, so test that assumption rather than let the pooled
+    # number quietly average over it. A logistic model with an interaction does
+    # the job in base R: if the interaction improves fit, the effect is modified
+    # by depth and the single pooled OR is an average over unlike things.
+    homog <- tryCatch({
+      d <- subset(cells, !is.na(depth_stratum))
+      m_add <- glm(lox_call_threshold ~ (!xist_positive) + depth_stratum,
+                   family = binomial, data = d)
+      m_int <- glm(lox_call_threshold ~ (!xist_positive) * depth_stratum,
+                   family = binomial, data = d)
+      anova(m_add, m_int, test = "LRT")
+    }, error = function(e) NULL)
+    if (!is.null(homog)) {
+      pv <- homog[["Pr(>Chi)"]][2]
+      say(sprintf("  Is the odds ratio constant across depth strata? interaction LRT p = %s",
+                  format.pval(pv, digits = 3)))
+      if (!is.na(pv) && pv < 0.05) {
+        say("    It is NOT constant, so read 1.76 as an average over strata that ",
+            "differ rather than one underlying effect. The differences above are ",
+            "smallest at 1 read and larger from 2 upward, which is what you would ",
+            "expect if Xist == 0 at 1 read is mostly dropout in a shallow cell, ",
+            "and becomes a more trustworthy marker of a missing Xi as depth rises. ",
+            "That pattern supports the signal being real; it just means the ",
+            "pooled OR is not the right single summary.")
+      }
+    }
+
+    # Same test restricted to cells where Xist == 0 is a more reliable marker.
+    # At 1 read the cell is so shallow that a zero Xist count says very little.
+    mh3 <- tryCatch(mantelhaen.test(mh_array(subset(cells, total_reads >= 3))),
+                    error = function(e) NULL)
+    if (!is.null(mh3)) {
+      say(sprintf("  Restricted to cells with >= 3 reads (n = %d), where a zero Xist count is more informative: OR = %.2f [%.2f-%.2f], p = %s",
+                  sum(cells$total_reads >= 3), mh3$estimate,
+                  mh3$conf.int[1], mh3$conf.int[2],
+                  format.pval(mh3$p.value, digits = 3)))
     }
 
     # Pooling every celltype together dilutes this: 04 found the effect in
