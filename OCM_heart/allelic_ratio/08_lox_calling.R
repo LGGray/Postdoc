@@ -423,28 +423,69 @@ if (exists("ab_ref")) {
                 r$lox_rate_xist_zero, r$lox_rate_xist_pos, r$rate_difference))
   }
 
-  mh <- tryCatch({
-    arr <- table(LOX = factor(cells$lox_call_threshold, levels = c(FALSE, TRUE)),
-                 Xist_zero = factor(!cells$xist_positive, levels = c(FALSE, TRUE)),
-                 stratum = cells$depth_stratum)
-    mantelhaen.test(arr)
-  }, error = function(e) NULL)
+  # mantelhaen.test multiplies three cell counts together when building its
+  # variance term. With thousands of cells per stratum that overflows R's
+  # 32-bit integer limit and the confidence interval comes back NA, while the
+  # point estimate still looks fine. Casting the table to double fixes it.
+  mh_array <- function(df) {
+    arr <- table(LOX = factor(df$lox_call_threshold, levels = c(FALSE, TRUE)),
+                 Xist_zero = factor(!df$xist_positive, levels = c(FALSE, TRUE)),
+                 stratum = df$depth_stratum)
+    array(as.double(arr), dim = dim(arr), dimnames = dimnames(arr))
+  }
+  mh <- tryCatch(mantelhaen.test(mh_array(cells)), error = function(e) NULL)
 
   if (!is.null(mh)) {
-    say(sprintf("  Mantel-Haenszel combined odds ratio, depth held fixed: %.2f (95%% CI %.2f-%.2f), p = %s",
-                mh$estimate, mh$conf.int[1], mh$conf.int[2],
+    ci_lo <- mh$conf.int[1]; ci_hi <- mh$conf.int[2]
+    say(sprintf("  Mantel-Haenszel combined odds ratio, depth held fixed: %.2f (95%% CI %s-%s), p = %s",
+                mh$estimate,
+                if (is.na(ci_lo)) "NA" else sprintf("%.2f", ci_lo),
+                if (is.na(ci_hi)) "NA" else sprintf("%.2f", ci_hi),
                 format.pval(mh$p.value, digits = 3)))
-    if (mh$conf.int[1] > 1) {
+    if (!is.na(ci_lo) && ci_lo > 1) {
       say("  READ THIS AS: the association SURVIVES depth stratification. The ",
           "confidence interval excludes 1, so Xist-zero cells are genuinely ",
           "more likely to look monoallelic even among cells of the same read ",
           "depth. That is independent support for the lost-X hypothesis, ",
           "because Xist status does not come from the allelic data.")
+    } else if (is.na(ci_lo)) {
+      say("  Confidence interval not computable, so judge on the p-value and ",
+          "the per-stratum rate differences above rather than the interval.")
     } else {
       say("  READ THIS AS: once depth is held fixed the association is no ",
           "longer significant, so the raw odds ratios in 04's Fisher tests are ",
           "consistent with being a depth artefact -- shallow cells lose Xist to ",
           "dropout AND gain chance LOX calls.")
+    }
+
+    # Pooling every celltype together dilutes this: 04 found the effect in
+    # ventricular cardiomyocytes and endothelial cells, not everywhere. So also
+    # run it per celltype, still with depth held fixed within each.
+    say("  Per celltype, depth still held fixed within each:")
+    ct_mh <- lapply(split(cells, cells$celltype), function(d) {
+      if (nrow(d) < 200 || sum(!d$xist_positive) < 20) return(NULL)
+      m <- tryCatch(mantelhaen.test(mh_array(d)), error = function(e) NULL)
+      if (is.null(m)) return(NULL)
+      data.frame(celltype = d$celltype[1], n_cells = nrow(d),
+                 n_xist_zero = sum(!d$xist_positive),
+                 OR = unname(m$estimate), lwr = m$conf.int[1], upr = m$conf.int[2],
+                 p_value = m$p.value)
+    })
+    ct_mh <- bind_rows(ct_mh)
+    if (nrow(ct_mh)) {
+      ct_mh$FDR <- p.adjust(ct_mh$p_value, method = "fdr")
+      ct_mh <- ct_mh[order(ct_mh$p_value), ]
+      write.table(ct_mh, file.path(OUT_DIR, "04b_mantelhaenszel_per_celltype.txt"),
+                  sep = '\t', row.names = FALSE, quote = FALSE)
+      for (i in seq_len(nrow(ct_mh))) {
+        r <- ct_mh[i, ]
+        say(sprintf("    %-32s n = %5d (%4d Xist-zero): OR = %.2f [%.2f-%.2f], FDR = %s",
+                    substr(r$celltype, 1, 32), r$n_cells, r$n_xist_zero,
+                    r$OR, r$lwr, r$upr, format.pval(r$FDR, digits = 3)))
+      }
+      say("    An OR above 1 with an interval clear of it means Xist-zero cells ",
+          "look monoallelic more often than equally-deep Xist-positive cells of ",
+          "the same celltype -- which allelic sampling alone cannot produce.")
     }
   } else {
     say("  Mantel-Haenszel test not computable (a stratum has an empty margin).")
@@ -534,6 +575,7 @@ writeLines(c(
   "  04_lox_test_vs_xist_crosstab.txt   allelic call vs the independent Xist signal",
   "  04b_depth_by_xist_status.txt       is Xist==0 just a shallow library?",
   "  04b_lox_vs_xist_within_depth_strata.txt  the association with depth held fixed",
+  "  04b_mantelhaenszel_per_celltype.txt  the same test per celltype",
   "  05_lox_rate_per_sample.txt         LOX rate per sample, both methods",
   "  06_per_cell_lox_calls.txt          per-cell p_lox, FDR_lox and both calls",
   "  07_wholeX_crosscheck.txt           do block calls look monoallelic chromosome-wide"
