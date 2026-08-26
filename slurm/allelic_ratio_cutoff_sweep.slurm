@@ -34,7 +34,10 @@ module load slurm_setup
 CUTOFFS="${1:-${CUTOFFS:-}}"
 
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
-conda activate RNAseq
+# seurat_env, not the RNAseq env the rest of this directory uses: the
+# allelic_ratio scripts are Seurat-based and need that environment's package
+# set. Do not "correct" this to RNAseq for consistency with the neighbours.
+conda activate seurat_env
 
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 cd $BASE/OCM
