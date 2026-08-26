@@ -354,6 +354,122 @@ write.table(cells, file.path(OUT_DIR, "06_per_cell_lox_calls.txt"),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 # ---------------------------------------------------------------------------
+# STEP 4b. THE CONFOUND THAT COULD EXPLAIN STEP 4 AWAY.
+#
+# 04's Fisher tests found that Xist-zero cells are 4-8x more likely to be
+# called LOX in cardiomyocytes. Before believing that, one alternative has to
+# be ruled out, and it is a serious one.
+#
+# Xist is a highly expressed lncRNA. A cell with zero Xist reads is quite
+# likely just a cell with a shallow library that failed to sample it -- that is
+# dropout, not X loss. And a shallow library also yields fewer chrX informative
+# reads, which by STEP 2 makes a chance AR = 1 call MORE likely. So low depth
+# pushes BOTH variables in the same direction and can manufacture the entire
+# association without any cell having lost anything.
+#
+# Two things settle it:
+#   (a) do Xist-zero cells actually have lower depth? If not, no confound.
+#   (b) does the association survive INSIDE depth strata? Holding depth fixed
+#       removes its ability to drive both variables. The Mantel-Haenszel test
+#       combines the within-stratum odds ratios into one estimate.
+# ---------------------------------------------------------------------------
+if (exists("ab_ref")) {
+  say("")
+  say("STEP 4b -- is the Xist association just read depth? Xist is highly ",
+      "expressed, so Xist == 0 may simply mean a shallow library, and shallow ",
+      "libraries also produce more chance LOX calls. Checking both ways.")
+
+  depth_by_xist <- cells %>%
+    group_by(xist_positive) %>%
+    summarise(n_cells = dplyr::n(),
+              median_block_reads = median(total_reads),
+              median_nCount_RNA = median(nCount_RNA),
+              lox_rate_threshold = mean(lox_call_threshold),
+              .groups = "drop")
+  write.table(depth_by_xist, file.path(OUT_DIR, "04b_depth_by_xist_status.txt"),
+              sep = '\t', row.names = FALSE, quote = FALSE)
+  for (i in seq_len(nrow(depth_by_xist))) {
+    r <- depth_by_xist[i, ]
+    say(sprintf("  Xist %s: n = %d, median block reads = %d, median library = %.0f, LOX rate = %.3f",
+                if (r$xist_positive) "> 0 " else "== 0", r$n_cells,
+                r$median_block_reads, r$median_nCount_RNA, r$lox_rate_threshold))
+  }
+  say("  If the two rows differ in depth, the raw odds ratios from 04 are ",
+      "confounded and only the stratified result below is interpretable.")
+
+  # Depth strata: block reads, because that is what directly drives a chance
+  # LOX call. Cut so strata are populated rather than on round numbers.
+  cells$depth_stratum <- cut(cells$total_reads,
+                             breaks = unique(quantile(cells$total_reads,
+                                                      probs = seq(0, 1, 0.25))),
+                             include.lowest = TRUE)
+
+  strat <- cells %>%
+    group_by(depth_stratum) %>%
+    summarise(n_cells = dplyr::n(),
+              n_xist_zero = sum(!xist_positive),
+              lox_rate_xist_zero = mean(lox_call_threshold[!xist_positive]),
+              lox_rate_xist_pos  = mean(lox_call_threshold[xist_positive]),
+              .groups = "drop") %>%
+    mutate(rate_difference = lox_rate_xist_zero - lox_rate_xist_pos)
+  write.table(strat, file.path(OUT_DIR, "04b_lox_vs_xist_within_depth_strata.txt"),
+              sep = '\t', row.names = FALSE, quote = FALSE)
+
+  say("  LOX rate in Xist-zero vs Xist-positive cells, WITHIN depth strata:")
+  for (i in seq_len(nrow(strat))) {
+    r <- strat[i, ]
+    say(sprintf("    reads %-10s n = %5d (%4d Xist-zero): %.3f vs %.3f, difference %+.3f",
+                as.character(r$depth_stratum), r$n_cells, r$n_xist_zero,
+                r$lox_rate_xist_zero, r$lox_rate_xist_pos, r$rate_difference))
+  }
+
+  mh <- tryCatch({
+    arr <- table(LOX = factor(cells$lox_call_threshold, levels = c(FALSE, TRUE)),
+                 Xist_zero = factor(!cells$xist_positive, levels = c(FALSE, TRUE)),
+                 stratum = cells$depth_stratum)
+    mantelhaen.test(arr)
+  }, error = function(e) NULL)
+
+  if (!is.null(mh)) {
+    say(sprintf("  Mantel-Haenszel combined odds ratio, depth held fixed: %.2f (95%% CI %.2f-%.2f), p = %s",
+                mh$estimate, mh$conf.int[1], mh$conf.int[2],
+                format.pval(mh$p.value, digits = 3)))
+    if (mh$conf.int[1] > 1) {
+      say("  READ THIS AS: the association SURVIVES depth stratification. The ",
+          "confidence interval excludes 1, so Xist-zero cells are genuinely ",
+          "more likely to look monoallelic even among cells of the same read ",
+          "depth. That is independent support for the lost-X hypothesis, ",
+          "because Xist status does not come from the allelic data.")
+    } else {
+      say("  READ THIS AS: once depth is held fixed the association is no ",
+          "longer significant, so the raw odds ratios in 04's Fisher tests are ",
+          "consistent with being a depth artefact -- shallow cells lose Xist to ",
+          "dropout AND gain chance LOX calls.")
+    }
+  } else {
+    say("  Mantel-Haenszel test not computable (a stratum has an empty margin).")
+  }
+
+  # Prevalence. If the Xist-positive LOX rate is the chance baseline -- those
+  # cells demonstrably still have an Xi, so every LOX call among them is a
+  # false positive -- then the EXCESS among Xist-zero cells is the part
+  # attributable to real X loss. This is a floor, not an estimate of the total:
+  # dropout means many genuinely Xi-less cells are not in the Xist-zero group.
+  base_rate <- mean(cells$lox_call_threshold[cells$xist_positive])
+  nz <- sum(!cells$xist_positive)
+  excess <- sum(cells$lox_call_threshold[!cells$xist_positive]) - base_rate * nz
+  say(sprintf("  Prevalence floor: LOX rate among Xist-positive (known to have an Xi) is %.3f,",
+              base_rate))
+  say(sprintf("    so of the %d Xist-zero cells, ~%.0f are LOX calls beyond that baseline",
+              nz, max(0, excess)))
+  say(sprintf("    = ~%.1f%% of all %d cells, against the %.1f%% the AR >= %.2f rule reports.",
+              100 * max(0, excess) / nrow(cells), nrow(cells),
+              100 * mean(cells$lox_call_threshold), LOX_AR_THRESHOLD))
+  say("    Treat that as a lower bound on prevalence and an upper bound on the ",
+      "threshold rule's specificity.")
+}
+
+# ---------------------------------------------------------------------------
 # STEP 5. Second independent check: the whole X chromosome.
 #
 # A cell that has lost an entire X cannot produce A2 reads ANYWHERE on it, not
@@ -416,6 +532,8 @@ writeLines(c(
   "  02_chance_lox_rate_by_cutoff.txt   how often chance alone gives AR = 1",
   "  03_expected_vs_observed_by_depth.txt  the central test: does one population explain it",
   "  04_lox_test_vs_xist_crosstab.txt   allelic call vs the independent Xist signal",
+  "  04b_depth_by_xist_status.txt       is Xist==0 just a shallow library?",
+  "  04b_lox_vs_xist_within_depth_strata.txt  the association with depth held fixed",
   "  05_lox_rate_per_sample.txt         LOX rate per sample, both methods",
   "  06_per_cell_lox_calls.txt          per-cell p_lox, FDR_lox and both calls",
   "  07_wholeX_crosscheck.txt           do block calls look monoallelic chromosome-wide"
