@@ -28,6 +28,10 @@
 
 .libPaths(c("~/R/matrix-dev", .libPaths()))
 
+# print() writes to stdout and message() to stderr, and SLURM sends those to
+# different files. Route tables through message() so the log reads in order.
+msg_table <- function(x) message(paste(capture.output(print(x)), collapse = "\n"))
+
 suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)
@@ -96,6 +100,8 @@ TILE_UM_FOR_SINTO <- if (nzchar(Sys.getenv("TILE_UM"))) {
 }
 # Tiles below this many informative chrX UMIs are dropped from the sinto map -
 # no point spending a BAM and an Allelome.PRO2 invocation on an empty tile.
+# chrX is the limiting signal; autosomes have ~7x more, so a tile that clears
+# this on chrX is comfortable on autosomes. Set to 0 to keep every tissue tile.
 SINTO_MIN_UMI <- 10
 ##### ------------------------------------------------------ #####
 
@@ -240,8 +246,13 @@ sweep <- rbindlist(c(
   lapply(SIZES_UM, sweep_one, ref_col = "a_ref", alt_col = "a_alt", label = "autosome")
 ))
 fwrite(sweep, file.path(OUT_DIR, "tile_size_sweep.csv"))
-print(sweep[chrom_set == "chrX",
-            .(size_um, n_tissue_tiles, median_umi, frac_ge_10, frac_ge_20, rho_bb)])
+msg_table(sweep[chrom_set == "chrX",
+                .(size_um, n_tissue_tiles, median_umi, frac_ge_10, frac_ge_20,
+                  p_bar = round(p_bar, 4), rho_bb = round(rho_bb, 4))])
+message("\nAutosomal control (same tiles, expected rho ~ 0):")
+msg_table(sweep[chrom_set == "autosome",
+                .(size_um, median_umi, p_bar = round(p_bar, 4),
+                  rho_bb = round(rho_bb, 4))])
 
 # ---------------------------------------------------- pair correlation C(d)
 
@@ -318,6 +329,49 @@ fit_decay <- function(dt) {
   if (!is.finite(L) || L <= 0 || L > CD_MAX_UM) return(NA_real_)
   L
 }
+# nls on a curve that barely decays returns a singular gradient rather than an
+# answer, which is what happened to chrX. This needs no model: interpolate the
+# distance at which C falls halfway from its short-range value to its plateau.
+half_decay <- function(dt) {
+  if (is.null(dt) || nrow(dt) < 6) return(NA_real_)
+  dt <- dt[order(dist_um)]
+  C0   <- mean(head(dt$C, 3))
+  Cinf <- mean(tail(dt$C, 5))
+  if (!is.finite(C0 - Cinf) || (C0 - Cinf) <= 0) return(NA_real_)
+  half <- (C0 + Cinf) / 2
+  i <- which(dt$C <= half)[1]
+  if (is.na(i) || i == 1L) return(NA_real_)
+  with(dt, dist_um[i - 1] + (half - C[i - 1]) *
+           (dist_um[i] - dist_um[i - 1]) / (C[i] - C[i - 1]))
+}
+
+# The decisive comparison. Autosomes are diploid, so any short-range allelic
+# correlation there is technical plus transcriptional bursting - one cell's
+# burst spreads across the bins that cell covers. chrX carries that same floor
+# PLUS clonal X-inactivation, so it is the excess over the autosomal curve, not
+# the chrX curve itself, that measures patch structure.
+cx <- cd[chrom_set == "chrX"    & sector == -1L][order(dist_um)]
+ca <- cd[chrom_set == "autosome" & sector == -1L][order(dist_um)]
+excess <- NULL
+if (nrow(cx) > 1L && nrow(ca) > 1L) {   # approx() needs two points
+  ca_at <- approx(ca$dist_um, ca$C, xout = cx$dist_um, rule = 2)$y
+  excess <- data.table(dist_um = cx$dist_um,
+                       C_chrX = cx$C, C_auto = ca_at,
+                       excess = cx$C - ca_at,
+                       se = cx$se)
+  fwrite(excess, file.path(OUT_DIR, "pair_correlation_excess.csv"))
+  message("\nchrX excess over the autosomal null, short range:")
+  msg_table(excess[dist_um <= 200,
+                   .(dist_um = round(dist_um), C_chrX = round(C_chrX, 4),
+                     C_auto = round(C_auto, 4), excess = round(excess, 4),
+                     se = round(se, 4))])
+}
+
+L_x_free <- half_decay(cx)
+L_a_free <- half_decay(ca)
+message(sprintf("\nHalf-decay (model-free): chrX %.0f um, autosome %.0f um",
+                L_x_free, L_a_free))
+
 L_x <- fit_decay(cd[chrom_set == "chrX" & sector == -1L])
 L_a <- fit_decay(cd[chrom_set == "autosome" & sector == -1L])
 message(sprintf("Correlation length (all angles): chrX %.0f um, autosome %.0f um",
@@ -337,7 +391,7 @@ if (CD_N_SECTORS > 0L) {
   }))
   fwrite(sector_L, file.path(OUT_DIR, "pair_correlation_by_sector.csv"))
   message("Directional correlation length (chrX):")
-  print(sector_L)
+  msg_table(sector_L)
 }
 
 # ------------------------------------------------------------------ figures
@@ -387,6 +441,24 @@ if (nrow(cd)) {
       theme_bw()
   )
 
+  if (!is.null(excess)) {
+    print(
+      ggplot(excess, aes(dist_um, excess)) +
+        geom_hline(yintercept = 0, linetype = 2, colour = "grey50") +
+        geom_ribbon(aes(ymin = excess - 2 * se, ymax = excess + 2 * se),
+                    alpha = 0.15) +
+        geom_line() +
+        scale_x_log10() +
+        labs(title = "chrX clonal signal: C(d) above the autosomal null",
+             subtitle = paste("Autosomes carry the same cell-footprint and",
+                              "bursting correlation without clonal XCI, so",
+                              "the excess is the mosaicism. Flat at zero",
+                              "means no patch structure at this depth."),
+             x = "separation (um)", y = "C_chrX(d) - C_autosome(d)") +
+        theme_bw() + theme(plot.subtitle = element_text(size = 7))
+    )
+  }
+
   if (CD_N_SECTORS > 0L && nrow(cd[sector >= 0L])) {
     print(
       ggplot(cd[sector >= 0L],
@@ -434,6 +506,24 @@ x <- sweep[chrom_set == "chrX"]
 best_rho <- if (all(is.na(x$rho_bb))) NULL else x[which.max(rho_bb)]
 usable   <- x[frac_ge_10 >= 0.5]
 message("\n--- recommendation ---")
+if (!is.null(excess)) {
+  e0 <- mean(head(excess$excess, 3))
+  s0 <- mean(head(excess$se, 3))
+  if (is.finite(e0) && e0 > 2 * s0) {
+    message(sprintf("chrX carries clonal signal: excess %.4f at short range (%.1f SE).",
+                    e0, e0 / s0))
+    if (!is.na(L_x_free)) {
+      message(sprintf("  Patch half-decay ~%.0f um -> tile at <= %.0f um.",
+                      L_x_free, L_x_free / 2))
+    }
+  } else {
+    message(sprintf("No clonal signal: chrX C(d) sits %.4f above the autosomal null at short range (%.1f SE).",
+                    e0, if (s0 > 0) e0 / s0 else NA_real_))
+    message("  Either patches are smaller than the depth allows resolving, or")
+    message("  diffusion has smeared them. A grid map has nothing to show; the")
+    message("  per-domain pseudobulk is where the signal will be.")
+  }
+}
 if (!is.na(L_x)) {
   message(sprintf("C(d) puts the chrX patch length at ~%.0f um (autosomal null %.0f um).",
                   L_x, L_a))
@@ -473,25 +563,41 @@ message("Set TILE_UM_FOR_SINTO once you have looked at ",
 
 if (!is.null(TILE_UM_FOR_SINTO)) {
   k <- TILE_UM_FOR_SINTO / 2
-  bins[, tile := sprintf("tile_%dum_r%04d_c%04d", as.integer(TILE_UM_FOR_SINTO),
-                         as.integer(array_row %/% k), as.integer(array_col %/% k))]
-  depth <- bins[, .(n = sum(x_n)), by = tile]
-  keep  <- depth[n >= SINTO_MIN_UMI, tile]
-  map   <- bins[tile %in% keep, .(barcode, tile)]
+  tile_id <- function(r, cc) sprintf("tile_%dum_r%04d_c%04d",
+                                     as.integer(TILE_UM_FOR_SINTO),
+                                     as.integer(r %/% k), as.integer(cc %/% k))
 
-  # sinto filterbarcodes holds one output BAM open per group. A few thousand is
-  # already heavy on file descriptors and I/O; tens of thousands will not run.
-  message(sprintf("\nsinto map: %d tiles, %d bins, median %d UMIs/tile",
-                  length(keep), nrow(map),
-                  as.integer(median(depth[tile %in% keep, n]))))
+  # Depth comes from `bins`, which only holds bins carrying an informative UMI.
+  bins[, tile := tile_id(array_row, array_col)]
+  depth <- bins[, .(n_chrX = sum(x_n), n_auto = sum(a_n)), by = tile]
+  keep  <- depth[n_chrX >= SINTO_MIN_UMI, tile]
+
+  # ...but the MAP must come from every tissue bin. Four fifths of tissue bins
+  # carry no informative UMI, and their reads still belong in the tile: they
+  # cover SNPs this counter skipped, they carry autosomal signal, and they make
+  # up the denominator Allelome.PRO2 works from. Building the map out of `bins`
+  # would hand sinto a fifth of the data.
+  tissue[, tile := tile_id(array_row, array_col)]
+  map <- tissue[tile %in% keep, .(barcode, tile)]
+
+  message(sprintf("\nsinto map at %dum: %d tiles, %d of %d tissue bins (%.0f%%)",
+                  TILE_UM_FOR_SINTO, length(keep), nrow(map), nrow(tissue),
+                  100 * nrow(map) / nrow(tissue)))
+  message(sprintf("  bins per tile: %.0f of a possible %d",
+                  nrow(map) / max(1L, length(keep)), as.integer(k)^2))
+  message(sprintf("  informative UMIs per tile, median: chrX %d, autosomal %d",
+                  as.integer(median(depth[tile %in% keep, n_chrX])),
+                  as.integer(median(depth[tile %in% keep, n_auto]))))
   if (length(keep) > 5000) {
-    warning("More than 5000 tiles - sinto will struggle with the open file ",
-            "handles. Raise TILE_UM_FOR_SINTO or SINTO_MIN_UMI.")
+    warning("More than 5000 tiles - sinto holds one output BAM open per tile ",
+            "and will run into the open-file limit. Raise TILE_UM_FOR_SINTO ",
+            "or SINTO_MIN_UMI.")
   }
+
   fwrite(map, file.path(OUT_DIR, sprintf("sinto_tiles_%dum.tsv",
                                          TILE_UM_FOR_SINTO)),
          sep = "\t", col.names = FALSE)
-  fwrite(depth[tile %in% keep][order(-n)],
+  fwrite(depth[tile %in% keep][order(-n_chrX)],
          file.path(OUT_DIR, sprintf("tile_depth_%dum.csv", TILE_UM_FOR_SINTO)))
 }
 

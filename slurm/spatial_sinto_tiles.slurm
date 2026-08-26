@@ -47,8 +47,16 @@ fi
 BAM=$SPATIAL/$SAMPLE/outs/possorted_genome_bam.bam
 CELLS=$SPATIAL/ase/$SAMPLE/sinto_tiles_${TILE_UM}um.tsv
 
-# chrX-only annotation keeps Allelome.PRO2 fast when it is being invoked once
-# per tile. Swap to chr_annotation_mm39.bed for a genome-wide run.
+# NOT CB. On Visium HD the CB tag carries the raw spatial barcode sequence
+# (GATGCGCTCACACTG...), which has no bin identity without the slide whitelist.
+# The 2um bin is in sb (sb:Z:s_002um_01679_00804-1), and that is what the tile
+# map is keyed on. Splitting on CB would match nothing and write no BAMs.
+BARCODE_TAG=sb
+
+# Genome-wide, deliberately. The autosomes are not overhead here: each tile's
+# autosomal ratio is its own technical control, so a tile with a distorted
+# autosomal ratio can be flagged rather than trusted. The cost is that every
+# per-tile invocation parses the full SNP and annotation beds.
 ANNOTATION=$BASE/GRCm39/chr_annotation_mm39.bed
 # Xist reports the inactive X and would invert every ratio, so it stays out,
 # matching the snRNA-seq runs in scAllelome_*.slurm.
@@ -90,11 +98,16 @@ source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x
 
 ##### ---- split ---- #####
 conda activate sinto
+if ! sinto filterbarcodes --help 2>&1 | grep -q -- '--barcodetag'; then
+  echo "ERROR: this sinto has no --barcodetag; it would split on CB and match" >&2
+  echo "       nothing. Upgrade sinto, or pre-tag the BAM with sb copied to CB." >&2
+  exit 1
+fi
 sinto filterbarcodes \
   --bam "$BAM" \
   --cells "$CELLS" \
   --outdir "$BAM_DIR" \
-  --barcodetag CB \
+  --barcodetag "$BARCODE_TAG" \
   --nproc "$SLURM_CPUS_PER_TASK" || { echo "sinto failed" >&2; exit 1; }
 conda deactivate
 
