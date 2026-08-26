@@ -76,6 +76,16 @@ else
   # invert the ratio), matching the snRNA-seq runs. The autosomal control uses
   # small chromosomes on purpose: the null only needs depth comparable to chrX,
   # and peak memory scales with UMIs on the largest chromosome processed.
+  # Bins come from the sb tag (sb:Z:s_002um_01679_00804-1), which spaceranger
+  # writes on every read whose barcode corrected to a slide position. CB holds
+  # the raw sequence and cannot be placed without the slide whitelist, and
+  # outs/barcode_mappings.parquet does not carry sequences at all.
+  #
+  # No --require-gene: GX marks exonic assignment, while Allelome.PRO2 counts
+  # over gene-body intervals from its annotation bed, introns included. On this
+  # nuclear-heavy 3' data most reads are intronic (RE:A:I), so requiring GX
+  # would both discard most of the data and measure a stricter thing than the
+  # pipeline being sized.
   python3 "$REPO/spatial/ase_bin_allele_counts.py" \
     --bam "$BAM" \
     --spatial-dir "$SPATIAL_DIR" \

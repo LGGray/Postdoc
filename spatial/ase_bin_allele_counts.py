@@ -42,6 +42,9 @@ import sys
 
 import pysam
 
+# Spaceranger's 2um bin barcodes: s_002um_<row>_<col>-1
+BIN_PREFIX = "s_002um_"
+
 
 # ---------------------------------------------------------------- SNP loading
 
@@ -219,6 +222,13 @@ def load_barcode_map(path, spatial_dir, pos):
     pf = pyparquet.ParquetFile(src)
     head = next(pf.iter_batches(batch_size=8)).to_pydict()
     seq_col = bin_col = None
+    row_col = col_col = None
+    for name, vals in head.items():
+        n = str(name).lower()
+        if n in ("array_row", "row"):
+            row_col = name
+        elif n in ("array_col", "col", "column"):
+            col_col = name
     for name, vals in head.items():
         if not vals or vals[0] is None:
             continue
@@ -228,12 +238,43 @@ def load_barcode_map(path, spatial_dir, pos):
             seq_col = name
         elif bin_col is None and v.startswith("s_002um_"):
             bin_col = name
-    if seq_col is None or bin_col is None:
+    if bin_col is None and seq_col is not None and row_col and col_col:
+        # A whitelist giving coordinates directly needs no bin names at all.
+        mapping = {}
+        n_rows = 0
+        for batch in pf.iter_batches(batch_size=500000,
+                                     columns=[seq_col, row_col, col_col]):
+            dd = batch.to_pydict()
+            for seq, r, c in zip(dd[seq_col], dd[row_col], dd[col_col]):
+                n_rows += 1
+                if seq is None or r is None or c is None:
+                    continue
+                mapping[str(seq).rsplit("-", 1)[0]] = (int(r), int(c))
+        sys.stderr.write("Barcode map: %s\n  %s -> (%s, %s), %d rows\n"
+                         % (src, seq_col, row_col, col_col, n_rows))
+        return mapping, [src]
+
+    if bin_col is None:
         raise SystemExit(
-            "Could not identify the sequence and 2um-bin columns in %s\n"
-            "Columns and first values:\n  %s"
+            "No 2um-bin column in %s\nColumns and first values:\n  %s"
             % (src, "\n  ".join("%s = %r" % (k, v[0] if v else None)
                                  for k, v in head.items()))
+        )
+    if seq_col is None:
+        # outs/barcode_mappings.parquet relates 2um bins to coarser bins and to
+        # segmented cells. It never carries the raw barcode sequence, so it
+        # cannot translate a CB tag - that needs the slide whitelist.
+        raise SystemExit(
+            "%s has no barcode-sequence column, so it cannot translate CB "
+            "tags.\nIt holds: %s\n\n"
+            "This file maps bins to coarser bins and to cells, which is a "
+            "different job.\nThe CB tag carries the raw spatial barcode "
+            "sequence, and turning that into\na 2um bin needs the Visium HD "
+            "slide whitelist that ships with spaceranger.\n"
+            "Pass it with --barcode-map: either a two-column table of "
+            "sequence and\ns_002um_* bin name, or sequence and array "
+            "row/col.\n"
+            % (src, ", ".join(head))
         )
 
     pos_stripped = {b.rsplit("-", 1)[0]: v for b, v in pos.items()}
@@ -270,9 +311,9 @@ def load_barcode_map(path, spatial_dir, pos):
 # ------------------------------------------------------------------ main pass
 
 def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats):
-    """UMI-collapsed (barcode -> [ref, alt]) for one chromosome."""
-    votes = collections.defaultdict(lambda: [0, 0])   # (cb, ub) -> votes
-    umi_bin = {}                                      # (cb, ub) -> cb
+    """UMI-collapsed (2um bin -> [ref, alt]) for one chromosome."""
+    votes = collections.defaultdict(lambda: [0, 0])   # (bin, umi) -> votes
+    umi_bin = {}                                      # (bin, umi) -> bin
     n_obs = n_hit = 0
 
     for read in bam.fetch(chrom):
@@ -286,8 +327,15 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats):
         if read.mapping_quality < args.min_mapq:
             stats["drop_mapq"] += 1
             continue
-        if not read.has_tag("CB"):
-            stats["drop_no_CB"] += 1
+        # Spaceranger writes the 2um bin straight onto the read as sb. When the
+        # barcode failed correction it holds the raw sequence instead, and that
+        # read has no position on the slide at all.
+        if not read.has_tag(args.bin_tag):
+            stats["drop_no_bin_tag"] += 1
+            continue
+        bin_bc = read.get_tag(args.bin_tag)
+        if not bin_bc.startswith(BIN_PREFIX):
+            stats["drop_bin_unresolved"] += 1
             continue
         if not read.has_tag("UB"):
             stats["drop_no_UB"] += 1
@@ -295,7 +343,6 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats):
         if args.require_gene and not read.has_tag(args.gene_tag):
             stats["drop_no_gene"] += 1
             continue
-        cb = read.get_tag("CB")
         stats["reads_kept"] += 1
 
         # Most reads in a CAST cross do overlap a SNP, but skipping the ones
@@ -304,7 +351,7 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats):
         if lo >= len(snp_sorted) or snp_sorted[lo] >= read.reference_end:
             continue
 
-        key = (cb, read.get_tag("UB"))
+        key = (bin_bc, read.get_tag("UB"))
         seq = read.query_sequence
         qual = read.query_qualities
         for qpos, rpos in read.get_aligned_pairs(matches_only=True):
@@ -322,7 +369,7 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats):
                 votes[key][1] += 1
                 n_hit += 1
         if key in votes:
-            umi_bin[key] = cb
+            umi_bin[key] = bin_bc
 
     # Majority vote per UMI; a tie means the UMI saw both alleles, which is
     # either a chimera or an alignment artefact - drop it rather than guess.
@@ -364,8 +411,8 @@ def probe_offsets(bam, chrom, snp_sorted, snp_map, args, candidates=(-1, 0, 1)):
         n += 1
         if n > args.probe:
             break
-        if len(cb_seen) < 5 and read.has_tag("CB"):
-            cb_seen.add(read.get_tag("CB"))
+        if len(cb_seen) < 5 and read.has_tag(args.bin_tag):
+            cb_seen.add(read.get_tag(args.bin_tag))
         seq = read.query_sequence
         qual = read.query_qualities
         for qpos, rpos in read.get_aligned_pairs(matches_only=True):
@@ -434,11 +481,18 @@ def main():
     p.add_argument("--min-mapq", type=int, default=255,
                    help="255 = STAR unique, which is what spaceranger emits.")
     p.add_argument("--min-baseq", type=int, default=20)
+    p.add_argument("--bin-tag", default="sb",
+                   help="Tag carrying the 2um bin barcode. Spaceranger writes "
+                        "sb:Z:s_002um_XXXXX_YYYYY-1; CB holds the raw sequence "
+                        "and cannot be placed on the slide without a whitelist.")
     p.add_argument("--gene-tag", default="GX")
-    p.add_argument("--require-gene", action="store_true", default=True,
-                   help="Only count reads assigned to a gene, matching what "
-                        "Allelome.PRO2 does with its annotation bed.")
-    p.add_argument("--no-require-gene", dest="require_gene", action="store_false")
+    p.add_argument("--require-gene", action="store_true", default=False,
+                   help="Only count reads carrying a gene tag. Off by default: "
+                        "GX marks exonic assignment, whereas Allelome.PRO2 "
+                        "counts within gene-body intervals from its annotation "
+                        "bed, introns included. Requiring GX would be stricter "
+                        "than the pipeline this is meant to be sizing, and on "
+                        "a nuclear-heavy 3' assay it discards most reads.")
     p.add_argument("--barcode-map", default=None,
                    help="Spaceranger's raw-sequence -> 2um-bin table. Found "
                         "automatically in the usual places; pass it explicitly "
@@ -483,11 +537,15 @@ def main():
     pos = load_positions(args.spatial_dir)
     sys.stderr.write("Tissue-covered 2um bins: %d\n" % len(pos))
 
-    bcmap, tried = load_barcode_map(args.barcode_map, args.spatial_dir, pos)
+    # Only consulted if --barcode-map is passed explicitly. Not auto-searched:
+    # outs/barcode_mappings.parquet looks like the right file but maps bins to
+    # coarser bins and to cells, and carries no barcode sequence at all.
+    bcmap, tried = ((None, []) if not args.barcode_map else
+                    load_barcode_map(args.barcode_map, args.spatial_dir, pos))
     pos_stripped = {b.rsplit("-", 1)[0]: v for b, v in pos.items()}
 
     def resolve(bc):
-        """CB tag -> (array_row, array_col), or None if it is not on tissue."""
+        """Bin barcode -> (array_row, array_col), or None if it is off tissue."""
         c = pos.get(bc)
         if c is not None:
             return c
@@ -514,23 +572,27 @@ def main():
     if not args.probe:
         peek = set()
         for read in bam.fetch(args.x_chrom):
-            if read.has_tag("CB"):
-                peek.add(read.get_tag("CB"))
+            if read.has_tag(args.bin_tag):
+                v = read.get_tag(args.bin_tag)
+                if v.startswith(BIN_PREFIX):
+                    peek.add(v)
             if len(peek) >= 200:
                 break
         n_ok = sum(1 for b in peek if resolve(b) is not None)
-        sys.stderr.write("Pre-flight: %d / %d sampled CB tags resolve to a bin\n"
+        sys.stderr.write("Pre-flight: %d / %d sampled bin tags are on tissue\n"
                          % (n_ok, len(peek)))
         if peek and n_ok == 0:
             sys.stderr.write(
-                "\nERROR: CB tags cannot be resolved to 2um bins.\n"
-                "BAM CB examples:\n  %s\nparquet barcodes:\n  %s\n"
+                "\nERROR: %s tags cannot be resolved to 2um bins.\n"
+                "BAM %s examples:\n  %s\nparquet barcodes:\n  %s\n"
                 "%s\nPass --barcode-map with spaceranger's sequence -> bin table.\n"
-                % ("\n  ".join(sorted(peek)[:3]), "\n  ".join(sorted(pos)[:3]),
+                % (args.bin_tag, args.bin_tag,
+                   "\n  ".join(sorted(peek)[:3]), "\n  ".join(sorted(pos)[:3]),
                    ("Barcode map loaded but no entry matched."
-                    if bcmap is not None
-                    else "No barcode map found. Looked in:\n  "
-                         + "\n  ".join(tried)))
+                    if bcmap is not None else
+                    "Every sampled tag looks like a bin, so these are bins "
+                    "that are\noff tissue - check the spatial dir matches "
+                    "this sample."))
             )
             raise SystemExit(2)
 
@@ -540,12 +602,13 @@ def main():
         # The other thing that silently produces an empty table: CB tags and
         # parquet barcodes drawn from different namespaces. Show both.
         sys.stderr.write("\n--- barcode namespace ---\n")
-        sys.stderr.write("BAM CB tags:\n  %s\n"
-                         % ("\n  ".join(cb_seen) if cb_seen else "(no CB tags seen)"))
+        sys.stderr.write("BAM %s tags:\n  %s\n"
+                         % (args.bin_tag,
+                            "\n  ".join(cb_seen) if cb_seen else "(none seen)"))
         sys.stderr.write("parquet barcodes:\n  %s\n"
                          % "\n  ".join(sorted(pos)[:5]))
         n_ok = sum(1 for b in cb_seen if resolve(b) is not None)
-        sys.stderr.write("%d / %d sampled CB tags resolve to a tissue bin\n"
+        sys.stderr.write("%d / %d sampled tags resolve to a tissue bin\n"
                          % (n_ok, len(cb_seen)))
         return
 
@@ -617,7 +680,8 @@ def main():
     for k, lab in (("drop_not_primary", "not primary"),
                    ("drop_duplicate", "PCR duplicate"),
                    ("drop_mapq", "MAPQ below cutoff"),
-                   ("drop_no_CB", "no CB tag"),
+                   ("drop_no_bin_tag", "no %s tag" % args.bin_tag),
+                   ("drop_bin_unresolved", "%s is not a 2um bin" % args.bin_tag),
                    ("drop_no_UB", "no UB tag"),
                    ("drop_no_gene", "no %s tag" % args.gene_tag)):
         if stats[k]:
