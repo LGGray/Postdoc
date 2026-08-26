@@ -81,6 +81,7 @@ else
     --out "$COUNTS" \
     --x-chrom chrX \
     --autosome-chroms chr19,chr18,chr17 \
+    --snp-offset -1 \
     --min-mapq 255 \
     --min-baseq 20 \
     --threads "$SLURM_CPUS_PER_TASK"
@@ -89,9 +90,11 @@ else
   if [ $rc -ne 0 ]; then echo "Counting pass failed" >&2; exit $rc; fi
 fi
 
-# Read the allele-match rate out of the log before trusting anything below.
-# Well above 95% means the SNP bed's coordinate convention matches the BAM;
-# anything near 50% is an off-by-one and --snp-offset -1 is the fix.
+# --snp-offset -1 is not a guess: the probe scored -1 at 100.0%, +0 at 49.0%
+# and +1 at 33.5% on 200k chrX reads. Column 2 of this SNP bed is a 1-based VCF
+# position written as `pos, pos+1`, so it sits one to the right of the 0-based
+# coordinate pysam reports. Re-probe if the bed is ever regenerated:
+#   python3 $REPO/spatial/ase_bin_allele_counts.py --bam ... --out /dev/null --probe 200000
 
 ##### ---- pass 2: tile-size sweep (R) ---- #####
 conda activate RNAseq

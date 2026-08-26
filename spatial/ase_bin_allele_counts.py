@@ -183,6 +183,90 @@ def load_positions(spatial_dir):
     raise SystemExit(f"No tissue_positions.* found in {spatial_dir}")
 
 
+def load_barcode_map(path, spatial_dir, pos):
+    """Raw CB sequence -> (array_row, array_col) for tissue-covered bins.
+
+    The Visium HD BAM tags reads with the raw spatial barcode sequence
+    (GATGACTGCGATG...), while every binned output is keyed by the bin name
+    (s_002um_00596_01672-1). Nothing in the sequence encodes position;
+    spaceranger writes the translation as outs/barcode_mappings.parquet.
+
+    Resolved to coordinates as it is read, and restricted to bins that are on
+    tissue: the full table is ~11M rows, and keeping it as Python strings would
+    cost several GB to hold something we immediately throw most of away.
+
+    Columns are identified by content rather than name - the names have moved
+    between spaceranger releases, and the file may carry a bin column per bin
+    size, of which only the 2um one is wanted.
+    """
+    outs = os.path.dirname(os.path.dirname(os.path.dirname(spatial_dir)))
+    candidates = [path] if path else [
+        os.path.join(outs, "barcode_mappings.parquet"),
+        os.path.join(spatial_dir, "barcode_mappings.parquet"),
+        os.path.join(outs, "spatial", "barcode_mappings.parquet"),
+    ]
+    src = next((c for c in candidates if c and os.path.exists(c)), None)
+    if src is None:
+        return None, candidates
+    if not src.endswith(".parquet"):
+        raise SystemExit("--barcode-map expects a .parquet file, got %s" % src)
+
+    try:
+        import pyarrow.parquet as pyparquet
+    except ImportError:
+        raise SystemExit("Need pyarrow to read %s" % src)
+
+    pf = pyparquet.ParquetFile(src)
+    head = next(pf.iter_batches(batch_size=8)).to_pydict()
+    seq_col = bin_col = None
+    for name, vals in head.items():
+        if not vals or vals[0] is None:
+            continue
+        v = str(vals[0])
+        stem = v.rsplit("-", 1)[0]
+        if seq_col is None and len(stem) >= 14 and set(stem.upper()) <= set("ACGTN"):
+            seq_col = name
+        elif bin_col is None and v.startswith("s_002um_"):
+            bin_col = name
+    if seq_col is None or bin_col is None:
+        raise SystemExit(
+            "Could not identify the sequence and 2um-bin columns in %s\n"
+            "Columns and first values:\n  %s"
+            % (src, "\n  ".join("%s = %r" % (k, v[0] if v else None)
+                                 for k, v in head.items()))
+        )
+
+    pos_stripped = {b.rsplit("-", 1)[0]: v for b, v in pos.items()}
+    mapping = {}
+    n_rows = n_dup = 0
+    for batch in pf.iter_batches(batch_size=500000, columns=[seq_col, bin_col]):
+        d = batch.to_pydict()
+        for seq, b in zip(d[seq_col], d[bin_col]):
+            n_rows += 1
+            if seq is None or b is None:
+                continue
+            coord = pos.get(b)
+            if coord is None:
+                coord = pos_stripped.get(str(b).rsplit("-", 1)[0])
+            if coord is None:          # bin is off tissue
+                continue
+            key = str(seq).rsplit("-", 1)[0]
+            if key in mapping:
+                n_dup += 1
+                continue
+            mapping[key] = coord
+
+    sys.stderr.write("Barcode map: %s\n  %s -> %s, %d rows, %d resolve to a "
+                     "tissue bin\n" % (src, seq_col, bin_col, n_rows, len(mapping)))
+    if n_dup:
+        # At 2um the barcodes are printed one per bin, so this should be zero.
+        # If it is not, a sequence is backing more than one bin and the first
+        # one wins, which is a guess - worth knowing about.
+        sys.stderr.write("  WARNING: %d sequences map to more than one tissue "
+                         "bin; kept the first\n" % n_dup)
+    return mapping, [src]
+
+
 # ------------------------------------------------------------------ main pass
 
 def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats):
@@ -355,6 +439,10 @@ def main():
                    help="Only count reads assigned to a gene, matching what "
                         "Allelome.PRO2 does with its annotation bed.")
     p.add_argument("--no-require-gene", dest="require_gene", action="store_false")
+    p.add_argument("--barcode-map", default=None,
+                   help="Spaceranger's raw-sequence -> 2um-bin table. Found "
+                        "automatically in the usual places; pass it explicitly "
+                        "if it lives somewhere else.")
     p.add_argument("--probe", type=int, default=0,
                    help="Read this many alignments, report the allele-match "
                         "rate for offsets -1/0/+1, and exit without counting. "
@@ -395,6 +483,21 @@ def main():
     pos = load_positions(args.spatial_dir)
     sys.stderr.write("Tissue-covered 2um bins: %d\n" % len(pos))
 
+    bcmap, tried = load_barcode_map(args.barcode_map, args.spatial_dir, pos)
+    pos_stripped = {b.rsplit("-", 1)[0]: v for b, v in pos.items()}
+
+    def resolve(bc):
+        """CB tag -> (array_row, array_col), or None if it is not on tissue."""
+        c = pos.get(bc)
+        if c is not None:
+            return c
+        c = pos_stripped.get(bc.rsplit("-", 1)[0])
+        if c is not None:
+            return c
+        if bcmap is not None:
+            return bcmap.get(bc) or bcmap.get(bc.rsplit("-", 1)[0])
+        return None
+
     bam = pysam.AlignmentFile(args.bam, "rb", threads=args.threads)
     bam_chroms = set(bam.references)
     missing = [c for c in chroms if c not in bam_chroms]
@@ -404,6 +507,32 @@ def main():
             "differs between the BAM and the SNP bed."
             % (", ".join(missing), ", ".join(sorted(bam_chroms)[:5]))
         )
+
+    # Pre-flight. The counting pass takes hours; resolving a handful of CB tags
+    # takes a second, and an unresolvable barcode namespace is otherwise only
+    # discovered at the very end, as an empty output table.
+    if not args.probe:
+        peek = set()
+        for read in bam.fetch(args.x_chrom):
+            if read.has_tag("CB"):
+                peek.add(read.get_tag("CB"))
+            if len(peek) >= 200:
+                break
+        n_ok = sum(1 for b in peek if resolve(b) is not None)
+        sys.stderr.write("Pre-flight: %d / %d sampled CB tags resolve to a bin\n"
+                         % (n_ok, len(peek)))
+        if peek and n_ok == 0:
+            sys.stderr.write(
+                "\nERROR: CB tags cannot be resolved to 2um bins.\n"
+                "BAM CB examples:\n  %s\nparquet barcodes:\n  %s\n"
+                "%s\nPass --barcode-map with spaceranger's sequence -> bin table.\n"
+                % ("\n  ".join(sorted(peek)[:3]), "\n  ".join(sorted(pos)[:3]),
+                   ("Barcode map loaded but no entry matched."
+                    if bcmap is not None
+                    else "No barcode map found. Looked in:\n  "
+                         + "\n  ".join(tried)))
+            )
+            raise SystemExit(2)
 
     if args.probe:
         _, cb_seen = probe_offsets(bam, args.x_chrom, *snps[args.x_chrom], args)
@@ -415,9 +544,7 @@ def main():
                          % ("\n  ".join(cb_seen) if cb_seen else "(no CB tags seen)"))
         sys.stderr.write("parquet barcodes:\n  %s\n"
                          % "\n  ".join(sorted(pos)[:5]))
-        stripped = {b.rsplit("-", 1)[0] for b in pos}
-        n_ok = sum(1 for b in cb_seen
-                   if b in pos or b.rsplit("-", 1)[0] in stripped)
+        n_ok = sum(1 for b in cb_seen if resolve(b) is not None)
         sys.stderr.write("%d / %d sampled CB tags resolve to a tissue bin\n"
                          % (n_ok, len(cb_seen)))
         return
@@ -444,15 +571,7 @@ def main():
     # Try the literal barcode first, then the suffix-stripped form, and refuse
     # to write an empty table quietly if neither lands.
     observed = set(x_counts) | set(a_counts)
-    pos_stripped = {b.rsplit("-", 1)[0]: v for b, v in pos.items()}
-
-    def lookup(bc):
-        c = pos.get(bc)
-        if c is not None:
-            return c
-        return pos_stripped.get(bc.rsplit("-", 1)[0])
-
-    n_match = sum(1 for b in observed if lookup(b) is not None)
+    n_match = sum(1 for b in observed if resolve(b) is not None)
     if observed and n_match == 0:
         sys.stderr.write(
             "\nERROR: none of the %d barcodes seen in the BAM match any bin in\n"
@@ -478,7 +597,7 @@ def main():
     with open(args.out, "w") as out:
         out.write("barcode\tarray_row\tarray_col\tx_ref\tx_alt\ta_ref\ta_alt\n")
         for bc in observed:
-            coord = lookup(bc)
+            coord = resolve(bc)
             if coord is None:          # off-tissue bin
                 continue
             xr, xa = x_counts.get(bc, (0, 0))
