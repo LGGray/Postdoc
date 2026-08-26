@@ -93,8 +93,15 @@ SINTO_MIN_UMI <- 10
 
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
+# fread() can only decompress .gz in-process via R.utils, which is not in the
+# RNAseq env. Piping through gzip is equivalent and needs no extra package.
+fread_any <- function(path, ...) {
+  if (grepl("\\.gz$", path)) fread(cmd = paste("gzip -dc", shQuote(path)), ...)
+  else fread(path, ...)
+}
+
 if (!file.exists(IN_TSV)) stop("No count table: ", IN_TSV)
-bins <- fread(IN_TSV)
+bins <- fread_any(IN_TSV)
 setnames(bins, tolower(names(bins)))
 stopifnot(all(c("barcode", "array_row", "array_col",
                 "x_ref", "x_alt", "a_ref", "a_alt") %in% names(bins)))
@@ -115,7 +122,7 @@ message("chrX informative UMIs: ", sum(bins$x_n),
         "   autosomal: ", sum(bins$a_n))
 
 if (!file.exists(TISSUE_TSV)) stop("No tissue bin list: ", TISSUE_TSV)
-tissue <- fread(TISSUE_TSV)
+tissue <- fread_any(TISSUE_TSV)
 setnames(tissue, tolower(names(tissue)))
 if (!is.null(DOMAIN_TSV)) {
   # The denominator has to be restricted the same way the numerator is, and

@@ -194,14 +194,22 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats):
     for read in bam.fetch(chrom):
         stats["reads_seen"] += 1
         if read.is_unmapped or read.is_secondary or read.is_supplementary:
+            stats["drop_not_primary"] += 1
             continue
         if args.drop_duplicates and read.is_duplicate:
+            stats["drop_duplicate"] += 1
             continue
         if read.mapping_quality < args.min_mapq:
+            stats["drop_mapq"] += 1
             continue
-        if not read.has_tag("CB") or not read.has_tag("UB"):
+        if not read.has_tag("CB"):
+            stats["drop_no_CB"] += 1
+            continue
+        if not read.has_tag("UB"):
+            stats["drop_no_UB"] += 1
             continue
         if args.require_gene and not read.has_tag(args.gene_tag):
+            stats["drop_no_gene"] += 1
             continue
         cb = read.get_tag("CB")
         stats["reads_kept"] += 1
@@ -250,6 +258,64 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats):
     return per_bin
 
 
+def probe_offsets(bam, chrom, snp_sorted, snp_map, args, candidates=(-1, 0, 1)):
+    """Which coordinate convention does the SNP bed use?
+
+    A bed written from a VCF with `pos, pos+1` has a 1-based column 2, so the
+    0-based position pysam reports is one less. Guessing costs a full run each
+    time; this reads a slice of one chromosome and scores every candidate at
+    once. The right offset puts nearly every base over a SNP on one of the two
+    declared alleles - in an F1 het there is nothing else it can be, bar
+    sequencing error. A wrong offset lands near the base composition, ~50%.
+    """
+    hit = {o: 0 for o in candidates}
+    obs = {o: 0 for o in candidates}
+    cb_seen = set()
+    n = 0
+    for read in bam.fetch(chrom):
+        if read.is_unmapped or read.is_secondary or read.is_supplementary:
+            continue
+        if read.mapping_quality < args.min_mapq:
+            continue
+        n += 1
+        if n > args.probe:
+            break
+        if len(cb_seen) < 5 and read.has_tag("CB"):
+            cb_seen.add(read.get_tag("CB"))
+        seq = read.query_sequence
+        qual = read.query_qualities
+        for qpos, rpos in read.get_aligned_pairs(matches_only=True):
+            if qual is not None and qual[qpos] < args.min_baseq:
+                continue
+            base = seq[qpos]
+            for o in candidates:
+                # Stored key would be filepos + o, so the file position that
+                # would line up with this base is rpos - o.
+                allele = snp_map.get(rpos - o)
+                if allele is None:
+                    continue
+                obs[o] += 1
+                if base == allele[0] or base == allele[1]:
+                    hit[o] += 1
+
+    sys.stderr.write("\n--- offset probe (%d reads on %s) ---\n" % (n - 1, chrom))
+    best, best_rate = None, -1.0
+    for o in candidates:
+        rate = 100.0 * hit[o] / obs[o] if obs[o] else 0.0
+        sys.stderr.write("  --snp-offset %+d : %8d bases over a SNP, %5.1f%% "
+                         "carry a declared allele\n" % (o, obs[o], rate))
+        if rate > best_rate:
+            best, best_rate = o, rate
+    if best_rate >= 90:
+        sys.stderr.write("\nUse --snp-offset %+d\n" % best)
+    else:
+        sys.stderr.write(
+            "\nNo offset clears 90%%. The mismatch is not an off-by-one - check\n"
+            "that the SNP bed and the BAM are on the same assembly (mm39 vs mm10\n"
+            "would look exactly like this).\n")
+    return best, sorted(cb_seen)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -289,6 +355,10 @@ def main():
                    help="Only count reads assigned to a gene, matching what "
                         "Allelome.PRO2 does with its annotation bed.")
     p.add_argument("--no-require-gene", dest="require_gene", action="store_false")
+    p.add_argument("--probe", type=int, default=0,
+                   help="Read this many alignments, report the allele-match "
+                        "rate for offsets -1/0/+1, and exit without counting. "
+                        "200000 is plenty and takes a minute.")
     p.add_argument("--threads", type=int, default=4,
                    help="BGZF decompression threads. The counting loop is "
                         "single-threaded; this only speeds up reading.")
@@ -309,8 +379,11 @@ def main():
            "  [--swap-alleles]" if args.swap_alleles else "")
     )
 
+    # The probe does its own offset arithmetic against unshifted keys, so it
+    # must not be handed a pre-shifted table.
+    load_offset = 0 if args.probe else args.snp_offset
     snps, snp_skipped = load_snps(args.snps, chroms, args.snp_pos_col - 1,
-                                  ref_i, alt_i, packed, args.snp_offset,
+                                  ref_i, alt_i, packed, load_offset,
                                   args.swap_alleles)
     for c in chroms:
         sys.stderr.write("  %s: %d SNPs\n" % (c, len(snps[c][0])))
@@ -332,6 +405,23 @@ def main():
             % (", ".join(missing), ", ".join(sorted(bam_chroms)[:5]))
         )
 
+    if args.probe:
+        _, cb_seen = probe_offsets(bam, args.x_chrom, *snps[args.x_chrom], args)
+        bam.close()
+        # The other thing that silently produces an empty table: CB tags and
+        # parquet barcodes drawn from different namespaces. Show both.
+        sys.stderr.write("\n--- barcode namespace ---\n")
+        sys.stderr.write("BAM CB tags:\n  %s\n"
+                         % ("\n  ".join(cb_seen) if cb_seen else "(no CB tags seen)"))
+        sys.stderr.write("parquet barcodes:\n  %s\n"
+                         % "\n  ".join(sorted(pos)[:5]))
+        stripped = {b.rsplit("-", 1)[0] for b in pos}
+        n_ok = sum(1 for b in cb_seen
+                   if b in pos or b.rsplit("-", 1)[0] in stripped)
+        sys.stderr.write("%d / %d sampled CB tags resolve to a tissue bin\n"
+                         % (n_ok, len(cb_seen)))
+        return
+
     stats = collections.Counter()
     x_counts = count_chrom(bam, args.x_chrom, *snps[args.x_chrom], args, stats)
     a_counts = collections.defaultdict(lambda: [0, 0])
@@ -349,12 +439,46 @@ def main():
     sys.stderr.write("Wrote %d tissue bin coordinates to %s\n"
                      % (len(pos), tissue_out))
 
+    # 10x writes the CB tag with a "-1" GEM-well suffix in some outputs and
+    # without it in others, and the parquet does not always agree with the BAM.
+    # Try the literal barcode first, then the suffix-stripped form, and refuse
+    # to write an empty table quietly if neither lands.
+    observed = set(x_counts) | set(a_counts)
+    pos_stripped = {b.rsplit("-", 1)[0]: v for b, v in pos.items()}
+
+    def lookup(bc):
+        c = pos.get(bc)
+        if c is not None:
+            return c
+        return pos_stripped.get(bc.rsplit("-", 1)[0])
+
+    n_match = sum(1 for b in observed if lookup(b) is not None)
+    if observed and n_match == 0:
+        sys.stderr.write(
+            "\nERROR: none of the %d barcodes seen in the BAM match any bin in\n"
+            "%s\n\nBAM CB examples:\n  %s\n\nparquet barcode examples:\n  %s\n\n"
+            "These are different barcode namespaces. If the BAM carries raw\n"
+            "sequence barcodes rather than the s_002um_XXXXX_YYYYY form, the 2um\n"
+            "bin identity is not recoverable from CB alone and the tiling has to\n"
+            "be driven off a different tag - check what spaceranger wrote:\n"
+            "  samtools view %s | head -1 | tr '\\t' '\\n' | grep -E '^(CB|UB|GX|xf)'\n"
+            % (len(observed), args.spatial_dir,
+               "\n  ".join(sorted(observed)[:5]),
+               "\n  ".join(sorted(pos)[:5]),
+               args.bam)
+        )
+        raise SystemExit(2)
+    if observed:
+        sys.stderr.write("barcodes matching a tissue bin: %d / %d (%.1f%%)\n"
+                         % (n_match, len(observed),
+                            100.0 * n_match / len(observed)))
+
     n_written = 0
     x_umi = a_umi = 0
     with open(args.out, "w") as out:
         out.write("barcode\tarray_row\tarray_col\tx_ref\tx_alt\ta_ref\ta_alt\n")
-        for bc in set(x_counts) | set(a_counts):
-            coord = pos.get(bc)
+        for bc in observed:
+            coord = lookup(bc)
             if coord is None:          # off-tissue bin
                 continue
             xr, xa = x_counts.get(bc, (0, 0))
@@ -371,6 +495,14 @@ def main():
 
     sys.stderr.write("\n--- summary ---\n")
     sys.stderr.write("reads seen                 %d\n" % stats["reads_seen"])
+    for k, lab in (("drop_not_primary", "not primary"),
+                   ("drop_duplicate", "PCR duplicate"),
+                   ("drop_mapq", "MAPQ below cutoff"),
+                   ("drop_no_CB", "no CB tag"),
+                   ("drop_no_UB", "no UB tag"),
+                   ("drop_no_gene", "no %s tag" % args.gene_tag)):
+        if stats[k]:
+            sys.stderr.write("  dropped, %-18s %d\n" % (lab, stats[k]))
     sys.stderr.write("reads passing filters      %d\n" % stats["reads_kept"])
     sys.stderr.write("read bases over a SNP      %d\n" % stats["snp_observations"])
     sys.stderr.write("  matching ref or alt      %.2f%%\n" % match_rate)
