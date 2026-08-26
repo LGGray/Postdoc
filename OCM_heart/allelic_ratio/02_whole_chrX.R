@@ -77,25 +77,13 @@ DimPlot(subset_heart_flt, reduction = "umap", group.by = "celltype", label = TRU
 dev.off()
 
 # UMAP plot coloured by allelic ratio split by sample
-my_colors <- c(
-  "#2B3186", "#374795", "#3B5FB6", "#38749F",
-  "#37758B", "#367373", "#2D6E5D", "#2A7050",
-  "#1E652D", "#1C642D", "#0F7031", "#357B30", "#4E8330",
-  "#658C2D", "#78962A", "#8D9F25", "#A2A71D", "#B3B112",
-  "#C97314", "#8B1913"
-)
-my_breaks  <- seq(0, 1, by = 0.05)
-bin_labels <- sprintf("%.2f–%.2f", head(my_breaks, -1), tail(my_breaks, -1))
-
-subset_heart_flt$allelic_bin <- cut(
-  subset_heart_flt$allelic_ratio,
-  breaks = my_breaks,
-  include.lowest = TRUE,
-  right = TRUE,
-  labels = bin_label
-)
-
-
+# An earlier 20-bin version of this palette used to sit here. It was dead code
+# -- my_colors, my_breaks, bin_labels and allelic_bin were all reassigned a few
+# lines below -- and it referenced `bin_label` rather than `bin_labels`, so it
+# halted the script before anything after this point could run. Removed rather
+# than corrected: fixing the typo would have left two conflicting palettes live
+# in the same file, with the 20-colour one shadowing the 11-colour one used by
+# the plots.
 my_breaks <- c(seq(0, 0.9, by = 0.1), 0.95, 1.0)
 
 my_colors <- c(
