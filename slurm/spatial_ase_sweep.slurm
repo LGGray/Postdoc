@@ -51,7 +51,7 @@ mkdir -p "$OUT_DIR"
 # counter is there to measure it rather than to pretend it is absent.
 BAM=$SPATIAL/$SAMPLE/outs/possorted_genome_bam.bam
 SPATIAL_DIR=$SPATIAL/$SAMPLE/outs/binned_outputs/square_002um/spatial
-SNPS=$BASE/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.clean.bed
+SNPS=$BASE/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_no_Xist.bed 
 
 for f in "$BAM" "$SNPS"; do
   if [ ! -f "$f" ]; then echo "Missing file: $f" >&2; exit 1; fi
