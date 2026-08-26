@@ -202,24 +202,60 @@ adult_vs_aged_lrt$FDR <- p.adjust(adult_vs_aged_lrt$Pr..Chisq., method = "fdr")
 
 subset(adult_vs_aged_lrt, FDR < 0.05)
 
-# Quantify the n=1-per-condition caveat for the celltypes flagged above: if
-# 9w and 78w truly had the SAME dispersion, how often would this exact LRT
-# still call it significant, purely from animal-to-animal noise? Swept across
-# a few plausible animal-effect magnitudes since that value can't be
-# estimated from n=1 data -- treat this as a range, not a single number.
-adult_vs_aged_sig_celltypes <- subset(adult_vs_aged_lrt, FDR < 0.05)$celltype
-
-adult_vs_aged_fpr <- sapply(adult_vs_aged_sig_celltypes, function(ct) {
-  df <- subset(metadata_whole_chr, celltype == ct & sample %in% c("9w", "78w"))
-  sapply(c(0.15, 0.3, 0.5), function(sd) {
-    simulate_dispersion_null_fpr(df, "9w", "78w", animal_disp_sd = sd, n_reps = 1000)$fpr
-  })
-})
-rownames(adult_vs_aged_fpr) <- c("fpr_animal_sd_0.15", "fpr_animal_sd_0.3", "fpr_animal_sd_0.5")
-t(adult_vs_aged_fpr)
-
-# Save output 
+# Save the LRT result BEFORE the calibration below. That calibration costs
+# tens of thousands of model fits and used to sit between the test and its own
+# write.table, so interrupting it -- or hitting any error inside it -- threw
+# away the result it was there to qualify.
 write.table(adult_vs_aged_lrt, file.path(CUTOFF_DIR, 'whole_chr_adult_vs_aged_dispersion_LRT_results.txt'), sep = '\t', row.names = FALSE, quote = FALSE)
+
+# Quantify the n=1-per-condition caveat for the celltypes flagged above: if the
+# two conditions truly had the SAME dispersion, how often would this exact LRT
+# still call it significant, purely from animal-to-animal noise? Swept across
+# a few plausible animal-effect magnitudes since that value cannot be estimated
+# from n=1 data -- treat the output as a range, not a single number.
+#
+# Cost: n_reps x 3 animal_sd values x 2 glmmTMB fits per rep, per significant
+# celltype. At the default that is ~6,000 fits for ONE celltype, so a
+# comparison with eight significant celltypes runs to ~48,000 and takes hours.
+# FPR_N_REPS=200 is enough to tell 5% from 35% (+/- ~3%); FPR_N_REPS=0 skips it.
+FPR_N_REPS <- as.integer(Sys.getenv("FPR_N_REPS", "1000"))
+FPR_ANIMAL_SDS <- c(0.15, 0.3, 0.5)
+
+calibrate_fpr <- function(lrt, ref_level, comparison_level, out_file) {
+  sig <- subset(lrt, FDR < 0.05)$celltype
+  if (FPR_N_REPS <= 0) {
+    message("FPR_N_REPS=0, skipping the ", ref_level, " vs ", comparison_level,
+            " calibration (", length(sig), " significant celltypes)")
+    return(invisible(NULL))
+  }
+  if (!length(sig)) {
+    message("No significant celltypes for ", ref_level, " vs ", comparison_level,
+            " -- nothing to calibrate")
+    return(invisible(NULL))
+  }
+  message("Calibrating FPR for ", length(sig), " celltype(s), ",
+          FPR_N_REPS, " reps x ", length(FPR_ANIMAL_SDS), " animal_sd values: ",
+          format(length(sig) * FPR_N_REPS * length(FPR_ANIMAL_SDS) * 2, big.mark = ","),
+          " model fits")
+  fpr <- sapply(sig, function(ct) {
+    message("  ", ct)
+    df <- subset(metadata_whole_chr, celltype == ct &
+                   sample %in% c(ref_level, comparison_level))
+    sapply(FPR_ANIMAL_SDS, function(sd) {
+      simulate_dispersion_null_fpr(df, ref_level, comparison_level,
+                                   animal_disp_sd = sd, n_reps = FPR_N_REPS)$fpr
+    })
+  })
+  fpr <- matrix(fpr, nrow = length(FPR_ANIMAL_SDS),
+                dimnames = list(paste0("fpr_animal_sd_", FPR_ANIMAL_SDS), sig))
+  # These numbers cost hours; they used to be printed and never saved.
+  write.table(t(fpr), out_file, sep = '\t', quote = FALSE, col.names = NA)
+  print(t(fpr))
+  invisible(fpr)
+}
+
+calibrate_fpr(adult_vs_aged_lrt, "9w", "78w",
+              file.path(CUTOFF_DIR, 'whole_chr_adult_vs_aged_dispersion_FPR.txt'))
 
 Sham_vs_TAC_lrt <- split(metadata_whole_chr, metadata_whole_chr$celltype) %>%
   lapply(function(x) {
@@ -232,19 +268,12 @@ Sham_vs_TAC_lrt$FDR <- p.adjust(Sham_vs_TAC_lrt$Pr..Chisq., method = "fdr")
 
 subset(Sham_vs_TAC_lrt, FDR < 0.05)
 
-# Same false-positive-rate calibration as above, for Sham vs TAC
-Sham_vs_TAC_sig_celltypes <- subset(Sham_vs_TAC_lrt, FDR < 0.05)$celltype
-
-Sham_vs_TAC_fpr <- sapply(Sham_vs_TAC_sig_celltypes, function(ct) {
-  df <- subset(metadata_whole_chr, celltype == ct & sample %in% c("Sham", "TAC"))
-  sapply(c(0.15, 0.3, 0.5), function(sd) {
-    simulate_dispersion_null_fpr(df, "Sham", "TAC", animal_disp_sd = sd, n_reps = 1000)$fpr
-  })
-})
-rownames(Sham_vs_TAC_fpr) <- c("fpr_animal_sd_0.15", "fpr_animal_sd_0.3", "fpr_animal_sd_0.5")
-t(Sham_vs_TAC_fpr)
-
 write.table(Sham_vs_TAC_lrt, file.path(CUTOFF_DIR, 'whole_chr_Sham_vs_TAC_dispersion_LRT_results.txt'), sep = '\t', row.names = FALSE, quote = FALSE)
+
+# Same calibration, for Sham vs TAC. This is the expensive one: eight celltypes
+# came out significant, so at the default it is ~48,000 model fits.
+calibrate_fpr(Sham_vs_TAC_lrt, "Sham", "TAC",
+              file.path(CUTOFF_DIR, 'whole_chr_Sham_vs_TAC_dispersion_FPR.txt'))
 
 # Effect sizes: fraction of cells escaping XCI (AR <= 0.9) and median AR per
 # celltype/condition. Complements the dispersion LRT p-values above with an
