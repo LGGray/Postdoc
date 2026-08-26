@@ -174,3 +174,21 @@ dir.create(CUTOFF_DIR, showWarnings = FALSE, recursive = TRUE)
 # with any chrX coverage, and both 02 and 06 filter it themselves. It stays at
 # the top level rather than being duplicated into each cutoff directory.
 ALLELIC_RATIOS_FILE <- "Allelic_ratio_results/whole_chr_allelic_ratios.txt"
+
+# The core escape block (04) needs its OWN cutoff, not MIN_TOTAL_READS. Its
+# total_reads counts reads over roughly twenty escape genes, not the whole X,
+# so the same number means something very different: the whole-chrX median is
+# ~50 reads while the block's is a handful. Applying 30 here would discard
+# almost every cell. Hence a separate constant and a separate directory --
+# the two cutoffs are not comparable and should not share a folder name.
+MIN_CEB_READS <- as.integer(Sys.getenv("MIN_CEB_READS", "5"))
+stopifnot(!is.na(MIN_CEB_READS), MIN_CEB_READS >= 1)
+
+CEB_DIR <- file.path("Allelic_ratio_results",
+                     paste0("core_escape_cutoff_", MIN_CEB_READS))
+dir.create(CEB_DIR, showWarnings = FALSE, recursive = TRUE)
+
+# As with the whole-chrX table above, the core escape block's raw per-cell
+# ratios are cutoff-independent -- 04 writes them before applying its filter,
+# and 07 sweeps cutoffs over them. Top level, not inside a cutoff directory.
+CEB_RATIOS_FILE <- "Allelic_ratio_results/core_escape_block_new_allelic_ratio_table.txt"

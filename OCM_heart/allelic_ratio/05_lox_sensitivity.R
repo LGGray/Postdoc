@@ -17,7 +17,7 @@ metadata_whole_chr <- read.table(
   stringsAsFactors = FALSE, check.names = FALSE)
 
 metadata_ceb <- read.table(
-  'Allelic_ratio_results/core_escape_block_cell_metadata.txt',
+  file.path(CEB_DIR, 'core_escape_block_cell_metadata.txt'),
   sep = '\t', header = TRUE, row.names = 1,
   stringsAsFactors = FALSE, check.names = FALSE)
 

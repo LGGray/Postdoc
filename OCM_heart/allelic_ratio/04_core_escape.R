@@ -3,7 +3,7 @@
 #
 # Run from the OCM_heart/ directory:  Rscript allelic_ratio/04_core_escape.R
 # Requires: 01_setup.R to have been run.
-# Writes:   Allelic_ratio_results/core_escape_block_cell_metadata.txt for 05.
+# Writes:   <CEB_DIR>/core_escape_block_cell_metadata.txt for 05.
 # ---------------------------------------------------------------------------
 source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
 
@@ -38,8 +38,8 @@ core_escape_block_ratio <- core_escape_block_ratio[!sapply(core_escape_block_rat
 core_escape_block_ratio <- bind_rows(core_escape_block_ratio, .id = "cell_barcode")
 
 # Write out the core escape block allelic ratio table
-write.table(core_escape_block_ratio, 'Allelic_ratio_results/core_escape_block_new_allelic_ratio_table.txt', sep = '\t', row.names = FALSE, quote = FALSE)
-core_escape_block_ratio <- read.delim('Allelic_ratio_results/core_escape_block_new_allelic_ratio_table.txt', header = TRUE)
+write.table(core_escape_block_ratio, CEB_RATIOS_FILE, sep = '\t', row.names = FALSE, quote = FALSE)
+core_escape_block_ratio <- read.delim(CEB_RATIOS_FILE, header = TRUE)
 
 # Subset seurat object by barcodes
 subset_heart_ceb <- subset(heart, cells = core_escape_block_ratio$cell_barcode)
@@ -51,19 +51,20 @@ subset_heart_ceb$A1_reads <- core_escape_block_ratio$A1_reads
 subset_heart_ceb$A2_reads <- core_escape_block_ratio$A2_reads
 
 # Plot distribution of total reads
-pdf('Allelic_ratio_results/core_escape_block_new_total_reads_distribution.pdf')
+pdf(file.path(CEB_DIR, 'core_escape_block_new_total_reads_distribution.pdf'))
 plot(
   density(subset_heart_ceb$total_reads, na.rm = TRUE),
   main = "Total Reads Distribution",
   xlab = "Total Reads"
 )
-abline(v = 5, col = "red", lty = 2)
+abline(v = MIN_CEB_READS, col = "red", lty = 2)
 dev.off()
 
-###################################################
-# filter for cells with at least 5 reads on chrX #
-###################################################
-subset_heart_ceb_flt <- subset(subset_heart_ceb, subset = total_reads >= 5)
+#####################################################
+# filter for cells with at least MIN_CEB_READS reads
+# over the core escape block (see 00_functions.R)
+#####################################################
+subset_heart_ceb_flt <- subset(subset_heart_ceb, subset = total_reads >= MIN_CEB_READS)
 
 table(subset_heart_ceb_flt$sample)
 
@@ -93,7 +94,7 @@ plots_ceb <- lapply(samples_ceb, function(s) {
           legend.title = element_text(size = 9)) +
     ggtitle(s)
 })
-pdf('Allelic_ratio_results/core_escape_block_new_allelic_ratio_umap_plot_split_by_sample.pdf', width = 10, height = 10)
+pdf(file.path(CEB_DIR, 'core_escape_block_new_allelic_ratio_umap_plot_split_by_sample.pdf'), width = 10, height = 10)
 wrap_plots(plots_ceb, ncol = 2, nrow = 2) + plot_layout(guides = "collect")
 dev.off()
 
@@ -107,7 +108,7 @@ metadata_ceb <- metadata_ceb[order(metadata_ceb$total_reads, decreasing = TRUE),
 cell_counts_ceb <- metadata_ceb %>%
   group_by(celltype, sample) %>%
   summarise(n_cells = n(), .groups = "drop")
-write.table(cell_counts_ceb, 'Allelic_ratio_results/core_escape_block_cell_counts_per_celltype_and_condition.txt', sep = '\t', row.names = FALSE, quote = FALSE)
+write.table(cell_counts_ceb, file.path(CEB_DIR, 'core_escape_block_cell_counts_per_celltype_and_condition.txt'), sep = '\t', row.names = FALSE, quote = FALSE)
 
 # Stacked barplot of the number of putative LOX cells (AR >= 0.9) vs other
 # cells, per sample and cell type. Raw counts (N=1 per sample, so proportions
@@ -122,6 +123,18 @@ metadata_ceb$LOX_status <- factor(
 )
 metadata_ceb$sample <- factor(metadata_ceb$sample, levels = c("9w", "78w", "Sham", "TAC"))
 
+# Handoff to 05_lox_sensitivity.R. This was declared in the header but never
+# actually written, and 05 also expects a `monoallelic` column that nothing
+# here created -- so 05 has not been able to run since it was split out of
+# this script. `monoallelic` uses the same AR >= 0.90 LOX threshold as the
+# crosstab and sensitivity sections below, so the LOX definition stays
+# consistent across every part of the analysis that depends on it.
+metadata_ceb$monoallelic <- as.integer(metadata_ceb$allelic_ratio >= 0.90)
+
+write.table(metadata_ceb,
+            file.path(CEB_DIR, 'core_escape_block_cell_metadata.txt'),
+            sep = '\t', quote = FALSE, col.names = NA)
+
 # Plotting allelic ratio per cell type and condition
 violin_tbl_ceb <- metadata_ceb %>%
   mutate(
@@ -129,7 +142,7 @@ violin_tbl_ceb <- metadata_ceb %>%
     sample_idx = as.numeric(sample)
   )
 
-pdf('Allelic_ratio_results/core_escape_block_new_allelic_ratio_celltype_violin_plot_facet_wrap.pdf')
+pdf(file.path(CEB_DIR, 'core_escape_block_new_allelic_ratio_celltype_violin_plot_facet_wrap.pdf'))
 ggplot(violin_tbl_ceb, aes(x = sample_idx, y = allelic_ratio, fill = sample)) +
   geom_violin(trim = TRUE, scale = "width") +
   geom_jitter(width = 0.15, size = 0.3, alpha = 0.3, color = "black") +
@@ -144,7 +157,7 @@ ggplot(violin_tbl_ceb, aes(x = sample_idx, y = allelic_ratio, fill = sample)) +
         legend.position = "none")
 dev.off()
 
-pdf('Allelic_ratio_results/core_escape_block_new_LOX_cell_counts_stacked_barplot.pdf')
+pdf(file.path(CEB_DIR, 'core_escape_block_new_LOX_cell_counts_stacked_barplot.pdf'))
 ggplot(metadata_ceb, aes(x = sample, fill = LOX_status)) +
   geom_bar(position = "fill") +
   facet_wrap(~celltype) +
@@ -156,7 +169,7 @@ ggplot(metadata_ceb, aes(x = sample, fill = LOX_status)) +
 dev.off()
 
 # Save file 
-saveRDS(subset_heart_ceb, 'Allelic_ratio_results/subset_heart_core_escape_block_new.RDS')
+saveRDS(subset_heart_ceb, file.path(CEB_DIR, 'subset_heart_core_escape_block_new.RDS'))
 
 
 # ==========================================================================
@@ -194,7 +207,7 @@ AR_Xist_bb <- Map(function(m, x) {
 rownames(AR_Xist_bb) <- NULL
 AR_Xist_bb$FDR <- p.adjust(AR_Xist_bb$p_value, method = "fdr")
 
-write.table(AR_Xist_bb, 'Allelic_ratio_results/core_escape_block_new_Xist_vs_AR_betabinomial.txt',
+write.table(AR_Xist_bb, file.path(CEB_DIR, 'core_escape_block_new_Xist_vs_AR_betabinomial.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 # ---------------------------------------------------------------------------
@@ -260,7 +273,7 @@ bb_ann <- AR_Xist_bb %>%
 
 sig_cols <- c(`TRUE` = "firebrick", `FALSE` = "grey40")
 
-pdf('Allelic_ratio_results/core_escape_block_new_Xist_vs_AR_betabinomial.pdf', width = 11, height = 14)
+pdf(file.path(CEB_DIR, 'core_escape_block_new_Xist_vs_AR_betabinomial.pdf'), width = 11, height = 14)
 ggplot(xist_ar, aes(x = Xist, y = allelic_ratio)) +
   geom_point(aes(size = total_reads), alpha = 0.3, colour = "steelblue") +
   geom_ribbon(data = bb_pred, aes(y = fit, ymin = lwr, ymax = upr, fill = sig),
@@ -290,7 +303,7 @@ vcm_pred <- filter(bb_pred,    celltype == "Ventricular Cardiomyocytes")
 vcm_bins <- filter(bb_bins,    celltype == "Ventricular Cardiomyocytes")
 vcm_ann_bb <- filter(bb_ann,   celltype == "Ventricular Cardiomyocytes")
 
-pdf('Allelic_ratio_results/core_escape_block_new_Xist_vs_AR_betabinomial_VCM.pdf', width = 11, height = 3.5)
+pdf(file.path(CEB_DIR, 'core_escape_block_new_Xist_vs_AR_betabinomial_VCM.pdf'), width = 11, height = 3.5)
 ggplot(vcm_pts, aes(x = Xist, y = allelic_ratio)) +
   geom_point(aes(size = total_reads), alpha = 0.3, colour = "steelblue") +
   geom_ribbon(data = vcm_pred, aes(y = fit, ymin = lwr, ymax = upr, fill = sig),
@@ -322,7 +335,7 @@ bb_forest <- AR_Xist_bb %>%
          upr = exp(beta + 1.96 * se),
          celltype = factor(celltype, levels = rev(sort(unique(celltype)))))
 
-pdf('Allelic_ratio_results/core_escape_block_new_Xist_vs_AR_betabinomial_forest.pdf', width = 8, height = 5)
+pdf(file.path(CEB_DIR, 'core_escape_block_new_Xist_vs_AR_betabinomial_forest.pdf'), width = 8, height = 5)
 ggplot(bb_forest, aes(x = OR, y = celltype, colour = sig)) +
   geom_vline(xintercept = 1, linetype = "dashed", colour = "grey50") +
   geom_errorbarh(aes(xmin = lwr, xmax = upr), height = 0.2, linewidth = 0.5) +
@@ -410,7 +423,7 @@ extreme_expected <- extreme_expected %>%
 stopifnot(all(extreme_expected$exp_AR0_bb <= extreme_expected$n_cells + 1e-6),
           all(extreme_expected$exp_AR1_bb <= extreme_expected$n_cells + 1e-6))
 
-write.table(extreme_expected, 'Allelic_ratio_results/core_escape_block_new_extreme_AR_observed_vs_expected.txt',
+write.table(extreme_expected, file.path(CEB_DIR, 'core_escape_block_new_extreme_AR_observed_vs_expected.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 # --- 2. Read depth of the AR ~ 0 cells vs the rest ---------------------------
@@ -443,12 +456,12 @@ depth_test <- xist_ar %>%
   }) %>% bind_rows()
 if (nrow(depth_test)) depth_test$FDR <- p.adjust(depth_test$p_value, method = "fdr")
 
-write.table(depth_extreme, 'Allelic_ratio_results/core_escape_block_new_extreme_AR_depth_summary.txt',
+write.table(depth_extreme, file.path(CEB_DIR, 'core_escape_block_new_extreme_AR_depth_summary.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
-write.table(depth_test, 'Allelic_ratio_results/core_escape_block_new_extreme_AR_depth_test.txt',
+write.table(depth_test, file.path(CEB_DIR, 'core_escape_block_new_extreme_AR_depth_test.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
-pdf('Allelic_ratio_results/core_escape_block_new_extreme_AR_depth.pdf', width = 8, height = 4)
+pdf(file.path(CEB_DIR, 'core_escape_block_new_extreme_AR_depth.pdf'), width = 8, height = 4)
 xist_ar %>%
   mutate(ar_class = case_when(allelic_ratio <= 0.10 ~ "AR <= 0.10",
                               allelic_ratio >= 0.90 ~ "AR >= 0.90",
@@ -497,10 +510,10 @@ bb_sensitivity <- AR_Xist_bb %>%
          still_sig   = FDR < 0.05 & FDR_sens < 0.05,
          lost_sig    = FDR < 0.05 & FDR_sens >= 0.05)
 
-write.table(bb_sensitivity, 'Allelic_ratio_results/core_escape_block_new_Xist_vs_AR_betabinomial_sensitivity.txt',
+write.table(bb_sensitivity, file.path(CEB_DIR, 'core_escape_block_new_Xist_vs_AR_betabinomial_sensitivity.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
-pdf('Allelic_ratio_results/core_escape_block_new_Xist_vs_AR_betabinomial_sensitivity.pdf', width = 7, height = 5)
+pdf(file.path(CEB_DIR, 'core_escape_block_new_Xist_vs_AR_betabinomial_sensitivity.pdf'), width = 7, height = 5)
 ggplot(bb_sensitivity, aes(x = OR, y = OR_sens, colour = FDR < 0.05)) +
   geom_abline(slope = 1, intercept = 0, linetype = "dashed", colour = "grey50") +
   geom_vline(xintercept = 1, colour = "grey85") +
@@ -529,7 +542,7 @@ xist_lox <- xist_ar %>%
 xist_lox_tab <- xist_lox %>%
   count(sample, celltype, xist_zero, LOX_call, name = "n_cells")
 
-write.table(xist_lox_tab, 'Allelic_ratio_results/core_escape_block_new_Xist_zero_vs_LOX_crosstab.txt',
+write.table(xist_lox_tab, file.path(CEB_DIR, 'core_escape_block_new_Xist_zero_vs_LOX_crosstab.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 # Fisher test per sample x celltype: are LOX-like cells enriched among the
@@ -551,10 +564,10 @@ xist_lox_test <- xist_lox %>%
 rownames(xist_lox_test) <- NULL
 if (nrow(xist_lox_test)) xist_lox_test$FDR <- p.adjust(xist_lox_test$p_value, method = "fdr")
 
-write.table(xist_lox_test, 'Allelic_ratio_results/core_escape_block_new_Xist_zero_vs_LOX_fisher.txt',
+write.table(xist_lox_test, file.path(CEB_DIR, 'core_escape_block_new_Xist_zero_vs_LOX_fisher.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
-pdf('Allelic_ratio_results/core_escape_block_new_Xist_zero_vs_LOX.pdf', width = 10, height = 6)
+pdf(file.path(CEB_DIR, 'core_escape_block_new_Xist_zero_vs_LOX.pdf'), width = 10, height = 6)
 xist_lox %>%
   count(sample, celltype, xist_zero, LOX_call, name = "n_cells") %>%
   group_by(sample, celltype, xist_zero) %>%
@@ -706,7 +719,7 @@ if (nrow(lox_box_test)) {
   lox_box_test$label <- paste0("p=", format.pval(lox_box_test$p_value, digits = 2))
 }
 
-write.table(lox_box_test, 'Allelic_ratio_results/core_escape_block_new_Xist_by_LOX_call_test.txt',
+write.table(lox_box_test, file.path(CEB_DIR, 'core_escape_block_new_Xist_by_LOX_call_test.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 p_d <- ggplot(lox_box_df, aes(x = LOX_call, y = Xist, fill = LOX_call)) +
@@ -722,7 +735,7 @@ p_d <- ggplot(lox_box_df, aes(x = LOX_call, y = Xist, fill = LOX_call)) +
   theme(strip.background = element_rect(fill = "grey95"),
         plot.margin = margin(14, 5.5, 5.5, 5.5))
 
-pdf('Allelic_ratio_results/core_escape_block_new_AR_Xist_umap_panel.pdf', width = 13, height = 15)
+pdf(file.path(CEB_DIR, 'core_escape_block_new_AR_Xist_umap_panel.pdf'), width = 13, height = 15)
 # Tags are set per panel with labs(tag=) rather than tag_levels, so the colour
 # key is not counted as a panel and lettering stays a-d.
 (p_a / p_b / p_c_keyed / p_d) +
@@ -748,7 +761,7 @@ lox_box_test_vcm <- lox_box_vcm %>%
                label = paste0("p=", format.pval(tt$p.value, digits = 2)))
   }) %>% bind_rows()
 
-write.table(lox_box_test_vcm, 'Allelic_ratio_results/core_escape_block_new_Xist_by_LOX_call_test_VCM.txt',
+write.table(lox_box_test_vcm, file.path(CEB_DIR, 'core_escape_block_new_Xist_by_LOX_call_test_VCM.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 p_c_vcm <- ggplot(umap_df_vcm, aes(x = UMAP_1, y = UMAP_2, colour = bivar)) +
@@ -771,6 +784,6 @@ p_d_vcm <- ggplot(lox_box_vcm, aes(x = LOX_call, y = Xist, fill = LOX_call)) +
   theme(strip.background = element_rect(fill = "grey95"),
         plot.margin = margin(14, 5.5, 5.5, 5.5))
 
-pdf('Allelic_ratio_results/core_escape_block_new_AR_Xist_umap_panel_VCM.pdf', width = 13, height = 8)
+pdf(file.path(CEB_DIR, 'core_escape_block_new_AR_Xist_umap_panel_VCM.pdf'), width = 13, height = 8)
 (((p_c_vcm | p_key) + plot_layout(widths = c(1, key_width))) / p_d_vcm)
 dev.off()

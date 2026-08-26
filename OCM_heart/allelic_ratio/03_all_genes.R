@@ -59,7 +59,7 @@ gene_df <- lapply(seq_along(barcodes), function(i) {
 gene_df$celltype <- Idents(heart)[gene_df$cell_barcode]
 
 # write out the all genes allelic ratio table
-write.table(gene_df, 'Allelic_ratio_results/all_genes_gene_df.txt', sep = '\t', row.names = FALSE, quote = FALSE)
+write.table(gene_df, file.path(CUTOFF_DIR, 'all_genes_gene_df.txt'), sep = '\t', row.names = FALSE, quote = FALSE)
 
 ################################################################
 # Xist allelic purity as a direct ambient-contamination probe  #
@@ -97,7 +97,7 @@ xist_allelic$chrX_ratio <- metadata_whole_chr$allelic_ratio[
 # 1. Sanity check: Xist should be near-monoallelic (bimodal at 0 and 1).
 #    A unimodal pile at 0.5 would mean the allele assignment is wrong or
 #    contamination is severe enough to swamp the signal.
-pdf('Allelic_ratio_results/Xist_allelic_ratio_distribution.pdf', width = 10, height = 4)
+pdf(file.path(CUTOFF_DIR, 'Xist_allelic_ratio_distribution.pdf'), width = 10, height = 4)
 ggplot(xist_allelic, aes(x = xist_ratio)) +
   geom_histogram(bins = 50) +
   facet_wrap(~sample) +
@@ -109,7 +109,7 @@ dev.off()
 #    the active X, so these should be strongly ANTI-correlated. If they are
 #    positively correlated, A1/A2 are not consistently oriented between the
 #    per-gene and whole-chromosome tables.
-pdf('Allelic_ratio_results/Xist_vs_chrX_allelic_ratio.pdf', width = 6, height = 5)
+pdf(file.path(CUTOFF_DIR, 'Xist_vs_chrX_allelic_ratio.pdf'), width = 6, height = 5)
 ggplot(xist_allelic, aes(x = chrX_ratio, y = xist_ratio)) +
   geom_point(size = 0.4, alpha = 0.3) +
   labs(x = "whole-chrX allelic ratio (active X)",
@@ -132,7 +132,7 @@ vcm_xist %>%
             median_reads   = median(total_reads, na.rm = TRUE),
             .groups = "drop")
 
-pdf('Allelic_ratio_results/Xist_ambient_estimate_by_VCM_subcluster.pdf', width = 6, height = 5)
+pdf(file.path(CUTOFF_DIR, 'Xist_ambient_estimate_by_VCM_subcluster.pdf'), width = 6, height = 5)
 ggplot(vcm_xist, aes(x = celltype_sub, y = ambient_est)) +
   geom_boxplot(outlier.size = 0.5) +
   labs(y = "estimated ambient fraction (2 x Xist minor allele)", x = NULL) +
@@ -216,12 +216,12 @@ if (file.exists('Allelic_ratio_results/core_escape_genes_gene_df.txt')) {
 per_gene_wide$is_core_escape <- per_gene_wide$name %in% core_escape_names
 
 write.table(per_gene_wide,
-            'Allelic_ratio_results/VCM_subcluster_per_gene_inactive_fraction.txt',
+            file.path(CUTOFF_DIR, 'VCM_subcluster_per_gene_inactive_fraction.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 # ---- READOUT 1: the shape of the per-gene difference ----
 # unimodal and clearly off zero -> ambient. centred on zero with tail -> escape.
-pdf('Allelic_ratio_results/VCM_subcluster_per_gene_delta_histogram.pdf', width = 6, height = 5)
+pdf(file.path(CUTOFF_DIR, 'VCM_subcluster_per_gene_delta_histogram.pdf'), width = 6, height = 5)
 ggplot(per_gene_wide, aes(x = delta)) +
   geom_histogram(bins = 60) +
   geom_vline(xintercept = 0, colour = "red", linetype = 2) +
@@ -233,7 +233,7 @@ dev.off()
 # ---- READOUT 2: same thing as a scatter ----
 # ambient -> cloud sits parallel to but offset from y=x.
 # escape  -> cloud sits ON y=x with a few outliers.
-pdf('Allelic_ratio_results/VCM_subcluster_per_gene_scatter.pdf', width = 6, height = 5.5)
+pdf(file.path(CUTOFF_DIR, 'VCM_subcluster_per_gene_scatter.pdf'), width = 6, height = 5.5)
 ggplot(per_gene_wide, aes(x = frac1, y = frac0)) +
   geom_abline(slope = 1, intercept = 0, colour = "grey50", linetype = 2) +
   geom_point(aes(colour = is_core_escape), size = 0.9, alpha = 0.6) +
@@ -275,7 +275,7 @@ per_gene_wide %>%
   head(20)
 
 # Plot distribution of total reads across all genes
-pdf('Allelic_ratio_results/all_genes_total_reads_distribution.pdf')
+pdf(file.path(CUTOFF_DIR, 'all_genes_total_reads_distribution.pdf'))
 plot(
   density(gene_df$total_reads, na.rm = TRUE),
   main = "Total Reads Distribution",
@@ -303,7 +303,7 @@ if (nrow(gene_df_signal) > 0) {
     arrange(desc(total_reads_sum))
 
   write.table(signal_gene_celltype,
-              'Allelic_ratio_results/all_genes_signal_genes_by_celltype.txt',
+              file.path(CUTOFF_DIR, 'all_genes_signal_genes_by_celltype.txt'),
               sep = '\t', row.names = FALSE, quote = FALSE)
 
   # keep only the (gene, celltype) combinations that individually cleared MIN_READS,
@@ -315,10 +315,10 @@ if (nrow(gene_df_signal) > 0) {
   per_cell_signal_genes$name <- factor(per_cell_signal_genes$name, levels = signal_genes$name)
 
   write.table(per_cell_signal_genes,
-              'Allelic_ratio_results/all_genes_per_cell_signal_genes.txt',
+              file.path(CUTOFF_DIR, 'all_genes_per_cell_signal_genes.txt'),
               sep = '\t', row.names = FALSE, quote = FALSE)
 
-  pdf('Allelic_ratio_results/all_genes_signal_total_reads_barplot.pdf')
+  pdf(file.path(CUTOFF_DIR, 'all_genes_signal_total_reads_barplot.pdf'))
   ggplot(signal_genes, aes(x = reorder(name, total_reads_sum), y = total_reads_sum)) +
     geom_col(fill = '#3b7a57', width = 0.7) +
     coord_flip() +
@@ -326,7 +326,7 @@ if (nrow(gene_df_signal) > 0) {
     theme_bw()
   dev.off()
 
-  pdf('Allelic_ratio_results/all_genes_per_cell_allelic_ratio_by_gene.pdf')
+  pdf(file.path(CUTOFF_DIR, 'all_genes_per_cell_allelic_ratio_by_gene.pdf'))
   ggplot(per_cell_signal_genes, aes(x = celltype, y = allelic_ratio)) +
     geom_jitter(aes(size = total_reads, color = sample), width = 0.2, height = 0, alpha = 0.6) +
     facet_wrap(~name) +
@@ -368,7 +368,7 @@ single_gene_df <- per_cell_signal_genes %>%
   filter(name %in% target_gene & total_reads >= 10)
 single_gene_df$celltype <- droplevels(single_gene_df$celltype)
 
-pdf('Allelic_ratio_results/all_genes_top6_allelic_ratio_violin_by_sample.pdf', width = 16, height = 12)
+pdf(file.path(CUTOFF_DIR, 'all_genes_top6_allelic_ratio_violin_by_sample.pdf'), width = 16, height = 12)
 ggplot(single_gene_df, aes(x = sample, y = allelic_ratio, fill = sample)) +
   geom_violin(trim = TRUE) +
   geom_jitter(aes(size = total_reads), width = 0.15, height = 0, alpha = 0.5) +
