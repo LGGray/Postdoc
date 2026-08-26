@@ -52,7 +52,7 @@ CELLS=$SPATIAL/ase/$SAMPLE/sinto_tiles_${TILE_UM}um.tsv
 ANNOTATION=$BASE/GRCm39/chr_annotation_mm39.bed
 # Xist reports the inactive X and would invert every ratio, so it stays out,
 # matching the snRNA-seq runs in scAllelome_*.slurm.
-SNPS=$BASE/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_withoutXist.clean.bed
+SNPS=$BASE/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_no_Xist.bed
 
 MIN_READ=1
 TOTAL_READ=1

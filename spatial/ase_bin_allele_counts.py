@@ -76,7 +76,7 @@ def sniff_snp_layout(path, explicit=None):
     if len(singles) >= 2:
         return singles[0], singles[1], None
 
-    # One packed column, e.g. chr pos pos+1 A/G  (also A|G, A>G)
+    # One packed column with a separator, e.g. chr pos pos+1 A/G (also A|G, A>G)
     for i, v in enumerate(f):
         if i < 3:
             continue
@@ -85,13 +85,23 @@ def sniff_snp_layout(path, explicit=None):
                 a, b = v.split(sep)[:2]
                 if a.upper() in bases and b.upper() in bases:
                     return i, i, sep
+
+    # Allelome.PRO's own BED6: the name field is the two bases run together,
+    # e.g. chr1 3057935 3057936 AG 0 . - first character REF, second ALT.
+    for i, v in enumerate(f):
+        if i < 3:
+            continue
+        u = v.upper()
+        if len(u) == 2 and u[0] in bases and u[1] in bases:
+            return i, i, ""
+
     raise SystemExit(
         f"Cannot find ref/alt base columns in {path}\nFirst line: {f}\n"
         "Pass --snp-cols REF,ALT (1-based) to set them explicitly."
     )
 
 
-def load_snps(path, chroms, pos_col, ref_i, alt_i, packed_sep, offset):
+def load_snps(path, chroms, pos_col, ref_i, alt_i, packed_sep, offset, swap):
     """chrom -> (sorted position array, {pos: (ref, alt)}), 0-based positions."""
     want = set(chroms)
     tables = {c: {} for c in chroms}
@@ -109,11 +119,16 @@ def load_snps(path, chroms, pos_col, ref_i, alt_i, packed_sep, offset):
             except (ValueError, IndexError):
                 skipped += 1
                 continue
-            if packed_sep:
+            if packed_sep == "":
+                packed = f[ref_i].upper()
+                ref, alt = packed[0], packed[1]
+            elif packed_sep is not None:
                 parts = f[ref_i].split(packed_sep)
                 ref, alt = parts[0].upper(), parts[1].upper()
             else:
                 ref, alt = f[ref_i].upper(), f[alt_i].upper()
+            if swap:
+                ref, alt = alt, ref
             if len(ref) != 1 or len(alt) != 1 or ref == alt:
                 skipped += 1
                 continue
@@ -259,6 +274,10 @@ def main():
                    help="1-based column holding the SNP position (default 2).")
     p.add_argument("--snp-cols", default=None,
                    help="1-based REF,ALT columns. Omit to auto-detect.")
+    p.add_argument("--swap-alleles", action="store_true",
+                   help="Treat the second base as REF and the first as ALT. "
+                        "Nothing in the bed states which strain is which; use "
+                        "the autosomal ref fraction in the summary to decide.")
     p.add_argument("--snp-offset", type=int, default=0,
                    help="Added to the SNP position to reach 0-based. Use the "
                         "allele-match rate in the summary to check this.")
@@ -282,13 +301,17 @@ def main():
 
     ref_i, alt_i, packed = sniff_snp_layout(args.snps, args.snp_cols)
     sys.stderr.write(
-        "SNP layout: ref col %d, alt col %d%s, pos col %d, offset %+d\n"
+        "SNP layout: ref col %d, alt col %d%s, pos col %d, offset %+d%s\n"
         % (ref_i + 1, alt_i + 1,
-           " (packed, sep %r)" % packed if packed else "", args.snp_pos_col, args.snp_offset)
+           (" (two bases concatenated)" if packed == ""
+            else " (packed, sep %r)" % packed if packed is not None else ""),
+           args.snp_pos_col, args.snp_offset,
+           "  [--swap-alleles]" if args.swap_alleles else "")
     )
 
     snps, snp_skipped = load_snps(args.snps, chroms, args.snp_pos_col - 1,
-                                  ref_i, alt_i, packed, args.snp_offset)
+                                  ref_i, alt_i, packed, args.snp_offset,
+                                  args.swap_alleles)
     for c in chroms:
         sys.stderr.write("  %s: %d SNPs\n" % (c, len(snps[c][0])))
     if snp_skipped:
@@ -357,6 +380,26 @@ def main():
                      % (x_umi, x_umi / n_bins if n_bins else 0.0))
     sys.stderr.write("autosomal informative UMIs %d   (lambda = %.4f per 2um bin)\n"
                      % (a_umi, a_umi / n_bins if n_bins else 0.0))
+    if a_umi:
+        a_ref_frac = sum(v[0] for v in a_counts.values()) / a_umi
+        sys.stderr.write("autosomal ref fraction     %.4f\n" % a_ref_frac)
+        # Autosomes are biallelic, so this should sit at 0.5 nudged upward by
+        # the mapping bias of the standard 10x B6 reference - reference-allele
+        # reads align a little more readily than CAST ones. Landing clearly
+        # below 0.5 instead means the two bases in the name field are the other
+        # way round and REF is being read as CAST.
+        if a_ref_frac < 0.49:
+            sys.stderr.write(
+                "\n*** WARNING: autosomal ref fraction is %.3f, below 0.5.\n"
+                "*** Mapping to a B6 reference should bias this upward, so the\n"
+                "*** allele order is probably reversed. Re-run with --swap-alleles.\n"
+                % a_ref_frac)
+        elif a_ref_frac > 0.60:
+            sys.stderr.write(
+                "\n*** NOTE: autosomal ref fraction is %.3f, a larger reference\n"
+                "*** bias than the standard 10x B6 reference usually produces.\n"
+                "*** Worth a look before trusting absolute ratios.\n" % a_ref_frac)
+
     sys.stderr.write("\nlambda x (s/2)^2 is the expected informative UMIs in an "
                      "s-um tile; the sweep does this properly.\n")
 
