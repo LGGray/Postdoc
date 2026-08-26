@@ -26,9 +26,21 @@
 # Array task 1 = 9w, task 2 = 78w.
 #
 # Re-running is cheap: the counting pass is skipped if its output already
-# exists, so tuning the sweep is just `sbatch` again. FORCE=1 redoes it.
+# exists, so tuning the sweep is just `sbatch` again; pass 'force' to redo it.
 
 module load slurm_setup
+
+# --export=NONE above means variables set on the sbatch command line never
+# reach the job - `TILE_UM=64 sbatch ...` sets it in your login shell and the
+# job runs without it. Positional arguments do get through:
+#
+#   sbatch spatial_ase_sweep.slurm            # sweep only
+#   sbatch spatial_ase_sweep.slurm 64         # also write the 64um sinto map
+#   sbatch spatial_ase_sweep.slurm 64 force   # ...and redo the counting pass
+#
+# The environment forms still work if you submit with --export=ALL.
+TILE_UM="${1:-${TILE_UM:-}}"
+FORCE="${2:-${FORCE:-}}"
 
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 SPATIAL=$BASE/adult_aged_spatial
@@ -67,8 +79,9 @@ source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x
 ##### ---- pass 1: per-2um-bin allelic counts (pysam) ---- #####
 # -s is not enough: a failed run still leaves a header line behind, and reusing
 # that silently feeds an empty table to the sweep. Require actual data rows.
-if [ "$(head -2 "$COUNTS" 2>/dev/null | wc -l)" -gt 1 ] && [ "${FORCE:-0}" != "1" ]; then
-  echo "Reusing existing $COUNTS ($(($(wc -l < "$COUNTS") - 1)) bins; FORCE=1 to redo)"
+if [ "$(head -2 "$COUNTS" 2>/dev/null | wc -l)" -gt 1 ] && \
+   [ "$FORCE" != "1" ] && [ "$FORCE" != "force" ]; then
+  echo "Reusing existing $COUNTS ($(($(wc -l < "$COUNTS") - 1)) bins; pass 'force' as arg 2 to redo)"
 else
   conda activate sinto     # pysam lives here alongside sinto itself
 
@@ -110,4 +123,10 @@ fi
 
 ##### ---- pass 2: tile-size sweep (R) ---- #####
 conda activate RNAseq
-SAMPLE="$SAMPLE" Rscript "$REPO/spatial/ase_tile_sweep.R"
+if [ -n "$TILE_UM" ]; then
+  echo "Writing the sinto tile map at ${TILE_UM}um"
+else
+  echo "No tile size given - sweeping only, no sinto map will be written."
+  echo "Re-run as: sbatch \$0 <tile_um>   (e.g. 64) once you have chosen one."
+fi
+SAMPLE="$SAMPLE" TILE_UM="$TILE_UM" Rscript "$REPO/spatial/ase_tile_sweep.R"

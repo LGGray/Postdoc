@@ -23,14 +23,21 @@
 # sweep chose - the barcode -> tile map it consumes is written by the sweep's R
 # step when TILE_UM is set:
 #
-#   TILE_UM=64 sbatch ~/Postdoc/slurm/spatial_ase_sweep.slurm     # writes the map
-#   TILE_UM=64 sbatch ~/Postdoc/slurm/spatial_sinto_tiles.slurm   # this job
+#   sbatch ~/Postdoc/slurm/spatial_ase_sweep.slurm 64     # writes the map
+#   sbatch ~/Postdoc/slurm/spatial_sinto_tiles.slurm 64   # this job
 #
 # Array task 1 = 9w, task 2 = 78w.
 
 module load slurm_setup
 
-TILE_UM=${TILE_UM:?Set TILE_UM to the size chosen by the sweep, e.g. TILE_UM=64 sbatch ...}
+# Positional, not environment: --export=NONE above stops `TILE_UM=64 sbatch`
+# from reaching the job.
+TILE_UM="${1:-${TILE_UM:-}}"
+if [ -z "$TILE_UM" ]; then
+  echo "Usage: sbatch $0 <tile_um>    e.g. sbatch $0 64" >&2
+  echo "Must match the size the sweep wrote a map for." >&2
+  exit 1
+fi
 
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 SPATIAL=$BASE/adult_aged_spatial
