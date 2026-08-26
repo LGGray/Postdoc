@@ -102,6 +102,23 @@ names(my_colors) <- bin_labels
 cells$allelic_bin <- cut(cells$allelic_ratio, breaks = my_breaks,
                          include.lowest = TRUE, right = TRUE, labels = bin_labels)
 
+# Second, finer bin set. The observed AR distribution is almost entirely above
+# 0.85, so the 02-matching bins above spend 9 of their 11 colours on a range
+# that holds a few percent of cells and the UMAP comes out nearly monochrome.
+# These bins put the resolution where the cells actually are, which is what
+# makes the cutoff effect visible; the coarse version is still written so the
+# figures stay comparable with 02.
+fine_breaks <- c(0, 0.5, 0.7, 0.8, 0.85, 0.90, 0.93, 0.95, 0.97, 0.99, 1.0)
+fine_labels <- c("0.00-0.50", "0.50-0.70", "0.70-0.80", "0.80-0.85", "0.85-0.90",
+                 "0.90-0.93", "0.93-0.95", "0.95-0.97", "0.97-0.99", "0.99-1.00")
+fine_colors <- c("#2B3186", "#3B5FB6", "#38749F", "#367373", "#2D6E5D",
+                 "#1E652D", "#8D9F25", "#C97314", "#B03A12", "#8B1913")
+names(fine_colors) <- fine_labels
+
+cells$allelic_bin_fine <- cut(cells$allelic_ratio, breaks = fine_breaks,
+                              include.lowest = TRUE, right = TRUE,
+                              labels = fine_labels)
+
 # ---------------------------------------------------------------------------
 # AR UMAP, built by hand rather than with DimPlot.
 #
@@ -111,7 +128,8 @@ cells$allelic_bin <- cut(cells$allelic_ratio, breaks = my_breaks,
 # escape. Sorting descending by AR means the lowest-AR cells are drawn last and
 # therefore land on top -- they are the signal, so they win every overlap.
 # ---------------------------------------------------------------------------
-ar_umap <- function(df, all_cells, title = NULL, point_size = 0.5) {
+ar_umap <- function(df, all_cells, title = NULL, point_size = 0.5,
+                    bin_col = "allelic_bin", palette = my_colors) {
   # NA bins first (bottom), then high AR -> low AR, so low AR ends up on top
   df <- df[order(is.na(df$allelic_ratio), -df$allelic_ratio), ]
 
@@ -120,17 +138,26 @@ ar_umap <- function(df, all_cells, title = NULL, point_size = 0.5) {
     # readable against the tissue's UMAP shape
     geom_point(data = all_cells, aes(UMAP_1, UMAP_2),
                colour = "grey88", size = point_size * 0.8) +
-    geom_point(data = df, aes(UMAP_1, UMAP_2, colour = allelic_bin),
+    geom_point(data = df, aes(UMAP_1, UMAP_2, colour = .data[[bin_col]]),
                size = point_size) +
-    scale_colour_manual(values = my_colors, drop = FALSE, na.value = "grey60",
+    # limits pinned to the full label set, not inferred per panel: patchwork
+    # only merges guides that are byte-identical, so without this each sample
+    # panel keeps its own legend and four copies stack up off the page edge
+    scale_colour_manual(values = palette, limits = names(palette),
+                        drop = FALSE, na.value = "grey60",
                         name = "Allelic ratio") +
+    guides(colour = guide_legend(override.aes = list(size = 1.8), ncol = 1)) +
     ggtitle(title) +
     theme_bw(base_size = 9) +
     theme(panel.grid = element_blank(),
           axis.text = element_blank(),
           axis.ticks = element_blank(),
           axis.title = element_blank(),
-          plot.title = element_text(size = 9))
+          plot.title = element_text(size = 9),
+          legend.position = "right",
+          legend.key.height = unit(0.42, "lines"),
+          legend.text = element_text(size = 6.5),
+          legend.title = element_text(size = 7.5))
 }
 
 # ---------------------------------------------------------------------------
@@ -146,39 +173,64 @@ for (cut_i in CUTOFFS) {
                   cut_i, nrow(flt), length(unique(flt$celltype))))
 
   ## ---- UMAP, one panel per sample ----
-  panels <- lapply(SAMPLE_LEVELS, function(s) {
-    d <- flt[flt$sample == s, ]
-    ar_umap(d, flt,
-            title = sprintf("%s  (n = %s)", s, format(nrow(d), big.mark = ",")))
-  })
-  p_umap <- patchwork::wrap_plots(panels, nrow = 2) +
-    patchwork::plot_layout(guides = "collect") +
-    patchwork::plot_annotation(
-      title = sprintf("chrX allelic ratio, total_reads >= %d  (n = %s cells)",
-                      cut_i, format(nrow(flt), big.mark = ",")),
-      subtitle = "Lower-AR cells drawn on top; grey = all retained cells",
-      theme = theme(plot.title = element_text(size = 11),
-                    plot.subtitle = element_text(size = 8))
-    ) &
-    theme(legend.position = "right")
+  # `guides = "collect"` goes to wrap_plots directly. Adding a trailing
+  # `& theme(legend.position = ...)` instead pushes the theme down into every
+  # subplot and undoes the collection, which is what produced four legends.
+  umap_variants <- list(
+    list(suffix = "",      col = "allelic_bin",      pal = my_colors,
+         note = "bins as in 02_whole_chrX.R"),
+    list(suffix = "_fine", col = "allelic_bin_fine", pal = fine_colors,
+         note = "bins concentrated above 0.85, where the cells are")
+  )
 
-  ggsave(file.path(OUT_DIR, sprintf("AR_umap_%s.pdf", tag)),
-         p_umap, width = 10, height = 7)
+  for (v in umap_variants) {
+    panels <- lapply(SAMPLE_LEVELS, function(s) {
+      d <- flt[flt$sample == s, ]
+      ar_umap(d, flt,
+              title = sprintf("%s  (n = %s)", s, format(nrow(d), big.mark = ",")),
+              bin_col = v$col, palette = v$pal)
+    })
+    p_umap <- patchwork::wrap_plots(panels, nrow = 2, guides = "collect") +
+      patchwork::plot_annotation(
+        title = sprintf("chrX allelic ratio, total_reads >= %d  (n = %s cells)",
+                        cut_i, format(nrow(flt), big.mark = ",")),
+        subtitle = paste0("Lower-AR cells drawn on top; grey = all retained cells; ",
+                          v$note),
+        theme = theme(plot.title = element_text(size = 11),
+                      plot.subtitle = element_text(size = 8))
+      )
+
+    ggsave(file.path(OUT_DIR, sprintf("AR_umap_%s%s.pdf", tag, v$suffix)),
+           p_umap, width = 10, height = 7)
+  }
 
   ## ---- Violins, celltype facets ----
-  # Only celltypes that still have cells in at least one sample at this cutoff;
-  # empty facets otherwise crowd out the ones carrying data.
-  vln <- flt %>%
+  # Two separate thresholds on purpose. Counts are labelled for every
+  # celltype/sample group that has any cells, but a violin is only drawn where
+  # there are >= 10 of them: at n = 1-2 geom_violin degenerates into a flat
+  # dash that reads like a real narrow distribution (this is what
+  # "Cardiomyocytes (stressed)" did at n = 1). Nothing is silently dropped --
+  # the n label is still there under the empty slot.
+  vln_n <- flt %>%
+    group_by(celltype, sample) %>%
+    summarise(n = dplyr::n(), .groups = "drop") %>%
+    filter(n > 0)
+
+  keep_ct <- vln_n %>%
     group_by(celltype) %>%
-    filter(dplyr::n() >= 10) %>%
+    filter(max(n) >= 20) %>%
     ungroup() %>%
+    pull(celltype) %>%
+    unique()
+
+  vln_n <- vln_n %>% filter(celltype %in% keep_ct)
+
+  vln <- flt %>%
+    filter(celltype %in% keep_ct) %>%
+    semi_join(filter(vln_n, n >= 10), by = c("celltype", "sample")) %>%
     mutate(sample = factor(as.character(sample), levels = SAMPLE_LEVELS))
 
   if (nrow(vln)) {
-    vln_n <- vln %>%
-      group_by(celltype, sample) %>%
-      summarise(n = dplyr::n(), .groups = "drop")
-
     p_vln <- ggplot(vln, aes(x = sample, y = allelic_ratio, fill = sample)) +
       geom_violin(trim = FALSE, scale = "width", bounds = c(0, 1),
                   linewidth = 0.3) +
@@ -192,7 +244,8 @@ for (cut_i in CUTOFFS) {
       coord_cartesian(ylim = c(-0.06, 1), clip = "off") +
       labs(y = "Allelic ratio", x = NULL,
            title = sprintf("chrX allelic ratio, total_reads >= %d", cut_i),
-           subtitle = "Celltypes with >= 10 cells at this cutoff; numbers are cells per violin") +
+           subtitle = paste("Celltypes with >= 20 cells in some sample; numbers are cells per group.",
+                            "Violins drawn only where n >= 10.")) +
       theme_bw(base_size = 9) +
       theme(axis.text.x = element_text(angle = 45, hjust = 1),
             legend.position = "none",
@@ -310,6 +363,97 @@ print(
 )
 
 dev.off()
+
+# ---------------------------------------------------------------------------
+# How much of the "escape" at a given cutoff is just binomial noise?
+#
+# The trend plots show the escape fraction falling as the cutoff rises, but on
+# their own they cannot say whether the low-cutoff number was noise or whether
+# the high cutoff is selecting a different population. This does separate them.
+#
+# Take only the deep cells, where AR is measured precisely, and thin each one's
+# own reads down to a shallow depth by hypergeometric sampling. That holds the
+# cells fixed and changes only the read count, so whatever escape appears is
+# noise by construction. If thinned deep cells reproduce the escape seen in real
+# cells at that depth, the low-cutoff signal was measurement error; if real
+# shallow cells still show more, something depth-associated is left over
+# (ambient contamination is the leading candidate, cf. the depth analysis in 02).
+# ---------------------------------------------------------------------------
+DEEP_MIN   <- 100     # "measured accurately" reference set
+THIN_DEPTH <- c(10, 20, 30, 50, 75)
+THIN_REPS  <- 200
+
+set.seed(1)
+deep <- cells[cells$total_reads >= DEEP_MIN, ]
+
+thin_escape <- bind_rows(lapply(SAMPLE_LEVELS, function(s) {
+  d <- deep[deep$sample == s, ]
+  if (nrow(d) < 30) return(NULL)
+  bind_rows(lapply(THIN_DEPTH, function(k) {
+    k_cell <- pmin(k, d$total_reads)      # a cell cannot give up more reads than it has
+    reps <- replicate(THIN_REPS, {
+      a <- rhyper(nrow(d), d$A1_reads, d$A2_reads, k_cell)
+      mean(a / k_cell <= 0.9)
+    })
+    data.frame(sample = s, depth = k, n_deep = nrow(d),
+               thinned_escape = mean(reps),
+               thinned_lwr = quantile(reps, 0.025, names = FALSE),
+               thinned_upr = quantile(reps, 0.975, names = FALSE))
+  }))
+}))
+
+# Matched comparison: real cells at the same nominal depth, i.e. the escape
+# fraction actually observed once that cutoff is applied.
+observed_escape <- bind_rows(lapply(THIN_DEPTH, function(k) {
+  cells[cells$total_reads >= k, ] %>%
+    group_by(sample) %>%
+    summarise(observed_escape = mean(allelic_ratio <= 0.9),
+              n_cells = dplyr::n(), .groups = "drop") %>%
+    mutate(depth = k)
+}))
+
+thin_cmp <- thin_escape %>%
+  mutate(sample = factor(sample, levels = SAMPLE_LEVELS)) %>%
+  left_join(observed_escape, by = c("sample", "depth")) %>%
+  mutate(escape_at_deep = sapply(as.character(sample), function(s)
+           mean(deep$allelic_ratio[deep$sample == s] <= 0.9)),
+         # what share of the observed escape the noise floor alone accounts for
+         noise_share = thinned_escape / observed_escape) %>%
+  arrange(sample, depth)
+
+write.table(thin_cmp, file.path(OUT_DIR, "cutoff_sweep_noise_floor.txt"),
+            sep = '\t', row.names = FALSE, quote = FALSE)
+
+pdf(file.path(OUT_DIR, "cutoff_sweep_noise_floor.pdf"), width = 10, height = 5)
+print(
+  ggplot(thin_cmp, aes(depth)) +
+    geom_ribbon(aes(ymin = thinned_lwr, ymax = thinned_upr),
+                fill = "grey75", alpha = 0.6) +
+    geom_line(aes(y = thinned_escape, colour = "Noise floor (deep cells, reads thinned)")) +
+    geom_point(aes(y = thinned_escape, colour = "Noise floor (deep cells, reads thinned)"),
+               size = 1.2) +
+    geom_line(aes(y = observed_escape, colour = "Observed (real cells at this cutoff)")) +
+    geom_point(aes(y = observed_escape, colour = "Observed (real cells at this cutoff)"),
+               size = 1.2) +
+    geom_hline(aes(yintercept = escape_at_deep), linetype = "dotted") +
+    facet_wrap(~sample, nrow = 1) +
+    scale_x_log10(breaks = THIN_DEPTH) +
+    scale_colour_manual(values = c("Noise floor (deep cells, reads thinned)" = "grey35",
+                                   "Observed (real cells at this cutoff)" = "firebrick"),
+                        name = NULL) +
+    labs(x = "Minimum chrX total_reads", y = "Fraction with AR <= 0.9",
+         title = "How much apparent escape survives once binomial noise is accounted for",
+         caption = paste("Grey: cells with >=", DEEP_MIN, "reads, thinned to the depth on the x-axis --",
+                         "escape that is measurement error by construction.\nRed: escape actually observed",
+                         "at that cutoff. Dotted: escape among the deep cells at full depth.",
+                         "The gap between grey and red is the part\nthe noise floor does not explain.")) +
+    theme_bw(base_size = 9) +
+    theme(legend.position = "bottom",
+          plot.caption = element_text(size = 7, hjust = 0))
+)
+dev.off()
+
+print(thin_cmp)
 
 # ---------------------------------------------------------------------------
 # AR distribution as a ridge-style overlay: all cutoffs on one axis per sample,
