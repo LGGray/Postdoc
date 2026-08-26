@@ -40,7 +40,7 @@ heart$celltype <- Idents(heart)
 
 # # save table of allelic ratios for whole chrX
 # write.table(chr_allelic_ratio, 'Allelic_ratio_results/whole_chr_allelic_ratios.txt', sep = '\t', row.names = FALSE, quote = FALSE)
-chr_allelic_ratio <- read.table('Allelic_ratio_results/whole_chr_allelic_ratios.txt', sep = '\t', header = TRUE, stringsAsFactors = FALSE)
+chr_allelic_ratio <- read.table(ALLELIC_RATIOS_FILE, sep = '\t', header = TRUE, stringsAsFactors = FALSE)
 
 #### IMPORTANT TO FILTER FOR chrX #######
 chr_allelic_ratio <- subset(chr_allelic_ratio, chr == "chrX")
@@ -56,21 +56,22 @@ subset_heart$A2_reads <- chr_allelic_ratio$A2_reads
 
 
 # Plot distribution of total reads
-pdf('Allelic_ratio_results/whole_chr_total_reads_distribution.pdf')
+pdf(file.path(CUTOFF_DIR, 'whole_chr_total_reads_distribution.pdf'))
 plot(
   density(subset_heart$total_reads, na.rm = TRUE),
   main = "Total Reads Distribution",
   xlab = "Total Reads"
 )
-abline(v = 10, col = "red", lty = 2)
+abline(v = MIN_TOTAL_READS, col = "red", lty = 2)
 dev.off()
 #
-################################################### 
-# filter for cells with at least 10 reads on chrX #
-###################################################
-subset_heart_flt <- subset(subset_heart, subset = total_reads >= 10)
+#####################################################
+# filter for cells with at least MIN_TOTAL_READS reads
+# on chrX (see 00_functions.R; one output dir per value)
+#####################################################
+subset_heart_flt <- subset(subset_heart, subset = total_reads >= MIN_TOTAL_READS)
 
-pdf('Allelic_ratio_results/whole_chr_UMAP_celltypes.pdf')
+pdf(file.path(CUTOFF_DIR, 'whole_chr_UMAP_celltypes.pdf'))
 DimPlot(subset_heart_flt, reduction = "umap", group.by = "celltype", label = TRUE, label.size = 3) +
   theme(legend.position = "none")
 dev.off()
@@ -165,7 +166,7 @@ p_all_samples <- (p_9w | p_78w) / (p_Sham | p_TAC) &
   theme(legend.position = "right")
 
 ggsave(
-  filename = file.path("Allelic_ratio_results/allelic_ratio_umap_plot_split_by_sample.pdf"),
+  filename = file.path(CUTOFF_DIR, "allelic_ratio_umap_plot_split_by_sample.pdf"),
   plot = p_all_samples,
   width = 10,
   height = 7
@@ -179,19 +180,19 @@ metadata_whole_chr <- subset_heart_flt@meta.data
 # object that was not already being written to disk, so without it those two
 # scripts would only work inside a single long session.
 write.table(metadata_whole_chr,
-            'Allelic_ratio_results/whole_chr_cell_metadata.txt',
+            file.path(CUTOFF_DIR, 'whole_chr_cell_metadata.txt'),
             sep = '\t', quote = FALSE, col.names = NA)
 
 # number of cells per celltype and condition
 cell_counts <- metadata_whole_chr %>%
   group_by(celltype, sample) %>%
   summarise(n_cells = n(), .groups = "drop")
-write.table(cell_counts, 'Allelic_ratio_results/whole_chr_cell_counts_per_celltype_and_condition.txt', sep = '\t', row.names = FALSE, quote = FALSE)
+write.table(cell_counts, file.path(CUTOFF_DIR, 'whole_chr_cell_counts_per_celltype_and_condition.txt'), sep = '\t', row.names = FALSE, quote = FALSE)
 
 cell_ids <- data.frame(barcode = colnames(subset_heart_flt), cell_id = colnames(subset_heart_flt), age = subset_heart_flt$sample, celltype = subset_heart_flt$celltype)
 cell_ids$sample <- factor(cell_ids$age, levels = c("TAC", "Sham", "78w", "9w"))
 cell_ids$barcode <- gsub('9w_|78w_|Sham_|TAC_', '', cell_ids$barcode)
-pdf('Allelic_ratio_results/whole_chr_cell_counts_per_celltype_and_condition.pdf', width = 10, height = 10)
+pdf(file.path(CUTOFF_DIR, 'whole_chr_cell_counts_per_celltype_and_condition.pdf'), width = 10, height = 10)
 ggplot(cell_ids, aes(x = sample, fill = celltype)) +
   geom_bar(position = "fill") +
   labs(x = "", y = "Cell composition", title = "") +
@@ -230,7 +231,7 @@ rownames(adult_vs_aged_fpr) <- c("fpr_animal_sd_0.15", "fpr_animal_sd_0.3", "fpr
 t(adult_vs_aged_fpr)
 
 # Save output 
-write.table(adult_vs_aged_lrt, 'Allelic_ratio_results/whole_chr_adult_vs_aged_dispersion_LRT_results.txt', sep = '\t', row.names = FALSE, quote = FALSE)
+write.table(adult_vs_aged_lrt, file.path(CUTOFF_DIR, 'whole_chr_adult_vs_aged_dispersion_LRT_results.txt'), sep = '\t', row.names = FALSE, quote = FALSE)
 
 Sham_vs_TAC_lrt <- split(metadata_whole_chr, metadata_whole_chr$celltype) %>%
   lapply(function(x) {
@@ -255,7 +256,7 @@ Sham_vs_TAC_fpr <- sapply(Sham_vs_TAC_sig_celltypes, function(ct) {
 rownames(Sham_vs_TAC_fpr) <- c("fpr_animal_sd_0.15", "fpr_animal_sd_0.3", "fpr_animal_sd_0.5")
 t(Sham_vs_TAC_fpr)
 
-write.table(Sham_vs_TAC_lrt, 'Allelic_ratio_results/whole_chr_Sham_vs_TAC_dispersion_LRT_results.txt', sep = '\t', row.names = FALSE, quote = FALSE)
+write.table(Sham_vs_TAC_lrt, file.path(CUTOFF_DIR, 'whole_chr_Sham_vs_TAC_dispersion_LRT_results.txt'), sep = '\t', row.names = FALSE, quote = FALSE)
 
 # Effect sizes: fraction of cells escaping XCI (AR <= 0.9) and median AR per
 # celltype/condition. Complements the dispersion LRT p-values above with an
@@ -265,7 +266,7 @@ AR_COL <- "allelic_ratio"
 
 frac_escaping <- metadata_whole_chr %>%
   rename(AR = all_of(AR_COL)) %>%
-  { if ("total_reads" %in% names(.)) filter(., total_reads >= 10) else . } %>%
+  { if ("total_reads" %in% names(.)) filter(., total_reads >= MIN_TOTAL_READS) else . } %>%
   mutate(sample = factor(sample, levels = c("9w", "78w", "Sham", "TAC"))) %>%
   group_by(celltype, sample) %>%
   summarise(n = n(),
@@ -274,10 +275,10 @@ frac_escaping <- metadata_whole_chr %>%
             .groups = "drop") %>%
   filter(n >= 20)
 
-write.table(frac_escaping, 'Allelic_ratio_results/whole_chr_fraction_escaping_per_celltype_and_condition.txt',
+write.table(frac_escaping, file.path(CUTOFF_DIR, 'whole_chr_fraction_escaping_per_celltype_and_condition.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
-pdf('Allelic_ratio_results/whole_chr_fraction_escaping_barplot.pdf')
+pdf(file.path(CUTOFF_DIR, 'whole_chr_fraction_escaping_barplot.pdf'))
 ggplot(frac_escaping, aes(sample, 100*escaping, fill = sample)) +
   geom_col() +
   facet_wrap(~celltype, labeller = label_wrap_gen(14)) +
@@ -314,7 +315,7 @@ violin_ann <- bind_rows(
   ) %>%
   ungroup()
 
-pdf('Allelic_ratio_results/whole_chr_allelic_ratio_celltype_violin_plot_facet_wrap.pdf')
+pdf(file.path(CUTOFF_DIR, 'whole_chr_allelic_ratio_celltype_violin_plot_facet_wrap.pdf'))
 ggplot(violin_tbl, aes(x = sample_idx, y = allelic_ratio, fill = sample)) +
   geom_violin(trim = FALSE, scale = "width", bounds = c(0, 1)) +
   geom_segment(data = violin_ann,
@@ -359,7 +360,7 @@ prop_tbl <- subset_heart_flt@meta.data %>%
     .groups = "drop"
   )
 
-pdf('Allelic_ratio_results/whole_chr_fraction_biallelic_cells_per_celltype_and_condition.pdf')
+pdf(file.path(CUTOFF_DIR, 'whole_chr_fraction_biallelic_cells_per_celltype_and_condition.pdf'))
 ggplot(prop_tbl, aes(x = sample, y = p_biallelic, color = sample)) +
   geom_point(size = 2) +
   geom_errorbar(aes(ymin = pmax(0, p_biallelic - 1.96*se),
@@ -372,7 +373,7 @@ ggplot(prop_tbl, aes(x = sample, y = p_biallelic, color = sample)) +
   theme(legend.position = "none")
 dev.off()
 
-saveRDS(subset_heart_flt, file = "Allelic_ratio_results/whole_chr_subset_heart_flt.RDS")
+saveRDS(subset_heart_flt, file = file.path(CUTOFF_DIR, "whole_chr_subset_heart_flt.RDS"))
 
 # Cell IDs for the highest-read-count Ventricular Cardiomyocyte per sample (for IGV inspection)
 metadata_whole_chr$cell_barcode <- rownames(metadata_whole_chr)
@@ -397,7 +398,7 @@ top_cm_cells <- bind_rows(top_reads_cells, biallelic_cells) %>%
   mutate(barcode_stripped = gsub('9w_|78w_|Sham_|TAC_', '', cell_barcode)) %>%
   select(sample, selection, cell_barcode, barcode_stripped, total_reads, allelic_ratio)
 
-write.table(top_cm_cells, 'Allelic_ratio_results/top_ventricular_cardiomyocyte_per_sample.txt',
+write.table(top_cm_cells, file.path(CUTOFF_DIR, 'top_ventricular_cardiomyocyte_per_sample.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 top_cm_cells
@@ -519,7 +520,7 @@ cc_df <- data.frame(
   UMAP_2        = Embeddings(subset_heart_flt, reduction = "umap")[, 2]
 ) %>% dplyr::filter(!is.na(theta))
 
-write.table(cc_df, 'Allelic_ratio_results/whole_chrX_tricycle_cell_positions.txt',
+write.table(cc_df, file.path(CUTOFF_DIR, 'whole_chrX_tricycle_cell_positions.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 # How much cell cycle variation is there at all? If a cell type is entirely
@@ -532,7 +533,7 @@ cc_stage_counts <- cc_df %>%
   ungroup() %>%
   arrange(sample, celltype, CCStage)
 
-write.table(cc_stage_counts, 'Allelic_ratio_results/whole_chrX_tricycle_stage_counts.txt',
+write.table(cc_stage_counts, file.path(CUTOFF_DIR, 'whole_chrX_tricycle_stage_counts.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 # --- Beta-binomial model of AR against cell cycle position -------------------
@@ -588,7 +589,7 @@ if (nrow(cc_ar_bb)) {
                                cc_ar_bb$peak_theta <= pi
 }
 
-write.table(cc_ar_bb, 'Allelic_ratio_results/whole_chrX_tricycle_AR_betabinomial.txt',
+write.table(cc_ar_bb, file.path(CUTOFF_DIR, 'whole_chrX_tricycle_AR_betabinomial.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 # --- Pre-specified contrast: S phase vs G1/G0 --------------------------------
@@ -648,7 +649,7 @@ if (nrow(cc_phase_bb)) {
   cc_phase_bb$FDR_S_vs_G1 <- p.adjust(cc_phase_bb$p_S_vs_G1, method = "fdr")
 }
 
-write.table(cc_phase_bb, 'Allelic_ratio_results/whole_chrX_tricycle_AR_S_vs_G1.txt',
+write.table(cc_phase_bb, file.path(CUTOFF_DIR, 'whole_chrX_tricycle_AR_S_vs_G1.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 # --- Plots -------------------------------------------------------------------
@@ -656,7 +657,7 @@ write.table(cc_phase_bb, 'Allelic_ratio_results/whole_chrX_tricycle_AR_S_vs_G1.t
 # scale does not imply a start and an end where the biology has neither.
 theta_cols <- hcl(h = seq(15, 375, length.out = 100), c = 80, l = 60)
 
-pdf('Allelic_ratio_results/whole_chrX_tricycle_umap.pdf', width = 12, height = 3.5)
+pdf(file.path(CUTOFF_DIR, 'whole_chrX_tricycle_umap.pdf'), width = 12, height = 3.5)
 ggplot(cc_df, aes(x = UMAP_1, y = UMAP_2, colour = theta)) +
   geom_point(size = 0.6, alpha = 0.9) +
   facet_wrap(~sample, nrow = 1) +
@@ -704,7 +705,7 @@ cc_pred <- base::Map(function(mm, x) {
   left_join(cc_sig, by = c("sample", "celltype")) %>%
   mutate(sig = FDR < 0.05)
 
-pdf('Allelic_ratio_results/whole_chrX_tricycle_AR_vs_position.pdf', width = 11, height = 13)
+pdf(file.path(CUTOFF_DIR, 'whole_chrX_tricycle_AR_vs_position.pdf'), width = 11, height = 13)
 ggplot(cc_df, aes(x = theta, y = allelic_ratio)) +
   # Shaded band is the predicted window: S phase, where the Xa has replicated
   # and the Xi has not. Drawn first so it sits behind the data.
@@ -748,7 +749,7 @@ cc_bins_polar <- cc_bins %>%
   mutate(panel = factor(paste0(celltype, " - ", sample),
                         levels = unique(paste0(celltype, " - ", sample))))
 
-pdf('Allelic_ratio_results/whole_chrX_tricycle_AR_polar.pdf', width = 12, height = 12)
+pdf(file.path(CUTOFF_DIR, 'whole_chrX_tricycle_AR_polar.pdf'), width = 12, height = 12)
 ggplot(cc_bins_polar, aes(x = theta, y = est, group = panel)) +
   geom_hline(yintercept = 0.5, linetype = "dashed", colour = "grey60") +
   geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0, linewidth = 0.4, colour = "grey30") +
@@ -771,7 +772,7 @@ ggplot(cc_bins_polar, aes(x = theta, y = est, group = panel)) +
 dev.off()
 
 # Discrete cross-check: AR by Schwabe stage.
-pdf('Allelic_ratio_results/whole_chrX_tricycle_AR_by_stage.pdf', width = 11, height = 4)
+pdf(file.path(CUTOFF_DIR, 'whole_chrX_tricycle_AR_by_stage.pdf'), width = 11, height = 4)
 cc_df %>%
   dplyr::filter(!is.na(CCStage)) %>%
   ggplot(aes(x = CCStage, y = allelic_ratio)) +
@@ -792,7 +793,7 @@ cc_phase_bb
 # cycle signal makes cells trace a ring in the tricycle embedding. A blob means
 # the cells sit on the origin, theta is the angle of a near-zero-length vector,
 # and every downstream theta is noise. This dataset gives a blob.
-pdf('Allelic_ratio_results/whole_chrX_tricycle_embedding.pdf', width = 6, height = 6)
+pdf(file.path(CUTOFF_DIR, 'whole_chrX_tricycle_embedding.pdf'), width = 6, height = 6)
 plot(reducedDim(cc_sce, "tricycleEmbedding"),
      pch = 16, cex = 0.4, col = rgb(0, 0, 0, 0.3),
      xlab = "tricycle PC1", ylab = "tricycle PC2",
@@ -881,7 +882,7 @@ if (nrow(depth_bb)) {
     arrange(predictor, sample, celltype)
 }
 
-write.table(depth_bb, 'Allelic_ratio_results/whole_chrX_AR_vs_depth_betabinomial.txt',
+write.table(depth_bb, file.path(CUTOFF_DIR, 'whole_chrX_AR_vs_depth_betabinomial.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 # Direction summary: how many groups show AR falling with depth, and how many
@@ -896,11 +897,11 @@ depth_direction <- depth_bb %>%
             median_OR = median(OR),
             .groups = "drop")
 
-write.table(depth_direction, 'Allelic_ratio_results/whole_chrX_AR_vs_depth_direction_summary.txt',
+write.table(depth_direction, file.path(CUTOFF_DIR, 'whole_chrX_AR_vs_depth_direction_summary.txt'),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
 # Forest plot of the depth coefficients.
-pdf('Allelic_ratio_results/whole_chrX_AR_vs_depth_forest.pdf', width = 10, height = 6)
+pdf(file.path(CUTOFF_DIR, 'whole_chrX_AR_vs_depth_forest.pdf'), width = 10, height = 6)
 depth_bb %>%
   mutate(sig = FDR < 0.05,
          lwr = exp(beta - 1.96 * se),
@@ -946,7 +947,7 @@ depth_bins <- depth_df %>%
   dplyr::filter(N > 0, n_cells >= 10)
 depth_bins <- bind_cols(depth_bins, wilson_ci_depth(depth_bins$A1, depth_bins$N))
 
-pdf('Allelic_ratio_results/whole_chrX_AR_vs_depth_binned.pdf', width = 11, height = 13)
+pdf(file.path(CUTOFF_DIR, 'whole_chrX_AR_vs_depth_binned.pdf'), width = 11, height = 13)
 ggplot(depth_bins, aes(x = depth, y = est)) +
   geom_line(aes(group = interaction(sample, celltype)), colour = "grey50", linewidth = 0.4) +
   geom_errorbar(aes(ymin = lwr, ymax = upr), width = 0, linewidth = 0.4) +

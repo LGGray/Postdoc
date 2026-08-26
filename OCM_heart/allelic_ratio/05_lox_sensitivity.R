@@ -12,7 +12,7 @@
 source("allelic_ratio/00_functions.R")
 
 metadata_whole_chr <- read.table(
-  'Allelic_ratio_results/whole_chr_cell_metadata.txt',
+  file.path(CUTOFF_DIR, 'whole_chr_cell_metadata.txt'),
   sep = '\t', header = TRUE, row.names = 1,
   stringsAsFactors = FALSE, check.names = FALSE)
 

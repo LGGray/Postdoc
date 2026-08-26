@@ -11,7 +11,7 @@ heart$celltype <- Idents(heart)
 
 # per-cell whole-chrX table, written by 02_whole_chrX.R
 metadata_whole_chr <- read.table(
-  'Allelic_ratio_results/whole_chr_cell_metadata.txt',
+  file.path(CUTOFF_DIR, 'whole_chr_cell_metadata.txt'),
   sep = '\t', header = TRUE, row.names = 1,
   stringsAsFactors = FALSE, check.names = FALSE)
 

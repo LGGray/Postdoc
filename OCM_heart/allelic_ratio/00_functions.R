@@ -148,3 +148,29 @@ fdr_to_stars <- function(fdr) {
                 ifelse(fdr <= 0.01, "**",
         ifelse(fdr <= 0.05, "*", "ns"))))
 }
+
+# ---------------------------------------------------------------------------
+# Total-read cutoff and the output directory keyed to it.
+#
+# The cutoff is not a neutral QC knob: 06_cutoff_sweep.R shows mean AR rising
+# from 0.85 at 10-25 chrX reads to 0.97 above 200, a real depth bias rather
+# than sampling noise, so results are only comparable within one cutoff.
+# Hence one directory per cutoff -- re-running at a different value writes
+# somewhere new instead of silently overwriting the previous set.
+#
+# Defined here rather than in 02 so that 03 and 05, which read 02's per-cell
+# metadata handoff, cannot drift onto a different cutoff than the file they
+# are reading was built with.
+#
+# Override for a one-off:  MIN_TOTAL_READS=50 Rscript allelic_ratio/02_whole_chrX.R
+MIN_TOTAL_READS <- as.integer(Sys.getenv("MIN_TOTAL_READS", "30"))
+stopifnot(!is.na(MIN_TOTAL_READS), MIN_TOTAL_READS >= 1)
+
+CUTOFF_DIR <- file.path("Allelic_ratio_results",
+                        paste0("cutoff_", MIN_TOTAL_READS))
+dir.create(CUTOFF_DIR, showWarnings = FALSE, recursive = TRUE)
+
+# The raw per-cell allelic ratio table is cutoff-INDEPENDENT: it is every cell
+# with any chrX coverage, and both 02 and 06 filter it themselves. It stays at
+# the top level rather than being duplicated into each cutoff directory.
+ALLELIC_RATIOS_FILE <- "Allelic_ratio_results/whole_chr_allelic_ratios.txt"
