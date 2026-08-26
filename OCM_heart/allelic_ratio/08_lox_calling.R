@@ -397,12 +397,25 @@ if (exists("ab_ref")) {
   say("  If the two rows differ in depth, the raw odds ratios from 04 are ",
       "confounded and only the stratified result below is interpretable.")
 
-  # Depth strata: block reads, because that is what directly drives a chance
-  # LOX call. Cut so strata are populated rather than on round numbers.
-  cells$depth_stratum <- cut(cells$total_reads,
-                             breaks = unique(quantile(cells$total_reads,
-                                                      probs = seq(0, 1, 0.25))),
-                             include.lowest = TRUE)
+  # Stratify on the EXACT read count, not on quantile bins.
+  #
+  # Why block reads is the right thing to hold fixed: the confounding path runs
+  #   low library -> Xist dropout          -> Xist == 0
+  #   low library -> fewer block reads     -> chance AR = 1 -> LOX call
+  # Block reads sit on the second path, and the chance of a spurious LOX call
+  # is p^N, fixed once N is fixed. So conditioning on N closes that path
+  # completely, which conditioning on library size only does indirectly.
+  #
+  # And here N is a small integer (1 to 26, median 3), so we can condition on
+  # its exact value rather than a bin -- within a stratum every cell has
+  # IDENTICAL resolution and an identical chance-LOX rate. Depths above 10 are
+  # pooled because individually they hold too few cells to contribute.
+  cells$depth_stratum <- factor(ifelse(cells$total_reads >= 10, "10+",
+                                       as.character(cells$total_reads)),
+                                levels = c(as.character(1:9), "10+"))
+  say("  Stratifying on the exact read count (1..9, then 10+), so within a ",
+      "stratum every cell has the same resolution and the same chance of a ",
+      "spurious LOX call. That closes the depth pathway rather than damping it.")
 
   strat <- cells %>%
     group_by(depth_stratum) %>%
@@ -418,7 +431,7 @@ if (exists("ab_ref")) {
   say("  LOX rate in Xist-zero vs Xist-positive cells, WITHIN depth strata:")
   for (i in seq_len(nrow(strat))) {
     r <- strat[i, ]
-    say(sprintf("    reads %-10s n = %5d (%4d Xist-zero): %.3f vs %.3f, difference %+.3f",
+    say(sprintf("    reads %-4s n = %5d (%4d Xist-zero): %.3f vs %.3f, difference %+.3f",
                 as.character(r$depth_stratum), r$n_cells, r$n_xist_zero,
                 r$lox_rate_xist_zero, r$lox_rate_xist_pos, r$rate_difference))
   }
