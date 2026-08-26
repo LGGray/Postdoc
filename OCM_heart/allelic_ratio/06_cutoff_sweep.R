@@ -365,95 +365,231 @@ print(
 dev.off()
 
 # ---------------------------------------------------------------------------
-# How much of the "escape" at a given cutoff is just binomial noise?
+# Depth is not a nuisance here, it is a bias. This is the section that matters.
 #
-# The trend plots show the escape fraction falling as the cutoff rises, but on
-# their own they cannot say whether the low-cutoff number was noise or whether
-# the high cutoff is selecting a different population. This does separate them.
+# The escape fraction (AR <= 0.9) is a threshold on a noisy estimate, so it
+# necessarily moves with read depth and cannot separate the two explanations on
+# its own. The MEAN of A1/total_reads can: A1/N is an unbiased estimator of the
+# underlying allelic proportion, so binomial sampling cannot shift its mean at
+# any depth. Any depth gradient in mean AR is therefore a real difference in
+# what the cells are reporting, not a measurement artefact.
 #
-# Take only the deep cells, where AR is measured precisely, and thin each one's
-# own reads down to a shallow depth by hypergeometric sampling. That holds the
-# cells fixed and changes only the read count, so whatever escape appears is
-# noise by construction. If thinned deep cells reproduce the escape seen in real
-# cells at that depth, the low-cutoff signal was measurement error; if real
-# shallow cells still show more, something depth-associated is left over
-# (ambient contamination is the leading candidate, cf. the depth analysis in 02).
+# Stratifying rather than filtering is the point. A cutoff mixes two things --
+# discarding noisy cells and discarding biased cells -- and reports one number;
+# these bands keep them separate.
 # ---------------------------------------------------------------------------
-DEEP_MIN   <- 100     # "measured accurately" reference set
-THIN_DEPTH <- c(10, 20, 30, 50, 75)
-THIN_REPS  <- 200
+DEPTH_BANDS <- list(c(10, 25), c(25, 40), c(40, 60), c(60, 100), c(100, 200),
+                    c(200, Inf))
+band_label <- sapply(DEPTH_BANDS, function(b)
+  if (is.infinite(b[2])) paste0(b[1], "+") else paste0(b[1], "-", b[2]))
 
-set.seed(1)
-deep <- cells[cells$total_reads >= DEEP_MIN, ]
+assign_band <- function(n) {
+  idx <- sapply(n, function(x) {
+    hit <- which(sapply(DEPTH_BANDS, function(b) x >= b[1] & x < b[2]))
+    if (length(hit)) hit[1] else NA_integer_
+  })
+  factor(band_label[idx], levels = band_label)
+}
+cells$depth_band <- assign_band(cells$total_reads)
 
-thin_escape <- bind_rows(lapply(SAMPLE_LEVELS, function(s) {
-  d <- deep[deep$sample == s, ]
-  if (nrow(d) < 30) return(NULL)
-  bind_rows(lapply(THIN_DEPTH, function(k) {
-    k_cell <- pmin(k, d$total_reads)      # a cell cannot give up more reads than it has
-    reps <- replicate(THIN_REPS, {
-      a <- rhyper(nrow(d), d$A1_reads, d$A2_reads, k_cell)
-      mean(a / k_cell <= 0.9)
-    })
-    data.frame(sample = s, depth = k, n_deep = nrow(d),
-               thinned_escape = mean(reps),
-               thinned_lwr = quantile(reps, 0.025, names = FALSE),
-               thinned_upr = quantile(reps, 0.975, names = FALSE))
-  }))
-}))
+# --- the gradient itself, and whether celltype composition explains it -------
+depth_gradient <- cells %>%
+  filter(!is.na(depth_band)) %>%
+  group_by(depth_band) %>%
+  summarise(n_cells = dplyr::n(), median_depth = median(total_reads),
+            mean_AR = mean(allelic_ratio),
+            pooled_AR = sum(A1_reads) / sum(total_reads),
+            frac_escaping = mean(allelic_ratio <= 0.9), .groups = "drop")
 
-# Matched comparison: real cells at the same nominal depth, i.e. the escape
-# fraction actually observed once that cutoff is applied.
-observed_escape <- bind_rows(lapply(THIN_DEPTH, function(k) {
-  cells[cells$total_reads >= k, ] %>%
-    group_by(sample) %>%
-    summarise(observed_escape = mean(allelic_ratio <= 0.9),
-              n_cells = dplyr::n(), .groups = "drop") %>%
-    mutate(depth = k)
-}))
+# Same gradient within each celltype. If it survives here it is not the
+# large-cell/deep-library celltypes dragging the pooled number around.
+depth_gradient_ct <- cells %>%
+  filter(!is.na(depth_band)) %>%
+  group_by(celltype, depth_band) %>%
+  summarise(n_cells = dplyr::n(), mean_AR = mean(allelic_ratio), .groups = "drop") %>%
+  filter(n_cells >= 20)
 
-thin_cmp <- thin_escape %>%
-  mutate(sample = factor(sample, levels = SAMPLE_LEVELS)) %>%
-  left_join(observed_escape, by = c("sample", "depth")) %>%
-  mutate(escape_at_deep = sapply(as.character(sample), function(s)
-           mean(deep$allelic_ratio[deep$sample == s] <= 0.9)),
-         # what share of the observed escape the noise floor alone accounts for
-         noise_share = thinned_escape / observed_escape) %>%
-  arrange(sample, depth)
+# And against library size instead of chrX informative reads: nCount_RNA is a
+# separate quantity, so a gradient in both rules out an artefact of however many
+# SNP-overlapping reads a given cell happened to yield.
+depth_gradient_lib <- cells %>%
+  mutate(lib_sextile = dplyr::ntile(nCount_RNA, 6)) %>%
+  group_by(lib_sextile) %>%
+  summarise(n_cells = dplyr::n(), median_lib = median(nCount_RNA),
+            median_chrX_reads = median(total_reads),
+            mean_AR = mean(allelic_ratio), .groups = "drop")
 
-write.table(thin_cmp, file.path(OUT_DIR, "cutoff_sweep_noise_floor.txt"),
+write.table(depth_gradient, file.path(OUT_DIR, "depth_gradient_pooled.txt"),
+            sep = '\t', row.names = FALSE, quote = FALSE)
+write.table(depth_gradient_ct, file.path(OUT_DIR, "depth_gradient_by_celltype.txt"),
+            sep = '\t', row.names = FALSE, quote = FALSE)
+write.table(depth_gradient_lib, file.path(OUT_DIR, "depth_gradient_by_library_size.txt"),
             sep = '\t', row.names = FALSE, quote = FALSE)
 
-pdf(file.path(OUT_DIR, "cutoff_sweep_noise_floor.pdf"), width = 10, height = 5)
+# --- depth-matched sample comparison ----------------------------------------
+# The comparison the conclusions actually rest on. Because the samples have
+# slightly different depth distributions, part of any pooled difference between
+# them is the gradient above rather than biology. Within a band that is held
+# fixed, so an ordering that persists down every column is real and one that
+# collapses at depth was the gradient.
+depth_matched <- cells %>%
+  filter(!is.na(depth_band)) %>%
+  group_by(depth_band, sample) %>%
+  summarise(n_cells = dplyr::n(), mean_AR = mean(allelic_ratio),
+            median_AR = median(allelic_ratio),
+            frac_escaping = mean(allelic_ratio <= 0.9), .groups = "drop") %>%
+  filter(n_cells >= 30)
+
+depth_matched_ct <- cells %>%
+  filter(!is.na(depth_band)) %>%
+  group_by(celltype, depth_band, sample) %>%
+  summarise(n_cells = dplyr::n(), mean_AR = mean(allelic_ratio), .groups = "drop") %>%
+  filter(n_cells >= 30)
+
+write.table(depth_matched, file.path(OUT_DIR, "depth_matched_by_sample.txt"),
+            sep = '\t', row.names = FALSE, quote = FALSE)
+write.table(depth_matched_ct, file.path(OUT_DIR, "depth_matched_by_sample_and_celltype.txt"),
+            sep = '\t', row.names = FALSE, quote = FALSE)
+
+pdf(file.path(OUT_DIR, "depth_bias.pdf"), width = 11, height = 8)
+
 print(
-  ggplot(thin_cmp, aes(depth)) +
-    geom_ribbon(aes(ymin = thinned_lwr, ymax = thinned_upr),
-                fill = "grey75", alpha = 0.6) +
-    geom_line(aes(y = thinned_escape, colour = "Noise floor (deep cells, reads thinned)")) +
-    geom_point(aes(y = thinned_escape, colour = "Noise floor (deep cells, reads thinned)"),
-               size = 1.2) +
-    geom_line(aes(y = observed_escape, colour = "Observed (real cells at this cutoff)")) +
-    geom_point(aes(y = observed_escape, colour = "Observed (real cells at this cutoff)"),
-               size = 1.2) +
-    geom_hline(aes(yintercept = escape_at_deep), linetype = "dotted") +
-    facet_wrap(~sample, nrow = 1) +
-    scale_x_log10(breaks = THIN_DEPTH) +
-    scale_colour_manual(values = c("Noise floor (deep cells, reads thinned)" = "grey35",
-                                   "Observed (real cells at this cutoff)" = "firebrick"),
+  ggplot(depth_gradient, aes(median_depth, mean_AR)) +
+    geom_line(colour = "grey40") +
+    geom_point(aes(size = n_cells), colour = "firebrick") +
+    geom_text(aes(label = band_label[as.integer(depth_band)]), vjust = -1.2, size = 2.6) +
+    scale_x_log10() + scale_size_continuous(range = c(1.5, 4), name = "Cells") +
+    coord_cartesian(ylim = c(0.75, 1)) +
+    labs(x = "chrX informative reads (median of band, log scale)",
+         y = "Mean allelic ratio",
+         title = "Mean allelic ratio rises with read depth",
+         caption = paste("A1/N is unbiased for the underlying proportion, so binomial noise cannot move this mean.",
+                         "A gradient here is a real\ndepth-dependent bias -- shallow cells report genuinely lower AR.",
+                         "Ambient RNA is the leading candidate: a shallow cell's\nreads are proportionally more ambient, and the ambient pool averages over a mosaic of cells rather than one active X.")) +
+    theme_bw() + theme(plot.caption = element_text(size = 7, hjust = 0))
+)
+
+print(
+  ggplot(depth_gradient_ct, aes(depth_band, mean_AR, group = celltype)) +
+    geom_line(colour = "grey60") +
+    geom_point(aes(size = n_cells), colour = "firebrick") +
+    facet_wrap(~celltype, labeller = label_wrap_gen(18)) +
+    scale_size_continuous(range = c(0.6, 2.5), name = "Cells") +
+    coord_cartesian(ylim = c(0.7, 1)) +
+    labs(x = "chrX informative reads", y = "Mean allelic ratio",
+         title = "The same gradient inside every celltype",
+         subtitle = "So it is not celltype composition -- deep-library celltypes are not dragging the pooled number") +
+    theme_bw(base_size = 8) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+)
+
+print(
+  ggplot(depth_gradient_lib, aes(median_lib, mean_AR)) +
+    geom_line(colour = "grey40") + geom_point(colour = "firebrick", size = 2) +
+    scale_x_log10() +
+    coord_cartesian(ylim = c(0.75, 1)) +
+    labs(x = "Library size (nCount_RNA, median of sextile, log scale)",
+         y = "Mean allelic ratio",
+         title = "And against library size, a separate quantity",
+         subtitle = "Rules out an artefact of how many SNP-overlapping chrX reads a cell happened to yield") +
+    theme_bw()
+)
+
+print(
+  ggplot(depth_matched, aes(depth_band, mean_AR, colour = sample, group = sample)) +
+    geom_line() + geom_point(size = 1.6) +
+    coord_cartesian(ylim = c(0.75, 1)) +
+    labs(x = "chrX informative reads", y = "Mean allelic ratio",
+         title = "Depth-matched sample comparison",
+         caption = paste("Within a band the depth bias is held fixed. An ordering that persists down every band",
+                         "is a real sample difference;\none that collapses in the deep bands was the depth gradient.")) +
+    theme_bw() + theme(plot.caption = element_text(size = 7, hjust = 0))
+)
+
+print(
+  ggplot(depth_matched_ct, aes(depth_band, mean_AR, colour = sample, group = sample)) +
+    geom_line() + geom_point(size = 1) +
+    facet_wrap(~celltype, labeller = label_wrap_gen(18)) +
+    coord_cartesian(ylim = c(0.7, 1)) +
+    labs(x = "chrX informative reads", y = "Mean allelic ratio",
+         title = "Depth-matched sample comparison, per celltype",
+         subtitle = "Only bands with >= 30 cells are drawn") +
+    theme_bw(base_size = 8) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+)
+
+dev.off()
+
+print(depth_gradient)
+print(depth_matched)
+
+# ---------------------------------------------------------------------------
+# Noise floor, for the escape FRACTION specifically.
+#
+# Superseded as the headline by the gradient above, but kept because the escape
+# fraction is the number in the existing figures and it is worth knowing how
+# much of it is a threshold artefact.
+#
+# The comparison is depth-MATCHED, which the first version of this got wrong:
+# thinning to exactly k reads was being compared against every cell with >= k
+# reads, whose median depth is far above k, so the noise floor looked several
+# times larger than it was. Both sides now sit in the same depth band.
+# ---------------------------------------------------------------------------
+REF_MIN   <- 200      # reference cells: deep enough to thin down to any band
+THIN_REPS <- 200
+
+set.seed(1)
+ref_cells <- cells[cells$total_reads >= REF_MIN, ]
+
+noise_floor <- bind_rows(lapply(seq_along(DEPTH_BANDS), function(i) {
+  b <- DEPTH_BANDS[[i]]
+  if (is.infinite(b[2]) || b[1] >= REF_MIN) return(NULL)
+  real <- cells[cells$total_reads >= b[1] & cells$total_reads < b[2], ]
+  if (nrow(real) < 50 || nrow(ref_cells) < 100) return(NULL)
+  k <- round(median(real$total_reads))
+  reps <- replicate(THIN_REPS, {
+    a <- rhyper(nrow(ref_cells), ref_cells$A1_reads, ref_cells$A2_reads, k)
+    mean(a / k <= 0.9)
+  })
+  data.frame(depth_band = band_label[i], median_depth = k,
+             n_real = nrow(real), n_ref = nrow(ref_cells),
+             observed_escape = mean(real$allelic_ratio <= 0.9),
+             noise_escape = mean(reps),
+             noise_lwr = quantile(reps, 0.025, names = FALSE),
+             noise_upr = quantile(reps, 0.975, names = FALSE))
+})) %>%
+  mutate(noise_share = noise_escape / observed_escape,
+         depth_band = factor(depth_band, levels = band_label))
+
+write.table(noise_floor, file.path(OUT_DIR, "cutoff_sweep_noise_floor.txt"),
+            sep = '\t', row.names = FALSE, quote = FALSE)
+
+pdf(file.path(OUT_DIR, "cutoff_sweep_noise_floor.pdf"), width = 8, height = 5)
+print(
+  ggplot(noise_floor, aes(median_depth)) +
+    geom_ribbon(aes(ymin = noise_lwr, ymax = noise_upr), fill = "grey75", alpha = 0.6) +
+    geom_line(aes(y = noise_escape, colour = "Noise floor (deep cells thinned to this depth)")) +
+    geom_point(aes(y = noise_escape, colour = "Noise floor (deep cells thinned to this depth)"), size = 1.4) +
+    geom_line(aes(y = observed_escape, colour = "Observed (real cells at this depth)")) +
+    geom_point(aes(y = observed_escape, colour = "Observed (real cells at this depth)"), size = 1.4) +
+    scale_x_log10(breaks = noise_floor$median_depth) +
+    scale_colour_manual(values = c("Noise floor (deep cells thinned to this depth)" = "grey35",
+                                   "Observed (real cells at this depth)" = "firebrick"),
                         name = NULL) +
-    labs(x = "Minimum chrX total_reads", y = "Fraction with AR <= 0.9",
-         title = "How much apparent escape survives once binomial noise is accounted for",
-         caption = paste("Grey: cells with >=", DEEP_MIN, "reads, thinned to the depth on the x-axis --",
-                         "escape that is measurement error by construction.\nRed: escape actually observed",
-                         "at that cutoff. Dotted: escape among the deep cells at full depth.",
-                         "The gap between grey and red is the part\nthe noise floor does not explain.")) +
+    labs(x = "chrX informative reads (median of band, log scale)",
+         y = "Fraction with AR <= 0.9",
+         title = "Escape fraction against its binomial noise floor, depth-matched",
+         caption = paste("Both curves are at the SAME depth. Grey: cells with >=", REF_MIN,
+                         "reads thinned down to it, so their escape is measurement\nerror by construction.",
+                         "The large gap means the escape fraction is mostly not sampling noise -- it tracks the\ndepth bias in the",
+                         "figures above. Caveat: the grey reference is deep cells, which the gradient shows are\nthemselves the",
+                         "least-biased cells, so this floor is a lower bound.")) +
     theme_bw(base_size = 9) +
-    theme(legend.position = "bottom",
-          plot.caption = element_text(size = 7, hjust = 0))
+    theme(legend.position = "bottom", plot.caption = element_text(size = 7, hjust = 0))
 )
 dev.off()
 
-print(thin_cmp)
+print(noise_floor)
 
 # ---------------------------------------------------------------------------
 # AR distribution as a ridge-style overlay: all cutoffs on one axis per sample,
