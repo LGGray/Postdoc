@@ -37,7 +37,7 @@ source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x
 conda activate RNAseq
 
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
-cd $BASE/OCM_heart
+cd $BASE/OCM
 
 RATIOS=Allelic_ratio_results/whole_chr_allelic_ratios.txt
 if [ ! -f "$RATIOS" ]; then
