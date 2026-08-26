@@ -33,6 +33,11 @@ module load slurm_setup
 # Positional, not environment: --export=NONE above stops `TILE_UM=64 sbatch`
 # from reaching the job.
 TILE_UM="${1:-${TILE_UM:-}}"
+# Optional arg 2: stop after this many Allelome.PRO2 tiles. Use it to time the
+# per-tile cost before committing to all ~3700 - each invocation re-parses the
+# genome-wide SNP bed, and whether that is 2 minutes or 20 decides whether the
+# full run fits in the wall clock.
+MAX_TILES="${2:-0}"
 if [ -z "$TILE_UM" ]; then
   echo "Usage: sbatch $0 <tile_um>    e.g. sbatch $0 64" >&2
   echo "Must match the size the sweep wrote a map for." >&2
@@ -79,6 +84,7 @@ for f in "$BAM" "$CELLS" "$ANNOTATION" "$SNPS" "$PIPELINE"; do
 done
 if [ -z "$SCRATCH" ]; then echo "SCRATCH is not set - aborting" >&2; exit 1; fi
 
+mkdir -p "$FINAL_DIR"
 N_TILES=$(cut -f2 "$CELLS" | sort -u | wc -l)
 echo "Tile size ${TILE_UM}um, $N_TILES tiles, $(wc -l < "$CELLS") bins"
 
@@ -95,34 +101,42 @@ if [ "$N_TILES" -gt $(( $(ulimit -n) - 256 )) ]; then
   exit 1
 fi
 
-SCRATCH_DIR=$SCRATCH/spatial_tiles_${SAMPLE}_${TILE_UM}um_${SLURM_JOB_ID}
-BAM_DIR=$SCRATCH_DIR/bam
-AP2_DIR=$SCRATCH_DIR/allelome
-rm -rf "$SCRATCH_DIR"
+# Persistent across retries, deliberately: no job id in the path. Splitting a
+# ~200GB BAM into 3700 pieces is hours of work, and a job that hits the wall
+# clock during Allelome.PRO2 should not have to redo it.
+WORK=$SCRATCH/spatial_tiles_${SAMPLE}_${TILE_UM}um
+BAM_DIR=$WORK/bam
+AP2_DIR=$WORK/allelome
 mkdir -p "$BAM_DIR" "$AP2_DIR"
 
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 
 ##### ---- split ---- #####
-conda activate sinto
-if ! sinto filterbarcodes --help 2>&1 | grep -q -- '--barcodetag'; then
-  echo "ERROR: this sinto has no --barcodetag; it would split on CB and match" >&2
-  echo "       nothing. Upgrade sinto, or pre-tag the BAM with sb copied to CB." >&2
-  exit 1
-fi
-sinto filterbarcodes \
-  --bam "$BAM" \
-  --cells "$CELLS" \
-  --outdir "$BAM_DIR" \
-  --barcodetag "$BARCODE_TAG" \
-  --nproc "$SLURM_CPUS_PER_TASK" || { echo "sinto failed" >&2; exit 1; }
-conda deactivate
-
 N_BAM=$(find "$BAM_DIR" -name '*.bam' | wc -l)
-echo "sinto wrote $N_BAM / $N_TILES tile BAMs"
+if [ "$N_BAM" -ge "$N_TILES" ]; then
+  echo "[$(date +%T)] Reusing $N_BAM tile BAMs already in $BAM_DIR"
+else
+  echo "[$(date +%T)] sinto: splitting into $N_TILES tiles"
+  conda activate sinto
+  if ! sinto filterbarcodes --help 2>&1 | grep -q -- '--barcodetag'; then
+    echo "ERROR: this sinto has no --barcodetag; it would split on CB and match" >&2
+    echo "       nothing. Upgrade sinto, or pre-tag the BAM with sb copied to CB." >&2
+    exit 1
+  fi
+  sinto filterbarcodes \
+    --bam "$BAM" \
+    --cells "$CELLS" \
+    --outdir "$BAM_DIR" \
+    --barcodetag "$BARCODE_TAG" \
+    --nproc "$SLURM_CPUS_PER_TASK" || { echo "sinto failed" >&2; exit 1; }
+  conda deactivate
+  N_BAM=$(find "$BAM_DIR" -name '*.bam' | wc -l)
+  echo "[$(date +%T)] sinto wrote $N_BAM / $N_TILES tile BAMs"
+fi
+
 if [ "$N_BAM" -eq 0 ]; then
-  echo "ERROR: no BAMs written. Check that the HD BAM carries 2um barcodes in CB:" >&2
-  echo "       samtools view $BAM | head -1 | tr '\\t' '\\n' | grep '^CB:'" >&2
+  echo "ERROR: no BAMs written. Check that the HD BAM carries 2um bins in $BARCODE_TAG:" >&2
+  echo "       samtools view $BAM | head -1 | tr '\\t' '\\n' | grep '^$BARCODE_TAG:'" >&2
   exit 1
 fi
 
@@ -130,30 +144,62 @@ fi
 conda activate RNAseq
 module load parallel
 
-find "$BAM_DIR" -name '*.bam' | sort > "$SCRATCH_DIR/bamfiles.txt"
+# Only tiles without a locus table. A timed-out run therefore picks up where it
+# stopped instead of starting over.
+: > "$WORK/task-list.txt"
+n_todo=0; n_done=0
 while IFS= read -r bam; do
+  tile=$(basename "$bam" .bam)
+  if [ -s "$AP2_DIR/$tile/locus_table.txt" ] || [ -s "$FINAL_DIR/$tile/locus_table.txt" ]; then
+    n_done=$((n_done + 1)); continue
+  fi
   echo "$PIPELINE -i $bam -a $ANNOTATION -s $SNPS -r $MIN_READ -t $TOTAL_READ -o $AP2_DIR"
-done < "$SCRATCH_DIR/bamfiles.txt" > "$SCRATCH_DIR/task-list.txt"
+  n_todo=$((n_todo + 1))
+done < <(find "$BAM_DIR" -name '*.bam' | sort) >> "$WORK/task-list.txt"
+
+if [ "$MAX_TILES" -gt 0 ]; then
+  head -n "$MAX_TILES" "$WORK/task-list.txt" > "$WORK/task-list.head.txt"
+  mv "$WORK/task-list.head.txt" "$WORK/task-list.txt"
+  n_todo=$(wc -l < "$WORK/task-list.txt")
+  echo "TIMING RUN: limited to $n_todo tiles"
+fi
+echo "[$(date +%T)] Allelome.PRO2: $n_todo to run, $n_done already done"
 
 nproc=$((SLURM_CPUS_PER_TASK - 2))
 if [ "$nproc" -lt 1 ]; then nproc=1; fi
-parallel -j "$nproc" --joblog "$SCRATCH_DIR/parallel.log" :::: "$SCRATCH_DIR/task-list.txt"
+start=$SECONDS
+parallel -j "$nproc" --joblog "$WORK/parallel.log" :::: "$WORK/task-list.txt"
+elapsed=$((SECONDS - start))
 
-FAILED=$(awk 'NR>1 && $7 != 0' "$SCRATCH_DIR/parallel.log" | wc -l)
-echo "Allelome.PRO2: $FAILED / $(wc -l < "$SCRATCH_DIR/task-list.txt") tiles failed"
+if [ "$n_todo" -gt 0 ]; then
+  per_tile=$(awk -v e="$elapsed" -v n="$n_todo" -v j="$nproc" \
+                 'BEGIN{printf "%.1f", e*j/n}')
+  total_h=$(awk -v p="$per_tile" -v n="$N_TILES" -v j="$nproc" \
+                'BEGIN{printf "%.1f", p*n/j/3600}')
+  echo "[$(date +%T)] $n_todo tiles in ${elapsed}s at -j $nproc"
+  echo "  ~${per_tile}s of CPU per tile -> ~${total_h}h for all $N_TILES tiles"
+fi
+
+FAILED=$(awk 'NR>1 && $7 != 0' "$WORK/parallel.log" 2>/dev/null | wc -l)
+echo "Allelome.PRO2 failures this pass: $FAILED / $n_todo"
 
 ##### ---- collect ---- #####
 # Only the locus tables and BED files are worth keeping; the tile BAMs are
 # reproducible from the map and would be tens of thousands of small files on
 # permanent storage.
 mkdir -p "$FINAL_DIR"
+shopt -s nullglob
 for d in "$AP2_DIR"/*/; do
   name=$(basename "$d")
   mkdir -p "$FINAL_DIR/$name"
   [ -f "$d/locus_table.txt" ] && mv "$d/locus_table.txt" "$FINAL_DIR/$name/"
   [ -d "$d/BED_files" ] && mv "$d"/BED_files/*.bed "$FINAL_DIR/$name/" 2>/dev/null
 done
-cp "$SCRATCH_DIR/parallel.log" "$FINAL_DIR/" 2>/dev/null
+cp "$WORK/parallel.log" "$FINAL_DIR/" 2>/dev/null
 
-echo "Results in $FINAL_DIR"
-echo "Tile BAMs left in $BAM_DIR - delete once you are happy with the output."
+n_final=$(find "$FINAL_DIR" -name locus_table.txt | wc -l)
+echo "Results in $FINAL_DIR: $n_final / $N_TILES tiles have a locus table"
+if [ "$n_final" -lt "$N_TILES" ] && [ "$MAX_TILES" -eq 0 ]; then
+  echo "Incomplete - resubmit the same command and it will run only what is left."
+fi
+echo "Tile BAMs kept in $BAM_DIR - delete once you are happy with the output."
