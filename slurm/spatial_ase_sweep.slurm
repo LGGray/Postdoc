@@ -65,8 +65,10 @@ fi
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 
 ##### ---- pass 1: per-2um-bin allelic counts (pysam) ---- #####
-if [ -s "$COUNTS" ] && [ "${FORCE:-0}" != "1" ]; then
-  echo "Reusing existing $COUNTS (FORCE=1 to redo)"
+# -s is not enough: a failed run still leaves a header line behind, and reusing
+# that silently feeds an empty table to the sweep. Require actual data rows.
+if [ "$(head -2 "$COUNTS" 2>/dev/null | wc -l)" -gt 1 ] && [ "${FORCE:-0}" != "1" ]; then
+  echo "Reusing existing $COUNTS ($(($(wc -l < "$COUNTS") - 1)) bins; FORCE=1 to redo)"
 else
   conda activate sinto     # pysam lives here alongside sinto itself
 

@@ -69,6 +69,14 @@ CD_MAX_UM     <- 2000
 CD_N_STRATA   <- 32
 CD_PER_STRATUM <- 200000L
 
+# Angular sectors for C(d). 0 = one all-angles curve, which is the simple
+# reading and the default. Set to 4 to also split C(d) by direction on the
+# capture grid, which is worth doing if the isotropic curve looks odd:
+# cardiomyocytes run in bundles, so clonal patches are probably elongated, and
+# an elongated patch measured isotropically returns a length describing neither
+# axis. Costs nothing but a second pass over the same sampled pairs.
+CD_N_SECTORS <- 0L
+
 # Optional: restrict to bins in one tissue domain, e.g. cardiomyocyte bins from
 # the BANKSY clustering. A TSV with columns barcode, domain, plus the domain
 # values to keep. This is the trick that buys the most - a tile restricted to
@@ -117,6 +125,12 @@ if (!is.null(DOMAIN_TSV)) {
 
 bins[, x_n := x_ref + x_alt]
 bins[, a_n := a_ref + a_alt]
+if (nrow(bins) == 0L) {
+  stop("No bins carry an informative UMI in ", IN_TSV, "\n",
+       "  The counting pass produced nothing. Check its log for the ",
+       "pre-flight line\n  (CB tags resolving to bins) and the allele-match ",
+       "rate, then re-run with FORCE=1.")
+}
 message("Bins with any informative UMI: ", nrow(bins))
 message("chrX informative UMIs: ", sum(bins$x_n),
         "   autosomal: ", sum(bins$a_n))
@@ -176,6 +190,18 @@ rho_betabinom <- function(x, n) {
   plogis(fit$par[2])
 }
 
+# Median of `v` padded out to n_total with zeros, without building the padding:
+# at 2um that would be a 4M-element vector per call, allocated 24 times.
+median_with_zeros <- function(v, n_total) {
+  n_total <- as.integer(n_total)
+  if (n_total <= 0L) return(NA_real_)
+  n_zero <- max(0L, n_total - length(v))
+  s <- sort(v)
+  at <- function(i) if (i <= n_zero) 0 else s[i - n_zero]
+  if (n_total %% 2L == 1L) as.numeric(at((n_total + 1L) %/% 2L))
+  else (at(n_total %/% 2L) + at(n_total %/% 2L + 1L)) / 2
+}
+
 sweep_one <- function(size_um, ref_col, alt_col, label) {
   k <- size_um / 2                       # 2um bins per tile side
   tmp <- data.table(tr = bins$array_row %/% k, tc = bins$array_col %/% k,
@@ -191,17 +217,21 @@ sweep_one <- function(size_um, ref_col, alt_col, label) {
   rm_ <- if (nrow(use) >= 20) rho_moment(use$x, use$n) else NA_real_
   rb_ <- if (nrow(use) >= 20) rho_betabinom(use$x, use$n) else NA_real_
 
-  data.table(chrom_set = label, size_um = size_um,
-             n_tissue_tiles = n_tissue,
-             n_tiles_with_data = nrow(tile), n_tiles_used = nrow(use),
-             # Median over tissue tiles, so the empty ones count. The median
-             # over tiles-with-data is the flattering number and is not the
-             # one that decides whether a grid map is supportable.
-             median_umi = as.numeric(median(c(tile$n, rep(0, max(0, n_tissue - nrow(tile)))))),
-             mean_umi = sum(tile$n) / n_tissue,
-             p_bar = sum(tile$x) / sum(tile$n),
-             rho_moment = rm_, rho_bb = rb_,
-             as.list(cov))
+  res <- data.table(chrom_set = label, size_um = size_um,
+                    n_tissue_tiles = n_tissue,
+                    n_tiles_with_data = nrow(tile), n_tiles_used = nrow(use),
+                    # Median over tissue tiles, so the empty ones count. The
+                    # median over tiles-with-data is the flattering number and
+                    # is not the one that decides whether a grid map is
+                    # supportable.
+                    median_umi = median_with_zeros(tile$n, n_tissue),
+                    mean_umi = sum(tile$n) / n_tissue,
+                    p_bar = sum(tile$x) / sum(tile$n),
+                    rho_moment = rm_, rho_bb = rb_)
+  # Assigned explicitly rather than splicing as.list(cov) into the constructor,
+  # which is not guaranteed to become one column per element.
+  for (nm in names(cov)) set(res, j = nm, value = cov[[nm]])
+  res[]
 }
 
 message("\nSweeping tile sizes ...")
@@ -237,19 +267,30 @@ pair_correlation <- function(ref_col, alt_col, label) {
     th <- runif(CD_PER_STRATUM, 0, 2 * pi)
     dr <- as.integer(round(nb * cos(th)))
     dc <- as.integer(round(nb * sin(th)))
-    anchor <- d[sample.int(nrow(d), CD_PER_STRATUM, replace = TRUE)]
     # Integer rounding of the offset means the realised separation drifts from
     # the nominal one, worst at short range. Report what was actually sampled.
     ok <- !(dr == 0 & dc == 0)
+    anchor <- d[sample.int(nrow(d), CD_PER_STRATUM, replace = TRUE)]
     q <- data.table(bkey = (anchor$r + dr) * KEYMUL + (anchor$c + dc),
                     r1 = anchor$ref, a1 = anchor$alt, n1 = anchor$n,
-                    d_real = 2 * sqrt(dr^2 + dc^2))[ok]
+                    d_real = 2 * sqrt(dr^2 + dc^2),
+                    # Fold to 0-180: an offset and its negation are the same
+                    # separation, so opposite directions share a sector.
+                    sector = as.integer(floor(
+                      (atan2(dc, dr) %% pi) / pi * max(1L, CD_N_SECTORS))))[ok]
     hit <- d[q, on = "bkey", nomatch = 0]
     if (nrow(hit) < 100) return(NULL)
-    agree <- (hit$r1 * hit$ref + hit$a1 * hit$alt) / (hit$n1 * hit$n)
-    data.table(chrom_set = label, dist_um = mean(hit$d_real),
-               n_pairs = nrow(hit), C = mean(agree),
-               se = sd(agree) / sqrt(nrow(hit)))
+    hit[, agree := (r1 * ref + a1 * alt) / (n1 * n)]
+
+    # sector -1 is the all-angles curve, kept so the isotropic reading stays
+    # available and directly comparable to the per-sector ones.
+    iso <- hit[, .(sector = -1L, dist_um = mean(d_real), n_pairs = .N,
+                   C = mean(agree), se = sd(agree) / sqrt(.N))]
+    per <- if (CD_N_SECTORS > 0L) {
+      hit[, .(dist_um = mean(d_real), n_pairs = .N, C = mean(agree),
+              se = sd(agree) / sqrt(.N)), by = sector][n_pairs >= 100]
+    } else NULL
+    rbindlist(list(iso, per), use.names = TRUE)[, chrom_set := label][]
   }))
   out
 }
@@ -277,10 +318,27 @@ fit_decay <- function(dt) {
   if (!is.finite(L) || L <= 0 || L > CD_MAX_UM) return(NA_real_)
   L
 }
-L_x <- fit_decay(cd[chrom_set == "chrX"])
-L_a <- fit_decay(cd[chrom_set == "autosome"])
-message(sprintf("Correlation length: chrX %.0f um, autosome %.0f um",
+L_x <- fit_decay(cd[chrom_set == "chrX" & sector == -1L])
+L_a <- fit_decay(cd[chrom_set == "autosome" & sector == -1L])
+message(sprintf("Correlation length (all angles): chrX %.0f um, autosome %.0f um",
                 L_x, L_a))
+
+# Per-sector decay lengths. The spread between them is the anisotropy, and the
+# SHORT axis is what should set the tile size: a square tile large enough to
+# span the long axis will already be mixing patches across the fibre.
+sector_L <- NULL
+if (CD_N_SECTORS > 0L) {
+  secs <- sort(unique(cd[sector >= 0L, sector]))
+  sector_L <- rbindlist(lapply(secs, function(k) {
+    data.table(sector = k,
+               angle_deg = round((k + 0.5) * 180 / CD_N_SECTORS),
+               L_chrX = fit_decay(cd[chrom_set == "chrX" & sector == k]),
+               L_auto = fit_decay(cd[chrom_set == "autosome" & sector == k]))
+  }))
+  fwrite(sector_L, file.path(OUT_DIR, "pair_correlation_by_sector.csv"))
+  message("Directional correlation length (chrX):")
+  print(sector_L)
+}
 
 # ------------------------------------------------------------------ figures
 
@@ -316,7 +374,7 @@ print(
 
 if (nrow(cd)) {
   print(
-    ggplot(cd, aes(dist_um, C, colour = chrom_set)) +
+    ggplot(cd[sector == -1L], aes(dist_um, C, colour = chrom_set)) +
       geom_ribbon(aes(ymin = C - 2 * se, ymax = C + 2 * se, fill = chrom_set),
                   alpha = 0.15, colour = NA) +
       geom_line() +
@@ -328,6 +386,25 @@ if (nrow(cd)) {
            y = "P(two UMIs share an allele)") +
       theme_bw()
   )
+
+  if (CD_N_SECTORS > 0L && nrow(cd[sector >= 0L])) {
+    print(
+      ggplot(cd[sector >= 0L],
+             aes(dist_um, C, colour = factor(round((sector + 0.5) * 180 /
+                                                   CD_N_SECTORS)))) +
+        geom_line() +
+        facet_wrap(~ chrom_set) +
+        scale_x_log10() +
+        labs(title = "C(d) by direction on the capture grid",
+             subtitle = paste("Sectors that separate on chrX but not on the",
+                              "autosomal control mean the patches are",
+                              "elongated - set the tile size from the",
+                              "shortest axis."),
+             x = "separation (um)", y = "P(two UMIs share an allele)",
+             colour = "angle (deg)") +
+        theme_bw() + theme(plot.subtitle = element_text(size = 7))
+    )
+  }
 }
 
 # The intuitive version of rho(s): at a well-chosen size the tile ratios are
@@ -361,6 +438,18 @@ if (!is.na(L_x)) {
   message(sprintf("C(d) puts the chrX patch length at ~%.0f um (autosomal null %.0f um).",
                   L_x, L_a))
   message(sprintf("  -> to resolve patch shape, tile at <= %.0f um.", L_x / 2))
+}
+if (!is.null(sector_L) && sum(!is.na(sector_L$L_chrX)) >= 2) {
+  Lmin <- min(sector_L$L_chrX, na.rm = TRUE)
+  Lmax <- max(sector_L$L_chrX, na.rm = TRUE)
+  message(sprintf("Directional: %.0f um across the short axis, %.0f um along the long one (%.1fx).",
+                  Lmin, Lmax, Lmax / Lmin))
+  if (Lmax / Lmin >= 1.5) {
+    message(sprintf("  Patches are elongated, so the short axis governs: tile at <= %.0f um.",
+                    Lmin / 2))
+    message("  Square tiles are a fair first pass, but a tile sized for the ",
+            "long axis will be mixing patches across the fibre.")
+  }
 }
 if (is.null(best_rho)) {
   message("rho could not be estimated at any tile size - too few tiles clear ",
