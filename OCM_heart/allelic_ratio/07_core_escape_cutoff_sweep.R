@@ -23,7 +23,7 @@
 # ---------------------------------------------------------------------------
 source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
 
-OUT_DIR <- "Allelic_ratio_results/core_escape_cutoff_sweep"
+OUT_DIR <- file.path(RESULTS_ROOT, "core_escape_cutoff_sweep")
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 # Cutoffs are an order of magnitude lower than 06's on purpose: the deepest

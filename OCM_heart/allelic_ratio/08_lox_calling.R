@@ -37,7 +37,7 @@
 # ---------------------------------------------------------------------------
 source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
 
-OUT_DIR <- "Allelic_ratio_results/lox_calling"
+OUT_DIR <- file.path(RESULTS_ROOT, "lox_calling")
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 LOX_AR_THRESHOLD <- 0.90   # the rule 04 currently uses, evaluated here
@@ -590,7 +590,7 @@ if (exists("ab_ref")) {
 # both measurements use the same cell's reads and are affected by the same
 # ambient contamination, so treat agreement as supportive, not conclusive.
 # ---------------------------------------------------------------------------
-wx_file <- "Allelic_ratio_results/cutoff_sweep/cutoff_sweep_cell_table.txt"
+wx_file <- file.path(RESULTS_ROOT, "cutoff_sweep", "cutoff_sweep_cell_table.txt")
 if (file.exists(wx_file)) {
   wx <- read.delim(wx_file, stringsAsFactors = FALSE)
   wx <- wx[, c("cell_barcode", "A1_reads", "A2_reads", "total_reads", "allelic_ratio")]

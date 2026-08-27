@@ -132,11 +132,19 @@ run_sample () {
   echo "  locus tables now present: $(find "$OUT" -name locus_table.txt | wc -l)"
 }
 
-# Annotations deliberately match scAllelome.slurm exactly, including the fact
-# that 9w uses a chrX-only bed while the other three are genome-wide. Changing
-# it here would confound the read-level vs molecule-level comparison with an
-# annotation change. Worth fixing, but in both trees at once and not today.
-run_sample 9w   "$GRCM39/annotation_us_mm39_chrX.bed"
+# Genome-wide for all four, which is a DEPARTURE from scAllelome.slurm: that
+# script gives 9w a chrX-only bed (annotation_us_mm39_chrX.bed) and the other
+# three a genome-wide one, so the read-level tree has no autosomal rows for 9w
+# at all. The autosomes are the point here - they carry the same B6-reference
+# mapping bias against CAST reads, the same library skew and the same
+# duplication structure as chrX, without the biology, so they are the empirical
+# null that says how much of a chrX ratio is technical.
+#
+# Consequence for 09: for 78w/Sham/TAC the read-level and molecule-level trees
+# use the same annotation and pair cleanly. For 9w they do not, so 9w's paired
+# comparison is annotation-confounded and 09 reports it separately rather than
+# pooling it. The 9w autosomal numbers in THIS tree are still valid on their own.
+run_sample 9w   "$GRCM39/chr_annotation_mm39.bed"
 run_sample 78w  "$GRCM39/chr_annotation_mm39.bed"
 run_sample Sham "$GRCM39/chr_annotation_mm39.bed"
 run_sample TAC  "$GRCM39/chr_annotation_mm39.bed"

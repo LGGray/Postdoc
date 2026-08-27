@@ -22,7 +22,7 @@
 # ---------------------------------------------------------------------------
 source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
 
-OUT_DIR <- "Allelic_ratio_results/cutoff_sweep"
+OUT_DIR <- file.path(RESULTS_ROOT, "cutoff_sweep")
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
 # Override from the shell, e.g. CUTOFFS=1,5,10,25 Rscript ...
@@ -45,7 +45,7 @@ SAMPLE_LEVELS <- c("9w", "78w", "Sham", "TAC")
 heart <- readRDS('heart_seurat_object_SCT.rds')
 heart$celltype <- Idents(heart)
 
-chr_allelic_ratio <- read.table('Allelic_ratio_results/whole_chr_allelic_ratios.txt',
+chr_allelic_ratio <- read.table(ALLELIC_RATIOS_FILE,
                                 sep = '\t', header = TRUE, stringsAsFactors = FALSE)
 chr_allelic_ratio <- subset(chr_allelic_ratio, chr == "chrX")
 

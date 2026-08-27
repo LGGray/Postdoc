@@ -208,9 +208,9 @@ per_gene_wide <- inner_join(g0, g1, by = "name") %>%
 
 # flag the known core escape genes so they can be seen against the background
 core_escape_names <- character(0)
-if (file.exists('Allelic_ratio_results/core_escape_genes_gene_df.txt')) {
+if (file.exists(file.path(RESULTS_ROOT, "core_escape_genes_gene_df.txt"))) {
   core_escape_names <- unique(read.table(
-    'Allelic_ratio_results/core_escape_genes_gene_df.txt',
+    file.path(RESULTS_ROOT, "core_escape_genes_gene_df.txt"),
     sep = '\t', header = TRUE, stringsAsFactors = FALSE)$name)
 }
 per_gene_wide$is_core_escape <- per_gene_wide$name %in% core_escape_names
