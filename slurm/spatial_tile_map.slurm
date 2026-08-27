@@ -35,7 +35,7 @@ TILE_UM="${1:-64}"
 SAMPLES="${2:-9w,78w}"
 
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
-REPO=$HOME/Postdoc
+REPO=$BASE/Postdoc
 
 # The script prefers the collected Allelome.PRO2_tiles_<um>um directory and
 # falls back to $SCRATCH/spatial_tiles_<sample>_<um>um/allelome, which is where
