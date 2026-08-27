@@ -335,6 +335,76 @@ locus_table_ok() {
   return 1
 }
 
+# Copy validated locus tables and BED files from $AP2_DIR into $FINAL_DIR.
+#
+# Called TWICE: once here at startup and once after the parallel run. The
+# startup call is the important one. This job is killed at the wall clock -
+# 207291 was - and a kill takes `parallel` with it, so control never reaches the
+# end-of-job call and NOTHING is copied. That is why $FINAL_DIR was empty while
+# ~1400 locus tables sat in $SCRATCH: not one job had ever finished normally.
+# $SCRATCH is purged on an access-time policy, so those results were only ever
+# one purge away from being lost. Collecting at startup means each resubmission
+# rescues the previous kill's output, and the only work ever exposed is the
+# final job's - which, if it exits normally, collects itself.
+#
+# Only the locus tables and BED files are worth keeping; the tile BAMs are
+# reproducible from the map and would be thousands of small files on permanent
+# storage. The tile name has to be recovered from the dated job directory:
+#   2026_08_26_tile_64um_r0015_c0040_chr_annotation_mm39.bed_1
+#   -> strip the leading YYYY_MM_DD_, then the trailing _<annotation>_<run no.>
+collect_tables() {
+  local label="${1:-}"
+  # nullglob locally: the loops below want an empty iteration rather than an
+  # unmatched literal pattern, but the rest of the script has not been audited
+  # under it, so restore whatever was set.
+  local had_nullglob=0
+  shopt -q nullglob && had_nullglob=1
+  shopt -s nullglob
+
+  local n_moved=0 n_bad_lt=0 n_already=0 d name tile lt b
+  for d in "$AP2_DIR"/*_"$ANNOT_BASE"_*/; do
+    name=$(basename "$d")
+    tile=${name#????_??_??_}
+    tile=${tile%_${ANNOT_BASE}_*}
+    # Already collected and complete: skip. Without this the startup call would
+    # re-copy every tile collected by every previous job, every time.
+    if locus_table_ok "$FINAL_DIR/$tile/locus_table.txt"; then
+      n_already=$((n_already + 1)); continue
+    fi
+    lt=$(find "$d" -maxdepth 2 -name locus_table.txt | head -1)
+    [ -z "$lt" ] && continue
+    # Never promote an incomplete table to permanent storage. Without this, a
+    # table truncated after the purge pass - i.e. written by a worker killed
+    # during THIS job - would be copied to $FINAL_DIR and pass every later check.
+    if ! locus_table_ok "$lt"; then
+      n_bad_lt=$((n_bad_lt + 1)); continue
+    fi
+    mkdir -p "$FINAL_DIR/$tile"
+    # Write-then-rename, because cp is not atomic: a kill during the copy leaves
+    # a partial file in $FINAL_DIR under the name the resume check trusts.
+    # rename within one filesystem is atomic, so the destination is either the
+    # old contents or the complete new ones, never half of either.
+    cp "$lt" "$FINAL_DIR/$tile/.locus_table.txt.tmp" &&
+      mv -f "$FINAL_DIR/$tile/.locus_table.txt.tmp" "$FINAL_DIR/$tile/locus_table.txt"
+    for b in "$d"BED_files/*.bed; do
+      cp "$b" "$FINAL_DIR/$tile/.$(basename "$b").tmp" &&
+        mv -f "$FINAL_DIR/$tile/.$(basename "$b").tmp" "$FINAL_DIR/$tile/$(basename "$b")"
+    done
+    n_moved=$((n_moved + 1))
+  done
+
+  echo "[$(date +%T)] collect${label:+ ($label)}: $n_moved newly copied to $FINAL_DIR, $n_already already there"
+  if [ "$n_bad_lt" -gt 0 ]; then
+    echo "  skipped $n_bad_lt incomplete locus tables - those tiles stay on the to-do list"
+  fi
+  [ "$had_nullglob" -eq 1 ] || shopt -u nullglob
+}
+
+# Rescue whatever the previous job produced before it was killed, BEFORE
+# building the to-do list - so the resume check below finds those tiles in
+# $FINAL_DIR and does not re-run them.
+collect_tables startup
+
 # Discard anything a previous kill left half-written, in both locations, before
 # deciding what still needs running. Removing rather than ignoring matters for
 # the scratch copies: the collect stage globs that directory, so a truncated
@@ -420,42 +490,7 @@ FAILED=$(awk 'NR>1 && $7 != 0' "$WORK/parallel.log" 2>/dev/null | wc -l)
 echo "Allelome.PRO2 failures this pass: $FAILED / $n_todo"
 
 ##### ---- collect ---- #####
-# Only the locus tables and BED files are worth keeping; the tile BAMs are
-# reproducible from the map and would be thousands of small files on permanent
-# storage. The tile name has to be recovered from the dated job directory:
-#   2026_08_26_tile_64um_r0015_c0040_chr_annotation_mm39.bed_1
-#   -> strip the leading YYYY_MM_DD_, then the trailing _<annotation>_<run no.>
-shopt -s nullglob
-n_moved=0; n_bad_lt=0
-for d in "$AP2_DIR"/*_"$ANNOT_BASE"_*/; do
-  name=$(basename "$d")
-  tile=${name#????_??_??_}
-  tile=${tile%_${ANNOT_BASE}_*}
-  lt=$(find "$d" -maxdepth 2 -name locus_table.txt | head -1)
-  [ -z "$lt" ] && continue
-  # Never promote an incomplete table to permanent storage. Without this, a
-  # table truncated after the purge pass above - i.e. written by a worker killed
-  # during THIS job - would be copied to $FINAL_DIR and pass every later check.
-  if ! locus_table_ok "$lt"; then
-    n_bad_lt=$((n_bad_lt + 1)); continue
-  fi
-  mkdir -p "$FINAL_DIR/$tile"
-  # Write-then-rename, because cp is not atomic: a kill during the copy leaves a
-  # partial file in $FINAL_DIR under the name the resume check trusts. rename
-  # within one filesystem is atomic, so the destination is either the old
-  # contents or the complete new ones, never half of either.
-  cp "$lt" "$FINAL_DIR/$tile/.locus_table.txt.tmp" &&
-    mv -f "$FINAL_DIR/$tile/.locus_table.txt.tmp" "$FINAL_DIR/$tile/locus_table.txt"
-  for b in "$d"BED_files/*.bed; do
-    cp "$b" "$FINAL_DIR/$tile/.$(basename "$b").tmp" &&
-      mv -f "$FINAL_DIR/$tile/.$(basename "$b").tmp" "$FINAL_DIR/$tile/$(basename "$b")"
-  done
-  n_moved=$((n_moved + 1))
-done
-echo "Collected $n_moved tile locus tables into $FINAL_DIR"
-if [ "$n_bad_lt" -gt 0 ]; then
-  echo "  skipped $n_bad_lt incomplete locus tables - those tiles stay on the to-do list"
-fi
+collect_tables final
 cp "$WORK/parallel.log" "$FINAL_DIR/" 2>/dev/null
 
 # Count complete tables, not files that exist: the whole point of the guard is
