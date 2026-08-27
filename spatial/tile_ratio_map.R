@@ -556,7 +556,8 @@ panel_violin <- function(out) {
     labs(title = "chrX against its own autosomal control, per tile",
          subtitle = paste0(
            paste(sprintf("%s: n=%d, median %.2f, read-weighted %.2f, %.0f%% below 0.5",
-                         lab$sample, lab$n, lab$med, lab$pooled, 100 * lab$lo),
+                         as.character(lab$sample), lab$n, lab$med, lab$pooled,
+                         100 * lab$lo),
                  collapse = "   |   "),
            "\nread-weighted well below the median means the DEEP tiles are the low-ratio ones"),
          x = NULL, y = "allelic ratio (Bl6 / total)",
@@ -573,6 +574,11 @@ panel_violin <- function(out) {
 
 if (length(all_d)) {
   out <- rbindlist(all_d, fill = TRUE)
+  # Order the panels by SAMPLES (9w, 78w), not alphabetically - "78w" sorts
+  # before "9w" as a string, which puts the aged sample first and reads
+  # backwards. intersect keeps the SAMPLES order while dropping any sample that
+  # produced no tiles, so an absent one cannot leave an empty facet behind.
+  out[, sample := factor(sample, levels = intersect(SAMPLES, unique(sample)))]
   pdf(sub("\\.pdf$", "_distribution.pdf", OUT_PDF), width = 7, height = 7)
   print(panel_hist(out))
   print(panel_violin(out))
@@ -588,7 +594,8 @@ if (length(all_d)) {
   msg("      pooled numbers describe that band until the run completes.")
   print(out[!is.na(x_ratio), .(tiles = .N, chrX_reads = sum(x_n),
                                pooled_x = round(sum(x_a1) / sum(x_n), 3),
-                               pooled_a = round(sum(a_a1) / sum(a_n), 3)), by = sample])
+                               pooled_a = round(sum(a_a1) / sum(a_n), 3)),
+                           by = sample][order(sample)])
 } else {
   msg("Nothing to plot.")
 }
