@@ -3,8 +3,8 @@
 #SBATCH --mail-type=END,FAIL
 #SBATCH -J sc_Allelome.PRO2.dedup
 #SBATCH -D /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
-#SBATCH -o out_error/%x.%A.%N.out
-#SBATCH -e out_error/%x.%A.%N.err
+#SBATCH -o out_error/%x.%A_%a.%N.out
+#SBATCH -e out_error/%x.%A_%a.%N.err
 #SBATCH --get-user-env
 #SBATCH --clusters=cm4
 #SBATCH --partition=cm4_tiny
@@ -14,6 +14,7 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --time=24:00:00
 #SBATCH --export=NONE
+#SBATCH --array=1-4
 
 # scAllelome.slurm, but scoring UMI-collapsed, uniquely-mapped reads.
 #
@@ -133,20 +134,41 @@ run_sample () {
 }
 
 # Genome-wide for all four, which is a DEPARTURE from scAllelome.slurm: that
-# script gives 9w a chrX-only bed (annotation_us_mm39_chrX.bed) and the other
-# three a genome-wide one, so the read-level tree has no autosomal rows for 9w
-# at all. The autosomes are the point here - they carry the same B6-reference
-# mapping bias against CAST reads, the same library skew and the same
-# duplication structure as chrX, without the biology, so they are the empirical
-# null that says how much of a chrX ratio is technical.
+# script gives 9w a chrX-only bed (annotation_us_mm39_chrX.bed, 3227 per-gene
+# intervals) and the other three a genome-wide one (chr_annotation_mm39.bed, 21
+# whole-chromosome intervals). Two consequences, both bad. The read-level tree
+# has no autosomal rows for 9w at all, so no technical control - and the
+# autosomes are the point here, carrying the same B6-reference mapping bias
+# against CAST reads, the same library skew and the same duplication structure
+# as chrX without the biology. Worse, 3227 chrX rows per cell means the
+# whole-chromosome match() in 02 and 06 silently picks one arbitrary gene per
+# cell; see assert_one_row_per_cell() in 00_functions.R.
 #
-# Consequence for 09: for 78w/Sham/TAC the read-level and molecule-level trees
-# use the same annotation and pair cleanly. For 9w they do not, so 9w's paired
-# comparison is annotation-confounded and 09 reports it separately rather than
-# pooling it. The 9w autosomal numbers in THIS tree are still valid on their own.
-run_sample 9w   "$GRCM39/chr_annotation_mm39.bed"
-run_sample 78w  "$GRCM39/chr_annotation_mm39.bed"
-run_sample Sham "$GRCM39/chr_annotation_mm39.bed"
-run_sample TAC  "$GRCM39/chr_annotation_mm39.bed"
+# Consequence for 09: 78w/Sham/TAC use the same annotation in both trees and
+# pair cleanly. 9w does not, so its paired comparison is annotation-confounded
+# and 09 reports it separately. The 9w numbers in THIS tree are sound on their
+# own.
+#
+# One array task per sample rather than four in sequence. Each sample then gets
+# its own 24h wall clock instead of sharing one, and a task that times out is
+# resubmitted on its own:
+#
+#   sbatch ~/Postdoc/slurm/scAllelome_dedup.slurm            # all four
+#   sbatch --array=4 ~/Postdoc/slurm/scAllelome_dedup.slurm  # TAC only
+#
+# Resume is per sample and keyed on the locus tables, so a resubmitted task
+# picks up where it stopped rather than starting over. Add %2 to the array
+# spec if four whole nodes queue badly.
+case "$SLURM_ARRAY_TASK_ID" in
+  1) SAMPLE=9w   ;;
+  2) SAMPLE=78w  ;;
+  3) SAMPLE=Sham ;;
+  4) SAMPLE=TAC  ;;
+  *) echo "Unexpected SLURM_ARRAY_TASK_ID=$SLURM_ARRAY_TASK_ID" >&2; exit 1 ;;
+esac
 
-echo "[$(date +%T)] done"
+# Propagate the failure. Without this the array task exits 0 on a missing
+# annotation and the mail says END rather than FAIL.
+run_sample "$SAMPLE" "$GRCM39/chr_annotation_mm39.bed" || exit 1
+
+echo "[$(date +%T)] $SAMPLE done"
