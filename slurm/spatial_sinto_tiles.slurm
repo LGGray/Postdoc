@@ -13,9 +13,28 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=150G
-#SBATCH --time=24:00:00
+#SBATCH --mem=48G
+#SBATCH --time=04:00:00
 #SBATCH --array=1-2
+
+# Sized for the Allelome.PRO2 pass, not the sinto pass, because scoring is the
+# part that gets resubmitted. 24h was the cm4_tiny ceiling, so the job could
+# only start when a full 24h window opened - invisible to backfill - and 150G
+# on 32 cores is above the ~4.5GB/core a cm4 node offers, so it also needed a
+# node with more free memory than free cores. Neither was measured: a single
+# Allelome.PRO2 runs in 8G in Allelome.PRO.slurm, and every stage here is
+# resumable, so a wall-clock kill costs one resubmission and no recomputation.
+#
+# The split is the one stage that wants a different shape - it is I/O bound and
+# sinto holds one output BAM handle per tile in every worker, so cores buy
+# little and cost memory. Give the first pass fewer cores and more memory:
+#
+#   sbatch --cpus-per-task=8 --mem=100G --time=08:00:00 \
+#          ~/Postdoc/slurm/spatial_sinto_tiles.slurm 64
+#
+# then let the defaults above handle every scoring pass after it. Confirm the
+# real footprint before trimming further:
+#   sacct -j <jobid> -o JobID,ReqMem,MaxRSS,Elapsed,State
 
 # Split the Visium HD BAM into square tiles and run Allelome.PRO2 on each.
 #
