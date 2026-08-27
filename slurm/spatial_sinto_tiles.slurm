@@ -14,14 +14,27 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=120G
-#SBATCH --time=04:00:00
+#SBATCH --time=12:00:00
 #SBATCH --array=1-2
 
-# The wall clock is the queue lever here, not the memory. 24h was the cm4_tiny
-# ceiling, so the job could only start when a full 24h window opened, which
-# made it invisible to backfill; 4h is placeable in a gap. Nothing is lost by
-# it because every stage resumes - a kill costs one resubmission, not any
-# recomputation.
+# 12h, sized from measurement rather than guessed. Job 207291 did 701/3738
+# tiles (9w) and 711/3215 (78w) in 2h35 at -j 30, i.e. ~270 tiles/h and 6.6 min
+# of CPU per tile - that cost is the per-invocation genome-wide SNP and
+# annotation parse, so it is fixed per tile and does not fall as the run
+# proceeds. Whole-sample totals are ~414 CPU-h (9w) and ~351 (78w), which is
+# 13.8h and 11.7h of wall clock on one 32-core node. 12h therefore clears what
+# is LEFT after 207291 with margin, but a cold start on 9w needs ~14h - raise
+# this to 16h if the scratch tile BAMs are ever rebuilt from nothing.
+#
+# An earlier note here claimed the wall clock was the queue lever and cut this
+# to 4h on that basis. Lachlan's read is that the memory request was the actual
+# blocker, and 207291 does support that: it started promptly at 120G. The 24h
+# cm4_tiny ceiling remains the hard cap if 12h ever proves too short.
+#
+# Nothing is lost by an under-length job in any case - every stage resumes, so a
+# kill costs one resubmission and no recomputation. That guarantee is only as
+# good as the resume check, which is why the locus tables are now validated for
+# completeness rather than mere existence; see MIN_LOCI below.
 #
 # 120G rather than 150G because 32 cores on a cm4 node carry a proportional
 # share of ~145G, and a request above that needs a node with more free memory
@@ -246,14 +259,69 @@ fi
 # is already done.
 ANNOT_BASE=$(basename "$ANNOTATION")
 
+# A locus table counts as done only if it is STRUCTURALLY COMPLETE.
+#
+# The old test was `[ -s ]` on the collected copy, plus a bare `compgen -G` on
+# the scratch copy that did not even check for non-empty. Both pass for a table
+# half-written by a worker killed at the wall clock: the next run skips the tile
+# and reports the truncated ratio as real, silently. Up to $nproc tiles are in
+# flight at every kill, so across several resubmissions that is tens of wrong
+# tiles, invisible in the maps. This is the same failure already guarded for the
+# tile BAMs with `samtools quickcheck` - the locus tables never got an
+# equivalent.
+#
+# Three checks: a header naming the columns the R side reads; every row carrying
+# the header's field count, which is what a mid-line truncation breaks; and at
+# least MIN_LOCI rows, since a genome-wide annotation over a tile with thousands
+# of autosomal reads yields about one row per chromosome, so a table with a
+# handful was cut short at a line boundary where the field count still matches.
+MIN_LOCI=10
+locus_table_ok() {
+  [ -s "$1" ] || return 1
+  awk -v min="$MIN_LOCI" '
+    NR == 1 { nf = NF; if (tolower($0) !~ /total_reads/) { bad = 1; exit } next }
+    NF != nf { bad = 1; exit }
+    END { if (bad || NR - 1 < min) exit 1; exit 0 }
+  ' "$1" 2>/dev/null
+}
+
+# Discard anything a previous kill left half-written, in both locations, before
+# deciding what still needs running. Removing rather than ignoring matters for
+# the scratch copies: the collect stage globs that directory, so a truncated
+# table left in place could still be copied over a good one.
+DISCARDED=$WORK/locus-tables-discarded.txt
+n_trunc=0
+for lt in "$FINAL_DIR"/*/locus_table.txt \
+          "$AP2_DIR"/*_"$ANNOT_BASE"_*/locus_table.txt; do
+  [ -e "$lt" ] || continue
+  locus_table_ok "$lt" && continue
+  echo "$(date +%F_%T) $(wc -l < "$lt") lines  $lt" >> "$DISCARDED"
+  rm -f "$lt"; n_trunc=$((n_trunc + 1))
+done
+if [ "$n_trunc" -gt 0 ]; then
+  echo "[$(date +%T)] discarded $n_trunc truncated locus tables from a previous pass"
+  echo "  appended to $DISCARDED - a tile appearing there on EVERY run is not"
+  echo "  a truncation, it is a tile whose table is genuinely shorter than"
+  echo "  MIN_LOCI=$MIN_LOCI, and it will be re-run forever until that is lowered."
+fi
+
 # Only tiles without a locus table. A timed-out run therefore picks up where it
 # stopped instead of starting over.
 : > "$WORK/task-list.txt"
 n_todo=0; n_done=0
 while IFS= read -r bam; do
   tile=$(basename "$bam" .bam)
-  if [ -s "$FINAL_DIR/$tile/locus_table.txt" ] || \
-     compgen -G "$AP2_DIR/*_${tile}_${ANNOT_BASE}_*/locus_table.txt" > /dev/null; then
+  if locus_table_ok "$FINAL_DIR/$tile/locus_table.txt"; then
+    n_done=$((n_done + 1)); continue
+  fi
+  # A resubmitted tile leaves _1.._n dated directories; any one complete table
+  # is enough to call the tile done.
+  tile_done=0
+  for lt in "$AP2_DIR"/*_"${tile}"_"${ANNOT_BASE}"_*/locus_table.txt; do
+    [ -e "$lt" ] || continue
+    if locus_table_ok "$lt"; then tile_done=1; break; fi
+  done
+  if [ "$tile_done" -eq 1 ]; then
     n_done=$((n_done + 1)); continue
   fi
   echo "$PIPELINE -i $bam -a $ANNOTATION -s $SNPS -r $MIN_READ -t $TOTAL_READ -o $AP2_DIR"
@@ -291,22 +359,45 @@ echo "Allelome.PRO2 failures this pass: $FAILED / $n_todo"
 #   2026_08_26_tile_64um_r0015_c0040_chr_annotation_mm39.bed_1
 #   -> strip the leading YYYY_MM_DD_, then the trailing _<annotation>_<run no.>
 shopt -s nullglob
-n_moved=0
+n_moved=0; n_bad_lt=0
 for d in "$AP2_DIR"/*_"$ANNOT_BASE"_*/; do
   name=$(basename "$d")
   tile=${name#????_??_??_}
   tile=${tile%_${ANNOT_BASE}_*}
   lt=$(find "$d" -maxdepth 2 -name locus_table.txt | head -1)
   [ -z "$lt" ] && continue
+  # Never promote an incomplete table to permanent storage. Without this, a
+  # table truncated after the purge pass above - i.e. written by a worker killed
+  # during THIS job - would be copied to $FINAL_DIR and pass every later check.
+  if ! locus_table_ok "$lt"; then
+    n_bad_lt=$((n_bad_lt + 1)); continue
+  fi
   mkdir -p "$FINAL_DIR/$tile"
-  cp "$lt" "$FINAL_DIR/$tile/"
-  for b in "$d"BED_files/*.bed; do cp "$b" "$FINAL_DIR/$tile/"; done
+  # Write-then-rename, because cp is not atomic: a kill during the copy leaves a
+  # partial file in $FINAL_DIR under the name the resume check trusts. rename
+  # within one filesystem is atomic, so the destination is either the old
+  # contents or the complete new ones, never half of either.
+  cp "$lt" "$FINAL_DIR/$tile/.locus_table.txt.tmp" &&
+    mv -f "$FINAL_DIR/$tile/.locus_table.txt.tmp" "$FINAL_DIR/$tile/locus_table.txt"
+  for b in "$d"BED_files/*.bed; do
+    cp "$b" "$FINAL_DIR/$tile/.$(basename "$b").tmp" &&
+      mv -f "$FINAL_DIR/$tile/.$(basename "$b").tmp" "$FINAL_DIR/$tile/$(basename "$b")"
+  done
   n_moved=$((n_moved + 1))
 done
 echo "Collected $n_moved tile locus tables into $FINAL_DIR"
+if [ "$n_bad_lt" -gt 0 ]; then
+  echo "  skipped $n_bad_lt incomplete locus tables - those tiles stay on the to-do list"
+fi
 cp "$WORK/parallel.log" "$FINAL_DIR/" 2>/dev/null
 
-n_final=$(find "$FINAL_DIR" -name locus_table.txt | wc -l)
+# Count complete tables, not files that exist: the whole point of the guard is
+# that those two numbers can differ.
+n_final=0
+for lt in "$FINAL_DIR"/*/locus_table.txt; do
+  [ -e "$lt" ] || continue
+  locus_table_ok "$lt" && n_final=$((n_final + 1))
+done
 echo "Results in $FINAL_DIR: $n_final / $N_TILES tiles have a locus table"
 if [ "$n_final" -lt "$N_TILES" ] && [ "$MAX_TILES" -eq 0 ]; then
   echo "Incomplete - resubmit the same command and it will run only what is left."
