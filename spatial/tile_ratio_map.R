@@ -59,7 +59,40 @@ Z_CALL  <- 3
 COL_CAST <- "#184f95"   # ratio -> 0, CAST (A2) dominant
 COL_MID  <- "#f0efec"   # 0.5
 COL_BL6  <- "#b02a2a"   # ratio -> 1, Bl6 (A1) dominant
-COL_NA   <- "#a8a8a4"   # submitted, not yet scored
+# ---- the lab allelic-ratio ramp, from OCM_heart/allelic_ratio/ -------------
+# Verbatim from 02_whole_chrX.R and 07_core_escape_cutoff_sweep.R, which agree
+# on it, so these tile maps bin and colour exactly like the OCM UMAPs.
+#
+# Blue = A2/CAST-dominant, green ~ biallelic, olive/yellow -> orange -> dark red
+# = increasingly monoallelic A1/Bl6. The "red to green" half is the top of it.
+#
+# Preferred over the ASE/adult_aged_snRNAseq.R ramp (green->yellow->orange->red
+# over 0.5-1.0) for three reasons: it covers the whole 0-1 range, so the
+# CAST-biased tiles get a real colour instead of being clamped at the bottom of
+# a scale that has none; it is binned rather than continuous, which is honest
+# about per-tile precision (at ~74 reads the SE is 0.05, so 0.1-wide bins are
+# roughly the resolution the data supports and a smooth ramp would imply more);
+# and grey-for-NA is already its convention.
+#
+# One caveat worth knowing: lightness is not monotone along this ramp - it
+# peaks at 0.80-0.90 (L* 0.74) and falls to 0.41 at 0.95-1.00, so the darkest
+# bins sit at BOTH ends. In a UMAP with few extreme cells that is harmless; on
+# a 464-tile map, do not read darkness as "high ratio". Read the legend.
+# CVD: poles separate at dE 19.7-30.8, but adjacent bins get as close as 3.2
+# (0.30-0.40 vs 0.40-0.50), so neighbouring bins are not reliably separable -
+# which is why the calls panel exists alongside this one.
+OCM_BREAKS <- c(seq(0, 0.9, by = 0.1), 0.95, 1.0)
+OCM_COLORS <- c("#2B3186", "#3B5FB6", "#38749F", "#367373", "#2D6E5D", "#1E652D",
+                "#658C2D", "#8D9F25", "#B3B112", "#C97314", "#8B1913")
+OCM_LABELS <- c("0.00-0.10", "0.10-0.20", "0.20-0.30", "0.30-0.40", "0.40-0.50",
+                "0.50-0.60", "0.60-0.70", "0.70-0.80", "0.80-0.90",
+                "0.90-0.95", "0.95-1.00")
+names(OCM_COLORS) <- OCM_LABELS
+
+# grey70 is the OCM na.value. Kept for the pending tiles specifically, so the
+# grey means the same thing here as it does there; the never-submitted
+# footprint stays lighter so the two are still distinguishable.
+COL_NA <- "grey70"
 COL_FOOT <- "#e6e5e1"   # in-tissue, never submitted
 ##### ------------------------------------------------------ #####
 
@@ -227,6 +260,11 @@ collect_sample <- function(smp) {
   }
   d[, se := sqrt(a_ratio * (1 - a_ratio) / x_n + auto_sd^2)]
   d[, z := (x_ratio - a_ratio) / se]
+  # Binned exactly as OCM_heart/allelic_ratio does it: same breaks, same
+  # include.lowest/right, same labels, so a tile falls in the same bin a cell
+  # with that ratio would.
+  d[, x_bin := cut(x_ratio, breaks = OCM_BREAKS, include.lowest = TRUE,
+                   right = TRUE, labels = OCM_LABELS)]
   d[, call := fcase(
       is.na(x_ratio) &  submitted, "pending",
       is.na(x_ratio) & !submitted, "not submitted",
@@ -301,6 +339,25 @@ panel_ratio <- function(d, he = FALSE) {
                          "\nMidpoint is near-white, not grey, so a biallelic tile stays distinct from an unscored one."))
 }
 
+panel_ratio_ocm <- function(d, he = FALSE) {
+  n_ok <- sum(!is.na(d$x_ratio)); n_sub <- sum(d$submitted)
+  lo <- sum(d$x_ratio < 0.5, na.rm = TRUE)
+  base_map(d, he) +
+    geom_tile(data = d[submitted & is.na(x_bin)],
+              width = d$side[1], height = d$side[1], fill = COL_NA, colour = NA) +
+    geom_tile(data = d[!is.na(x_bin)], aes(fill = x_bin),
+              width = d$side[1], height = d$side[1], colour = NA) +
+    scale_fill_manual(values = OCM_COLORS, limits = OCM_LABELS, drop = FALSE,
+                      na.value = COL_NA, name = "Allelic ratio") +
+    guides(fill = guide_legend(ncol = 1, reverse = TRUE)) +
+    labs(title = sprintf("%s - chrX allelic ratio per %d um tile (OCM bins)",
+                         d$sample[1], TILE_UM),
+         subtitle = sprintf("%d of %d submitted tiles scored; %d (%.0f%%) below 0.5. Grey = submitted, not yet scored.",
+                            n_ok, n_sub, lo, 100 * lo / max(n_ok, 1)),
+         caption = paste("Bins and colours from OCM_heart/allelic_ratio (02_whole_chrX.R).",
+                         "\nLightness is not monotone along this ramp - the darkest bins are at both ends, so read the legend, not the darkness."))
+}
+
 panel_auto <- function(d) {
   base_map(d) +
     geom_tile(data = d[submitted & is.na(a_ratio)],
@@ -315,7 +372,8 @@ panel_auto <- function(d) {
          subtitle = sprintf("Should be flat near-white throughout. Observed sd %.3f on a median of %d reads.",
                             sd(d$a_ratio, na.rm = TRUE),
                             as.integer(median(d$a_n, na.rm = TRUE))),
-         caption = "Any structure here is technical and invalidates the chrX panel over the same tiles.")
+         caption = paste("Any structure here is technical and invalidates the chrX panel over the same tiles.",
+                         "\nDeliberately NOT the OCM ramp: autosomal ratios all sit in 0.40-0.60, which is two of its bins, so it would show nothing."))
 }
 
 panel_auto_zoom <- function(d) {
@@ -414,7 +472,8 @@ for (s in SAMPLES) {
   d <- tryCatch(collect_sample(s), error = function(e) { msg("  %s", conditionMessage(e)); NULL })
   if (is.null(d)) next
   if (!any(!is.na(d$x_ratio))) { msg("  no tile has a chrX ratio - skipping plots"); next }
-  print(panel_ratio(d, he = TRUE))
+  print(panel_ratio_ocm(d, he = TRUE))
+  print(panel_ratio_ocm(d, he = FALSE))
   print(panel_ratio(d, he = FALSE))
   print(panel_auto(d))
   print(panel_auto_zoom(d))
@@ -430,7 +489,7 @@ if (length(all_d)) {
   out <- rbindlist(all_d, fill = TRUE)
   csv <- sub("\\.pdf$", ".csv", OUT_PDF)
   fwrite(out[, .(sample, tile, x, y, n_bins, x_a1, x_a2, x_n, a_a1, a_a2, a_n,
-                 x_ratio, a_ratio, z, call, submitted)], csv)
+                 x_ratio, x_bin, a_ratio, z, call, submitted)], csv)
   msg("\nWrote %s\n       %s", OUT_PDF, csv)
   msg("Pooled chrX ratio per sample.")
   msg("NOTE: tiles are scored in tile-name order, so the finished set is a")
