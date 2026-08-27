@@ -533,23 +533,32 @@ panel_violin <- function(out) {
     n = .N,
     med = median(x_ratio),
     pooled = sum(x_a1) / sum(x_n),
-    lo = mean(x_ratio < 0.5)), by = sample]
+    lo = mean(x_ratio < 0.5)), by = sample][order(sample)]
 
   ggplot(long, aes(sample, ratio, fill = chrom_set)) +
     geom_hline(yintercept = 0.5, linetype = 2, colour = "#52514e") +
     geom_violin(position = position_dodge(width = 0.8), width = 0.75,
                 colour = NA, alpha = 0.85, scale = "width", trim = TRUE) +
     # The box carries the median and quartiles the violin only implies.
-    geom_boxplot(position = position_dodge(width = 0.8), width = 0.12,
+    #
+    # group = interaction(...) is load-bearing. Setting fill = "white" as a
+    # fixed parameter REMOVES the fill aesthetic, and with it the grouping the
+    # violins get from fill = chrom_set - so geom_boxplot fell back to grouping
+    # by x alone and drew ONE box per sample over chrX and autosomal pooled
+    # together. It looked plausible (a median near 0.54) and was meaningless.
+    geom_boxplot(aes(group = interaction(sample, chrom_set)),
+                 position = position_dodge(width = 0.8), width = 0.12,
                  outlier.shape = NA, colour = "#0b0b0b",
                  fill = "white", alpha = 0.9, show.legend = FALSE) +
     scale_fill_manual(values = c(chrX = "#2D6E5D", autosomal = "grey70"),
                       name = NULL) +
     scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
     labs(title = "chrX against its own autosomal control, per tile",
-         subtitle = paste(sprintf("%s: n=%d, median %.2f, pooled %.2f, %.0f%% below 0.5",
-                                  lab$sample, lab$n, lab$med, lab$pooled, 100 * lab$lo),
-                          collapse = "   |   "),
+         subtitle = paste0(
+           paste(sprintf("%s: n=%d, median %.2f, read-weighted %.2f, %.0f%% below 0.5",
+                         lab$sample, lab$n, lab$med, lab$pooled, 100 * lab$lo),
+                 collapse = "   |   "),
+           "\nread-weighted well below the median means the DEEP tiles are the low-ratio ones"),
          x = NULL, y = "allelic ratio (Bl6 / total)",
          caption = paste("Violins scaled to equal width, so shape is comparable between",
                          "groups of different size; the box is the median and quartiles.",
