@@ -27,14 +27,34 @@ TREE_DED <- Sys.getenv("TREE_DED", "Allelome.PRO2_dedup")
 OUT_DIR  <- file.path(RESULTS_ROOT, "dedup_comparison")
 dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
-# 9w is annotation-confounded and is never pooled. scAllelome.slurm scored it
-# against a chrX-only bed while scAllelome_dedup.slurm scores it genome-wide, so
-# for that sample the two trees differ in annotation as well as in read
-# filtering and a paired difference cannot be attributed to deduplication. The
-# other three share an annotation and pair cleanly. 9w still appears in the
-# per-sample table, flagged, because its retention figures are informative even
-# where its AR shift is not.
-CONFOUNDED <- "9w"
+# Which samples can be compared at all. Two trees only pair validly where the
+# same annotation bed was used, and that has not always been true: scAllelome.slurm
+# scored 9w against a chrX-only per-gene bed while the other three got a
+# whole-chromosome one. Detect it from the run directory names rather than
+# hard-coding a sample list, so this stays right after the read-level 9w tree is
+# rebuilt (FILTER=0 sbatch scAllelome_dedup.slurm) and there is nothing to
+# remember to update.
+annot_raw <- allelome_annotations(TREE_RAW, SAMPLES)
+annot_ded <- allelome_annotations(TREE_DED, SAMPLES)
+annot <- full_join(annot_raw, annot_ded, by = "sample",
+                   suffix = c("_raw", "_ded"))
+print(as.data.frame(annot))
+
+multi <- annot$sample[duplicated(annot$sample)]
+if (length(multi)) {
+  stop("More than one annotation in a tree for: ", paste(unique(multi), collapse = ", "),
+       "\n  Move the older runs aside; mixing them gives a cell rows from both beds.")
+}
+CONFOUNDED <- annot$sample[is.na(annot$annotation_raw) |
+                           is.na(annot$annotation_ded) |
+                           annot$annotation_raw != annot$annotation_ded]
+if (length(CONFOUNDED)) {
+  message("Annotation differs between trees for: ", paste(CONFOUNDED, collapse = ", "),
+          " -- reported per sample but excluded from pooled statistics, since a ",
+          "paired difference there is not attributable to deduplication.")
+} else {
+  message("All samples share an annotation between trees; pooling all of them.")
+}
 
 # The cutoff applies to the READ-level tree only, and this is the one place it
 # must not be symmetric: gating the deduplicated tree at the same number would
@@ -67,8 +87,9 @@ message("paired cells: ", nrow(cmp),
         " | median read retention: ", round(median(cmp$retained), 3))
 
 clean <- cmp[!cmp$confounded, ]
-message("pooled statistics exclude ", paste(CONFOUNDED, collapse = ", "),
-        "; ", nrow(clean), " cells remain")
+message("pooled over ", nrow(clean), " cells",
+        if (length(CONFOUNDED)) paste0(" (excluding ", paste(CONFOUNDED, collapse = ", "), ")") else "")
+stopifnot(nrow(clean) > 0)
 
 # ---------------------------------------------------------------------------
 # The question 08 asked. If the extreme-AR population is duplication-driven, it
@@ -114,8 +135,9 @@ p_pair <- ggplot(cmp, aes(AR_raw, AR_ded)) +
   facet_wrap(~ sample) +
   coord_fixed(xlim = c(0.5, 1), ylim = c(0.5, 1)) +
   labs(title = "chrX allelic ratio, read level vs molecule level",
-       subtitle = sprintf("cells with >= %d reads before deduplication; points below the diagonal moved toward 0.5 (9w is annotation-confounded)",
-                          MIN_TOTAL_READS),
+       subtitle = sprintf("cells with >= %d reads before deduplication; points below the diagonal moved toward 0.5%s",
+                          MIN_TOTAL_READS,
+                          if (length(CONFOUNDED)) paste0(" (", paste(CONFOUNDED, collapse = ", "), ": annotation-confounded)") else ""),
        x = "AR from all reads", y = "AR from deduplicated, unique reads") +
   theme_bw()
 ggsave(file.path(OUT_DIR, "AR_paired_scatter.pdf"), p_pair, width = 9, height = 8)

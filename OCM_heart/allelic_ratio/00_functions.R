@@ -312,3 +312,18 @@ assert_one_row_per_cell <- function(df, what = "allelic ratio table") {
   }
   invisible(df)
 }
+
+# Which annotation bed each sample in a tree was scored against. Allelome.PRO2
+# puts the bed basename in every run directory name, so this is recoverable
+# after the fact - and it has to be, because comparing two trees is only valid
+# where the annotation matches. Returns one row per (sample, annotation), so a
+# sample scored against two beds shows up as two rows.
+allelome_annotations <- function(tree, samples = c("9w", "78w", "Sham", "TAC")) {
+  rows <- lapply(samples, function(s) {
+    d <- list.dirs(file.path(tree, s), recursive = FALSE, full.names = FALSE)
+    a <- unique(sub("^.*_([^_]*\\.bed)_[0-9]+$", "\\1", d[grepl("\\.bed_[0-9]+$", d)]))
+    if (!length(a)) return(NULL)
+    data.frame(sample = s, annotation = a, stringsAsFactors = FALSE)
+  })
+  bind_rows(rows)
+}
