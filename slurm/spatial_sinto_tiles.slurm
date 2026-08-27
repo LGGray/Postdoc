@@ -13,28 +13,32 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=48G
+#SBATCH --mem=120G
 #SBATCH --time=04:00:00
 #SBATCH --array=1-2
 
-# Sized for the Allelome.PRO2 pass, not the sinto pass, because scoring is the
-# part that gets resubmitted. 24h was the cm4_tiny ceiling, so the job could
-# only start when a full 24h window opened - invisible to backfill - and 150G
-# on 32 cores is above the ~4.5GB/core a cm4 node offers, so it also needed a
-# node with more free memory than free cores. Neither was measured: a single
-# Allelome.PRO2 runs in 8G in Allelome.PRO.slurm, and every stage here is
-# resumable, so a wall-clock kill costs one resubmission and no recomputation.
+# The wall clock is the queue lever here, not the memory. 24h was the cm4_tiny
+# ceiling, so the job could only start when a full 24h window opened, which
+# made it invisible to backfill; 4h is placeable in a gap. Nothing is lost by
+# it because every stage resumes - a kill costs one resubmission, not any
+# recomputation.
 #
-# The split is the one stage that wants a different shape - it is I/O bound and
-# sinto holds one output BAM handle per tile in every worker, so cores buy
-# little and cost memory. Give the first pass fewer cores and more memory:
+# 120G rather than 150G because 32 cores on a cm4 node carry a proportional
+# share of ~145G, and a request above that needs a node with more free memory
+# than free cores - a much smaller target than any node with 32 idle cores.
+# 48G was tried and job 207231 died on SIGKILL: 30 concurrent Allelome.PRO2
+# each parse the genome-wide SNP bed, so the footprint scales with -j, not with
+# the tile size, and the single-invocation 8G in Allelome.PRO.slurm does not
+# bound it. Do not trim this again without a MaxRSS to point at:
+#   sacct -j <jobid> -o JobID,ReqMem,MaxRSS,Elapsed,State,ExitCode
+#
+# The tile BAMs are already split and kept in $SCRATCH, so the defaults above
+# are all that is needed from here. If the split ever has to be redone, it
+# wants the opposite shape - it is I/O bound and sinto holds one output BAM
+# handle per tile in every worker, so cores buy little and cost memory:
 #
 #   sbatch --cpus-per-task=8 --mem=100G --time=08:00:00 \
 #          ~/Postdoc/slurm/spatial_sinto_tiles.slurm 64
-#
-# then let the defaults above handle every scoring pass after it. Confirm the
-# real footprint before trimming further:
-#   sacct -j <jobid> -o JobID,ReqMem,MaxRSS,Elapsed,State
 
 # Split the Visium HD BAM into square tiles and run Allelome.PRO2 on each.
 #
@@ -182,10 +186,33 @@ if [ "$nproc" -lt 1 ]; then nproc=1; fi
 if [ "$DEDUP" = "1" ]; then
   FLT_DIR=$WORK/bam_flt
   mkdir -p "$FLT_DIR"
+
+  # Discard anything the previous pass left half-written before deciding what
+  # still needs filtering. Job 207231 was killed with SIGKILL mid-stage, and a
+  # BAM that was being written at that moment is non-empty but truncated - the
+  # old `[ -s ]` test called it done, so Allelome.PRO2 would have scored a
+  # partial tile and reported a plausible but wrong ratio, silently. quickcheck
+  # reads the header and the BGZF EOF block, which is exactly what a truncated
+  # file is missing. One invocation over all tiles: it is header-only, so this
+  # costs seconds where 3700 separate calls would not.
+  BAD=$WORK/flt-truncated.txt
+  : > "$BAD"
+  if compgen -G "$FLT_DIR/*.bam" > /dev/null; then
+    samtools quickcheck -v "$FLT_DIR"/*.bam > "$BAD" 2>/dev/null || true
+    n_bad=$(wc -l < "$BAD")
+    if [ "$n_bad" -gt 0 ]; then
+      echo "[$(date +%T)] discarding $n_bad truncated tile BAMs from the previous pass"
+      while IFS= read -r b; do rm -f "$b" "$b.bai"; done < "$BAD"
+    fi
+  fi
+
   : > "$WORK/filter-list.txt"
   for bam in "$BAM_DIR"/*.bam; do
     t=$(basename "$bam")
-    [ -s "$FLT_DIR/$t" ] && continue
+    # Both, not just the BAM: the index is only written once samtools view has
+    # closed the output, so its presence is a second, independent witness that
+    # the pair is complete.
+    [ -s "$FLT_DIR/$t" ] && [ -s "$FLT_DIR/$t.bai" ] && continue
     echo "samtools view -b -F 0x400 -q $FILTER_MAPQ -o '$FLT_DIR/$t' '$bam' && samtools index '$FLT_DIR/$t'"
   done >> "$WORK/filter-list.txt"
   n_flt=$(wc -l < "$WORK/filter-list.txt")
