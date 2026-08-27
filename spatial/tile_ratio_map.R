@@ -44,10 +44,13 @@ FLIP_Y  <- FALSE
 # Chromosomes excluded from the autosomal control.
 AUTOSOMES <- paste0("chr", 1:19)
 
-# Per-tile autosomal ratios are overdispersed relative to binomial (measured at
-# 4.1x on the first 30 tiles), so the null band is +-0.03, not +-0.008. Folded
-# into the z so a tile is only called when it clears the real spread.
-AUTO_SD <- 0.032
+# Per-tile autosomal ratios are overdispersed relative to binomial, so the null
+# band is the OBSERVED autosomal spread, not the binomial one. Estimated per
+# sample: 9w came out at 0.027 and 78w at 0.051 on comparable depth, so a single
+# hardcoded value fits one sample and inflates every z in the other. AUTO_SD
+# below is only the fallback for a sample with too few scored tiles to estimate.
+AUTO_SD_FALLBACK <- 0.032
+MIN_TILES_FOR_SD <- 30
 Z_CALL  <- 3
 
 # Diverging pair, neutral MID-POINT DELIBERATELY NEAR-WHITE rather than the
@@ -200,9 +203,29 @@ collect_sample <- function(smp) {
 
   d <- merge(geom, scored, by = "tile", all.x = TRUE)
   d[, submitted := tile %in% submitted_tiles]
+  # Row/col off the tile name. Needed for adjacency: whether a call clusters in
+  # space is the difference between biology and per-tile noise, and pixel
+  # centroids cannot answer it as cleanly as the integer grid can.
+  d[, `:=`(trow = as.integer(sub(".*_r([0-9]+)_c[0-9]+$", "\\1", tile)),
+           tcol = as.integer(sub(".*_r[0-9]+_c([0-9]+)$", "\\1", tile)))]
   d[, `:=`(x_ratio = fifelse(x_n > 0, x_a1 / x_n, NA_real_),
            a_ratio = fifelse(a_n > 0, a_a1 / a_n, NA_real_))]
-  d[, se := sqrt(a_ratio * (1 - a_ratio) / x_n + AUTO_SD^2)]
+  sc <- d[!is.na(a_ratio) & a_n > 0]
+  if (nrow(sc) >= MIN_TILES_FOR_SD) {
+    # Observed variance in the autosomal ratio, less the binomial variance it
+    # already contains. What remains is the technical per-tile spread, which is
+    # the null band chrX has to clear.
+    v_obs  <- var(sc$a_ratio)
+    v_binom <- mean(sc$a_ratio * (1 - sc$a_ratio) / sc$a_n)
+    auto_sd <- sqrt(max(v_obs - v_binom, 0))
+    msg("  autosomal spread: sd %.4f observed, %.4f binomial -> null band %.4f (%.1fx binomial)",
+        sqrt(v_obs), sqrt(v_binom), auto_sd, sqrt(v_obs) / sqrt(v_binom))
+  } else {
+    auto_sd <- AUTO_SD_FALLBACK
+    msg("  only %d scored tiles - using the %.3f fallback null band",
+        nrow(sc), auto_sd)
+  }
+  d[, se := sqrt(a_ratio * (1 - a_ratio) / x_n + auto_sd^2)]
   d[, z := (x_ratio - a_ratio) / se]
   d[, call := fcase(
       is.na(x_ratio) &  submitted, "pending",
@@ -211,7 +234,7 @@ collect_sample <- function(smp) {
       z < -Z_CALL, "CAST-skewed",
       default = "mixed")]
   d[, `:=`(sample = smp, side = side, FLIPX = FLIP_X, FLIPY = FLIP_Y,
-         he = he_png)]
+         he = he_png, auto_sd = auto_sd)]
   if (FLIP_X) d[, x := -x]
   if (FLIP_Y) d[, y := -y]
 
@@ -295,6 +318,28 @@ panel_auto <- function(d) {
          caption = "Any structure here is technical and invalidates the chrX panel over the same tiles.")
 }
 
+panel_auto_zoom <- function(d) {
+  # Same data as panel_auto, on a +-3 null-band scale instead of 0-1. The wide
+  # panel answers "is the control flat"; this one answers "and if it is not,
+  # is the residual structured or speckle" - which is the question that decides
+  # whether the chrX calls over these tiles can be trusted.
+  sdv <- d$auto_sd[1]
+  lim <- max(3 * sdv, 0.05)
+  d2 <- copy(d)[, a_clip := pmin(pmax(a_ratio - 0.5, -lim), lim)]
+  base_map(d2) +
+    geom_tile(data = d2[submitted & is.na(a_ratio)],
+              width = d$side[1], height = d$side[1], fill = COL_NA, colour = NA) +
+    geom_tile(data = d2[!is.na(a_clip)], aes(fill = a_clip),
+              width = d$side[1], height = d$side[1], colour = NA) +
+    scale_fill_gradient2(low = COL_CAST, mid = COL_MID, high = COL_BL6,
+                         midpoint = 0, limits = c(-lim, lim),
+                         name = "autosomal\ndeviation\nfrom 0.5") +
+    labs(title = sprintf("%s - autosomal control, opened up to +-%.3f", d$sample[1], lim),
+         subtitle = sprintf("Null band %.4f. Speckle is technical noise; a patch or a gradient is a bias with geometry.",
+                            sdv),
+         caption = "Clipped at the scale limits, so an extreme tile reads as the pole rather than dominating the ramp.")
+}
+
 panel_depth <- function(d) {
   base_map(d) +
     geom_tile(data = d[submitted & is.na(x_n)],
@@ -318,12 +363,47 @@ panel_call <- function(d) {
                                  "mixed" = COL_MID, "pending" = COL_NA,
                                  "not submitted" = COL_FOOT),
                       drop = FALSE, name = NULL) +
+    # COL_FOOT on a white legend background is an invisible swatch; the border
+    # is what makes "not submitted" readable as a key rather than a gap.
+    guides(fill = guide_legend(override.aes = list(colour = "#c3c2b7"))) +
     labs(title = sprintf("%s - call vs each tile's own autosomal ratio", d$sample[1]),
-         subtitle = sprintf("|z| > %d, with the %.3f autosomal overdispersion folded in: %s",
-                            Z_CALL, AUTO_SD,
+         subtitle = sprintf("|z| > %d, against this sample's own %.3f autosomal null band: %s",
+                            Z_CALL, d$auto_sd[1],
                             paste(sprintf("%s %d", lv[1:4],
                                           sapply(lv[1:4], function(l) sum(d2$call == l, na.rm = TRUE))),
                                   collapse = ", ")))
+}
+
+clustering_test <- function(d, label, n_perm = 2000L) {
+  sc <- d[!is.na(x_ratio)]
+  if (!nrow(sc)) return(invisible(NULL))
+  k <- sum(sc$call == label)
+  if (k < 5) { msg("  %s: only %d tiles - too few to test for clustering", label, k); return(invisible(NULL)) }
+
+  # 4-neighbour adjacency among SCORED tiles only. Using every tile would count
+  # a pending neighbour as "not a match" and bias the statistic toward
+  # dispersion purely because the run is incomplete.
+  key <- function(r, cc) r * 100000L + cc
+  present <- key(sc$trow, sc$tcol)
+  # Observed: adjacent pairs that are both `label`.
+  count_pairs <- function(is_lab) {
+    kk <- present[is_lab]
+    sum(c((key(sc$trow[is_lab] + 1L, sc$tcol[is_lab]) %in% kk),
+          (key(sc$trow[is_lab], sc$tcol[is_lab] + 1L) %in% kk)))
+  }
+  obs <- count_pairs(sc$call == label)
+  # Null: the same number of labels placed at random over the scored tiles, so
+  # the test is conditioned on the shape of the region actually processed.
+  perm <- vapply(seq_len(n_perm), function(i) {
+    idx <- rep(FALSE, nrow(sc)); idx[sample.int(nrow(sc), k)] <- TRUE
+    count_pairs(idx)
+  }, numeric(1))
+  pval <- (1 + sum(perm >= obs)) / (1 + n_perm)
+  msg("  %s: %d tiles, %d adjacent pairs (null %.1f, p = %.3f) -> %s",
+      label, k, obs, mean(perm), pval,
+      if (pval < 0.05) "CLUSTERED, consistent with a clonal population"
+      else "scattered, consistent with per-tile noise")
+  invisible(NULL)
 }
 
 msg("Tile size %d um, samples: %s", TILE_UM, paste(SAMPLES, collapse = ", "))
@@ -337,8 +417,11 @@ for (s in SAMPLES) {
   print(panel_ratio(d, he = TRUE))
   print(panel_ratio(d, he = FALSE))
   print(panel_auto(d))
+  print(panel_auto_zoom(d))
   print(panel_depth(d))
   print(panel_call(d))
+  msg("  spatial clustering of the calls:")
+  for (lab in c("CAST-skewed", "Bl6-skewed", "mixed")) clustering_test(d, lab)
   all_d[[s]] <- d
 }
 invisible(dev.off())
@@ -349,7 +432,10 @@ if (length(all_d)) {
   fwrite(out[, .(sample, tile, x, y, n_bins, x_a1, x_a2, x_n, a_a1, a_a2, a_n,
                  x_ratio, a_ratio, z, call, submitted)], csv)
   msg("\nWrote %s\n       %s", OUT_PDF, csv)
-  msg("Pooled chrX ratio per sample:")
+  msg("Pooled chrX ratio per sample.")
+  msg("NOTE: tiles are scored in tile-name order, so the finished set is a")
+  msg("      contiguous band of the section, not a random sample of it. These")
+  msg("      pooled numbers describe that band until the run completes.")
   print(out[!is.na(x_ratio), .(tiles = .N, chrX_reads = sum(x_n),
                                pooled_x = round(sum(x_a1) / sum(x_n), 3),
                                pooled_a = round(sum(a_a1) / sum(a_n), 3)), by = sample])
