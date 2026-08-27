@@ -485,8 +485,90 @@ for (s in SAMPLES) {
 }
 invisible(dev.off())
 
+##### --------------------- distributions --------------------- #####
+# The maps show WHERE; these show WHERE MOST TILES SIT, which a map cannot.
+# Worth having because the OCM ramp puts four green/olive bins across 0.40-0.80,
+# so a field of strongly Bl6-biased tiles reads as "quite green" and the eye
+# under-reads the skew. Counts settle it.
+
+panel_hist <- function(out) {
+  # Same bins and colours as the map, so a bar and a tile of the same colour
+  # mean the same thing. Counts, not density: the reader wants "how many tiles".
+  h <- out[!is.na(x_bin), .N, by = .(sample, x_bin)]
+  ggplot(h, aes(x_bin, N, fill = x_bin)) +
+    geom_col(width = 0.85) +
+    geom_text(aes(label = N), vjust = -0.35, size = 2.6, colour = "#52514e") +
+    # 0.5 sits on the boundary between the 5th and 6th bin.
+    geom_vline(xintercept = 5.5, linetype = 2, colour = "#52514e") +
+    annotate("text", x = 5.5, y = Inf, label = "  0.5", hjust = 0, vjust = 1.4,
+             size = 2.6, colour = "#52514e") +
+    scale_fill_manual(values = OCM_COLORS, limits = OCM_LABELS, drop = FALSE,
+                      guide = "none") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+    facet_wrap(~ sample, ncol = 1, scales = "free_y") +
+    labs(title = sprintf("Where the tiles sit: chrX allelic ratio per %d um tile", TILE_UM),
+         subtitle = "Same bins and colours as the maps. Dashed line = 0.5.",
+         x = "chrX allelic ratio (Bl6 / total)", y = "tiles",
+         caption = paste("No legend: the bars are positioned by the quantity they are coloured by,",
+                         "so the x axis already carries it.")) +
+    theme_bw(base_size = 10) +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor = element_blank(),
+          axis.text.x = element_text(angle = 45, hjust = 1, size = 7),
+          plot.subtitle = element_text(size = 8, colour = "#52514e"),
+          plot.caption  = element_text(size = 7, colour = "#52514e", hjust = 0))
+}
+
+panel_violin <- function(out) {
+  # chrX against its own autosomal control on one axis. This is the figure that
+  # makes the point in a single frame: the control is a spike on 0.5, chrX is
+  # broad and displaced - and neither of those is visible in a map.
+  long <- melt(out[!is.na(x_ratio)], id.vars = "sample",
+               measure.vars = c("x_ratio", "a_ratio"),
+               variable.name = "chrom_set", value.name = "ratio")
+  long[, chrom_set := factor(fifelse(chrom_set == "x_ratio", "chrX", "autosomal"),
+                             levels = c("chrX", "autosomal"))]
+  long <- long[!is.na(ratio)]
+  lab <- out[!is.na(x_ratio), .(
+    n = .N,
+    med = median(x_ratio),
+    pooled = sum(x_a1) / sum(x_n),
+    lo = mean(x_ratio < 0.5)), by = sample]
+
+  ggplot(long, aes(sample, ratio, fill = chrom_set)) +
+    geom_hline(yintercept = 0.5, linetype = 2, colour = "#52514e") +
+    geom_violin(position = position_dodge(width = 0.8), width = 0.75,
+                colour = NA, alpha = 0.85, scale = "width", trim = TRUE) +
+    # The box carries the median and quartiles the violin only implies.
+    geom_boxplot(position = position_dodge(width = 0.8), width = 0.12,
+                 outlier.shape = NA, colour = "#0b0b0b",
+                 fill = "white", alpha = 0.9, show.legend = FALSE) +
+    scale_fill_manual(values = c(chrX = "#2D6E5D", autosomal = "grey70"),
+                      name = NULL) +
+    scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
+    labs(title = "chrX against its own autosomal control, per tile",
+         subtitle = paste(sprintf("%s: n=%d, median %.2f, pooled %.2f, %.0f%% below 0.5",
+                                  lab$sample, lab$n, lab$med, lab$pooled, 100 * lab$lo),
+                          collapse = "   |   "),
+         x = NULL, y = "allelic ratio (Bl6 / total)",
+         caption = paste("Violins scaled to equal width, so shape is comparable between",
+                         "groups of different size; the box is the median and quartiles.",
+                         "\nThe autosomal spike on 0.5 is the null the chrX distribution",
+                         "has to be judged against.")) +
+    theme_bw(base_size = 10) +
+    theme(panel.grid.major.x = element_blank(),
+          panel.grid.minor = element_blank(),
+          plot.subtitle = element_text(size = 8, colour = "#52514e"),
+          plot.caption  = element_text(size = 7, colour = "#52514e", hjust = 0))
+}
+
 if (length(all_d)) {
   out <- rbindlist(all_d, fill = TRUE)
+  pdf(sub("\\.pdf$", "_distribution.pdf", OUT_PDF), width = 7, height = 7)
+  print(panel_hist(out))
+  print(panel_violin(out))
+  invisible(dev.off())
+  msg("Wrote %s", sub("\\.pdf$", "_distribution.pdf", OUT_PDF))
   csv <- sub("\\.pdf$", ".csv", OUT_PDF)
   fwrite(out[, .(sample, tile, x, y, n_bins, x_a1, x_a2, x_n, a_a1, a_a2, a_n,
                  x_ratio, x_bin, a_ratio, z, call, submitted)], csv)
