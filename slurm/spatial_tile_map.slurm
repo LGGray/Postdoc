@@ -46,7 +46,10 @@ if [ -z "$SCRATCH" ]; then
 fi
 
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
-conda activate RNAseq
+# seurat_env, NOT the repo-wide RNAseq env. Most scripts in this directory use
+# RNAseq and are misleading here; confirmed against seurat_env on 2026-08-27.
+# Do not "fix" this for consistency with the neighbouring wrappers.
+conda activate seurat_env
 
 # arrow reads tissue_positions.parquet and png draws the H&E. Both are optional:
 # the script falls back to a .tsv/.csv positions file and to no background

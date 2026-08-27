@@ -128,7 +128,7 @@ collect_sample <- function(smp) {
   # The submitted universe. This, not the set of locus tables, is the
   # denominator - it is what defines a grey box.
   map <- fread(map_tsv, header = FALSE, col.names = c("barcode", "tile"))
-  submitted <- unique(map$tile)
+  submitted_tiles <- unique(map$tile)
 
   # Collected layout first, then the live scratch layout.
   lt_paths <- character(0)
@@ -162,7 +162,7 @@ collect_sample <- function(smp) {
     r[, tile := names(lt_paths)[i]][]
   }))
   msg("  %d locus tables, %d with a chrX row, of %d submitted tiles",
-      length(lt_paths), nrow(scored), length(submitted))
+      length(lt_paths), nrow(scored), length(submitted_tiles))
   if (!nrow(scored)) return(NULL)
 
   # --- tile geometry, from the bins themselves ---
@@ -199,7 +199,7 @@ collect_sample <- function(smp) {
   msg("  tile side %.1f plot units (%d bins), lowres scalef %.4f", side, k, sf)
 
   d <- merge(geom, scored, by = "tile", all.x = TRUE)
-  d[, submitted := tile %in% submitted]
+  d[, submitted := tile %in% submitted_tiles]
   d[, `:=`(x_ratio = fifelse(x_n > 0, x_a1 / x_n, NA_real_),
            a_ratio = fifelse(a_n > 0, a_a1 / a_n, NA_real_))]
   d[, se := sqrt(a_ratio * (1 - a_ratio) / x_n + AUTO_SD^2)]
@@ -255,7 +255,7 @@ base_map <- function(d, he = FALSE) {
   g <- ggplot(d, aes(x, y))
   if (he) { l <- he_layer(d); if (!is.null(l)) g <- g + l }
   g +
-    geom_tile(data = d[!submitted], width = d$side[1], height = d$side[1],
+    geom_tile(data = d[submitted == FALSE], width = d$side[1], height = d$side[1],
               fill = COL_FOOT, colour = NA) +
     coord_fixed() + scale_y_reverse() + theme_slide
 }
