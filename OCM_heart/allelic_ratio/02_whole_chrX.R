@@ -44,6 +44,7 @@ chr_allelic_ratio <- read.table(ALLELIC_RATIOS_FILE, sep = '\t', header = TRUE, 
 
 #### IMPORTANT TO FILTER FOR chrX #######
 chr_allelic_ratio <- subset(chr_allelic_ratio, chr == "chrX")
+assert_one_row_per_cell(chr_allelic_ratio, ALLELIC_RATIOS_FILE)
 
 # Subset seurat object by barcodes
 subset_heart <- subset(heart, cells = chr_allelic_ratio$cell_barcode)

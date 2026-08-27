@@ -48,6 +48,7 @@ heart$celltype <- Idents(heart)
 chr_allelic_ratio <- read.table(ALLELIC_RATIOS_FILE,
                                 sep = '\t', header = TRUE, stringsAsFactors = FALSE)
 chr_allelic_ratio <- subset(chr_allelic_ratio, chr == "chrX")
+assert_one_row_per_cell(chr_allelic_ratio, ALLELIC_RATIOS_FILE)
 
 keep <- intersect(chr_allelic_ratio$cell_barcode, colnames(heart))
 chr_allelic_ratio <- chr_allelic_ratio[match(keep, chr_allelic_ratio$cell_barcode), ]

@@ -289,3 +289,26 @@ collapse_autosomes <- function(df, autosomes = AUTOSOMES) {
   out$ar_dom <- pmax(out$A1_reads, out$A2_reads) / out$total_reads
   out
 }
+
+# Whole-chromosome code assigns one value per cell with match(), which silently
+# takes the FIRST matching row. That is correct only when the annotation bed had
+# one interval per chromosome (chr_annotation_mm39.bed, 21 intervals). Fed a
+# per-gene bed (annotation_us_mm39_chrX.bed, 3227 chrX intervals) the same code
+# hands every cell one arbitrary gene while calling it the whole X. 9w was
+# scored that way in the original tree, so this is a real failure mode, not a
+# hypothetical. 10_build_ratio_table.R sums to one row per (cell, chr); this
+# asserts whatever is actually being read satisfies that.
+assert_one_row_per_cell <- function(df, what = "allelic ratio table") {
+  dup <- df$cell_barcode[duplicated(df$cell_barcode)]
+  if (length(dup)) {
+    n_per <- sort(table(df$cell_barcode[df$cell_barcode %in% dup]), decreasing = TRUE)
+    stop(sprintf(
+      paste0("%s has %d cells with more than one row (worst: %s, %d rows).\n",
+             "  Whole-chromosome code takes the first row per cell, so these ",
+             "cells would silently get one interval, not the chromosome.\n",
+             "  Rebuild with 10_build_ratio_table.R, which sums to one row per ",
+             "(cell, chr)."),
+      what, length(unique(dup)), names(n_per)[1], as.integer(n_per)[1]))
+  }
+  invisible(df)
+}
