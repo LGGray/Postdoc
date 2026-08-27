@@ -276,13 +276,63 @@ ANNOT_BASE=$(basename "$ANNOTATION")
 # of autosomal reads yields about one row per chromosome, so a table with a
 # handful was cut short at a line boundary where the field count still matches.
 MIN_LOCI=10
-locus_table_ok() {
+# How many times a tile carrying no chrX row may be re-run before its table is
+# accepted as-is. A missing chrX row is almost always a tail truncation, but not
+# necessarily: a tile can legitimately end up with no chrX read after
+# -F 0x400 -q 255 even though the sweep counted >= SINTO_MIN_UMI chrX molecules,
+# because that counter works on molecules and does not apply the MAPQ filter.
+# Without a budget such a tile would be purged and re-run on every resubmission
+# for the life of the project, at 6.6 min of CPU each time, and the tile count
+# would never reach N_TILES.
+MAX_REDO=2
+REDO_DIR=$WORK/redo-count
+mkdir -p "$REDO_DIR"
+
+# Exit 0 = complete. 2 = structurally sound but carrying no chrX row.
+# 1 = structurally broken.
+#
+# chrX is the sharpest of these checks, not an extra one. chr_annotation_mm39.bed
+# is sorted, so chrX follows every autosome and is the FIRST row a cut tail
+# loses: a table truncated from 21 rows to 15 still has a clean field count and
+# still clears MIN_LOCI, and chrX is precisely what is gone. MIN_LOCI stays as
+# the floor for the opposite case, a table cut down to almost nothing.
+locus_table_state() {
   [ -s "$1" ] || return 1
   awk -v min="$MIN_LOCI" '
     NR == 1 { nf = NF; if (tolower($0) !~ /total_reads/) { bad = 1; exit } next }
     NF != nf { bad = 1; exit }
-    END { if (bad || NR - 1 < min) exit 1; exit 0 }
+    $1 == "chrX" { seen_x = 1 }
+    END {
+      if (bad || NR - 1 < min) exit 1
+      if (!seen_x) exit 2
+      exit 0
+    }
   ' "$1" 2>/dev/null
+}
+
+# The tile name, from either layout:
+#   $FINAL_DIR/<tile>/locus_table.txt
+#   $AP2_DIR/<YYYY_MM_DD>_<tile>_<annotation>_<n>/locus_table.txt
+tile_of_lt() {
+  local d
+  d=$(basename "$(dirname "$1")")
+  d=${d#????_??_??_}
+  d=${d%_${ANNOT_BASE}_*}
+  printf '%s' "$d"
+}
+
+# Side-effect free, so it is safe in the resume check, the collect stage and the
+# final tally. A chrX-free table is acceptable only once its redo budget is
+# spent - the purge pass below is what spends it.
+locus_table_ok() {
+  local st tile n=0
+  locus_table_state "$1"; st=$?
+  [ "$st" -eq 0 ] && return 0
+  [ "$st" -eq 1 ] && return 1
+  tile=$(tile_of_lt "$1")
+  [ -f "$REDO_DIR/$tile" ] && n=$(cat "$REDO_DIR/$tile")
+  [ "$n" -ge "$MAX_REDO" ] && return 0
+  return 1
 }
 
 # Discard anything a previous kill left half-written, in both locations, before
@@ -290,19 +340,36 @@ locus_table_ok() {
 # the scratch copies: the collect stage globs that directory, so a truncated
 # table left in place could still be copied over a good one.
 DISCARDED=$WORK/locus-tables-discarded.txt
-n_trunc=0
+n_trunc=0; n_nox=0; n_nox_kept=0
 for lt in "$FINAL_DIR"/*/locus_table.txt \
           "$AP2_DIR"/*_"$ANNOT_BASE"_*/locus_table.txt; do
   [ -e "$lt" ] || continue
-  locus_table_ok "$lt" && continue
-  echo "$(date +%F_%T) $(wc -l < "$lt") lines  $lt" >> "$DISCARDED"
-  rm -f "$lt"; n_trunc=$((n_trunc + 1))
+  locus_table_state "$lt"; st=$?
+  [ "$st" -eq 0 ] && continue
+  tile=$(tile_of_lt "$lt")
+  if [ "$st" -eq 2 ]; then
+    n=0; [ -f "$REDO_DIR/$tile" ] && n=$(cat "$REDO_DIR/$tile")
+    if [ "$n" -ge "$MAX_REDO" ]; then
+      # Re-run MAX_REDO times and still no chrX. Take it at face value: this
+      # tile has no informative chrX read that survives the filters.
+      echo "$(date +%F_%T) no-chrX-accepted-after-$n-redos  $lt" >> "$DISCARDED"
+      n_nox_kept=$((n_nox_kept + 1)); continue
+    fi
+    echo $((n + 1)) > "$REDO_DIR/$tile"
+    echo "$(date +%F_%T) no-chrX redo-$((n + 1)) $(wc -l < "$lt") lines  $lt" >> "$DISCARDED"
+    n_nox=$((n_nox + 1))
+  else
+    echo "$(date +%F_%T) truncated $(wc -l < "$lt") lines  $lt" >> "$DISCARDED"
+    n_trunc=$((n_trunc + 1))
+  fi
+  rm -f "$lt"
 done
-if [ "$n_trunc" -gt 0 ]; then
-  echo "[$(date +%T)] discarded $n_trunc truncated locus tables from a previous pass"
-  echo "  appended to $DISCARDED - a tile appearing there on EVERY run is not"
-  echo "  a truncation, it is a tile whose table is genuinely shorter than"
-  echo "  MIN_LOCI=$MIN_LOCI, and it will be re-run forever until that is lowered."
+if [ $((n_trunc + n_nox + n_nox_kept)) -gt 0 ]; then
+  echo "[$(date +%T)] locus tables from a previous pass:"
+  echo "  $n_trunc structurally truncated - discarded, will be re-run"
+  echo "  $n_nox complete but with no chrX row - discarded, will be re-run"
+  echo "  $n_nox_kept with no chrX row after $MAX_REDO redos - accepted as genuinely chrX-free"
+  echo "  details in $DISCARDED"
 fi
 
 # Only tiles without a locus table. A timed-out run therefore picks up where it
