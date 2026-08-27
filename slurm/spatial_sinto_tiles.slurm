@@ -77,6 +77,20 @@ SNPS=$BASE/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_no_Xist.bed
 MIN_READ=1
 TOTAL_READ=1
 
+# Drop PCR duplicates and multimappers from each tile BAM before scoring.
+#
+# Allelome.PRO2 counts reads, and ~54% of this BAM is flagged duplicate. Every
+# read of one UMI carries the same allele, so duplicates add no evidence about
+# which allele a molecule came from - they only add weight. A 64um tile holds
+# ~14 independent chrX molecules, so one heavily amplified molecule can move the
+# tile's ratio by 0.7. Measured on 78w tiles: read-level ratios of 0.09-0.20
+# where the same tiles were 0.62-0.82 at molecule level.
+#
+# -F 0x400 = not a duplicate; -q 255 = STAR-unique. Both match the filters the
+# independent counter used, so the two methods become comparable.
+DEDUP=1
+FILTER_MAPQ=255
+
 FINAL_DIR=$SPATIAL/ase/$SAMPLE/Allelome.PRO2_tiles_${TILE_UM}um
 
 for f in "$BAM" "$CELLS" "$ANNOTATION" "$SNPS" "$PIPELINE"; do
@@ -140,9 +154,51 @@ if [ "$N_BAM" -eq 0 ]; then
   exit 1
 fi
 
-##### ---- Allelome.PRO2, one invocation per tile ---- #####
 conda activate RNAseq
 module load parallel
+nproc=$((SLURM_CPUS_PER_TASK - 2))
+if [ "$nproc" -lt 1 ]; then nproc=1; fi
+
+##### ---- filter duplicates and multimappers ---- #####
+if [ "$DEDUP" = "1" ]; then
+  FLT_DIR=$WORK/bam_flt
+  mkdir -p "$FLT_DIR"
+  : > "$WORK/filter-list.txt"
+  for bam in "$BAM_DIR"/*.bam; do
+    t=$(basename "$bam")
+    [ -s "$FLT_DIR/$t" ] && continue
+    echo "samtools view -b -F 0x400 -q $FILTER_MAPQ -o '$FLT_DIR/$t' '$bam' && samtools index '$FLT_DIR/$t'"
+  done >> "$WORK/filter-list.txt"
+  n_flt=$(wc -l < "$WORK/filter-list.txt")
+  if [ "$n_flt" -gt 0 ]; then
+    echo "[$(date +%T)] filtering $n_flt tile BAMs (duplicates, MAPQ < $FILTER_MAPQ)"
+    parallel -j "$nproc" :::: "$WORK/filter-list.txt"
+  else
+    echo "[$(date +%T)] filtered tile BAMs already present"
+  fi
+  SCORE_DIR=$FLT_DIR
+  # Worth eyeballing once: this should be roughly half, and the tile ratios
+  # should stop swinging between 0.1 and 1.0 once it is applied.
+  ex=$(ls "$BAM_DIR"/*.bam | head -1); exb=$(basename "$ex")
+  echo "  example $exb: $(samtools view -c "$ex") reads -> $(samtools view -c "$FLT_DIR/$exb") after filtering"
+else
+  SCORE_DIR=$BAM_DIR
+  echo "WARNING: DEDUP=0, scoring raw tile BAMs. Per-tile ratios will be driven"
+  echo "         by PCR duplication, not by allele composition."
+fi
+
+##### ---- Allelome.PRO2, one invocation per tile ---- #####
+
+# Allelome.PRO2 does not write to <outdir>/<sample>/. It creates a dated job
+# directory per run:
+#
+#   <outdir>/2026_08_26_tile_64um_r0015_c0040_chr_annotation_mm39.bed_1/
+#            ^date       ^bam basename        ^annotation basename    ^run no.
+#
+# The trailing counter increments on every re-run, so without a resume check
+# a resubmitted job silently accumulates _2, _3, ... duplicates of work that
+# is already done.
+ANNOT_BASE=$(basename "$ANNOTATION")
 
 # Only tiles without a locus table. A timed-out run therefore picks up where it
 # stopped instead of starting over.
@@ -150,12 +206,13 @@ module load parallel
 n_todo=0; n_done=0
 while IFS= read -r bam; do
   tile=$(basename "$bam" .bam)
-  if [ -s "$AP2_DIR/$tile/locus_table.txt" ] || [ -s "$FINAL_DIR/$tile/locus_table.txt" ]; then
+  if [ -s "$FINAL_DIR/$tile/locus_table.txt" ] || \
+     compgen -G "$AP2_DIR/*_${tile}_${ANNOT_BASE}_*/locus_table.txt" > /dev/null; then
     n_done=$((n_done + 1)); continue
   fi
   echo "$PIPELINE -i $bam -a $ANNOTATION -s $SNPS -r $MIN_READ -t $TOTAL_READ -o $AP2_DIR"
   n_todo=$((n_todo + 1))
-done < <(find "$BAM_DIR" -name '*.bam' | sort) >> "$WORK/task-list.txt"
+done < <(find "$SCORE_DIR" -name '*.bam' | sort) >> "$WORK/task-list.txt"
 
 if [ "$MAX_TILES" -gt 0 ]; then
   head -n "$MAX_TILES" "$WORK/task-list.txt" > "$WORK/task-list.head.txt"
@@ -165,8 +222,6 @@ if [ "$MAX_TILES" -gt 0 ]; then
 fi
 echo "[$(date +%T)] Allelome.PRO2: $n_todo to run, $n_done already done"
 
-nproc=$((SLURM_CPUS_PER_TASK - 2))
-if [ "$nproc" -lt 1 ]; then nproc=1; fi
 start=$SECONDS
 parallel -j "$nproc" --joblog "$WORK/parallel.log" :::: "$WORK/task-list.txt"
 elapsed=$((SECONDS - start))
@@ -185,16 +240,24 @@ echo "Allelome.PRO2 failures this pass: $FAILED / $n_todo"
 
 ##### ---- collect ---- #####
 # Only the locus tables and BED files are worth keeping; the tile BAMs are
-# reproducible from the map and would be tens of thousands of small files on
-# permanent storage.
-mkdir -p "$FINAL_DIR"
+# reproducible from the map and would be thousands of small files on permanent
+# storage. The tile name has to be recovered from the dated job directory:
+#   2026_08_26_tile_64um_r0015_c0040_chr_annotation_mm39.bed_1
+#   -> strip the leading YYYY_MM_DD_, then the trailing _<annotation>_<run no.>
 shopt -s nullglob
-for d in "$AP2_DIR"/*/; do
+n_moved=0
+for d in "$AP2_DIR"/*_"$ANNOT_BASE"_*/; do
   name=$(basename "$d")
-  mkdir -p "$FINAL_DIR/$name"
-  [ -f "$d/locus_table.txt" ] && mv "$d/locus_table.txt" "$FINAL_DIR/$name/"
-  [ -d "$d/BED_files" ] && mv "$d"/BED_files/*.bed "$FINAL_DIR/$name/" 2>/dev/null
+  tile=${name#????_??_??_}
+  tile=${tile%_${ANNOT_BASE}_*}
+  lt=$(find "$d" -maxdepth 2 -name locus_table.txt | head -1)
+  [ -z "$lt" ] && continue
+  mkdir -p "$FINAL_DIR/$tile"
+  cp "$lt" "$FINAL_DIR/$tile/"
+  for b in "$d"BED_files/*.bed; do cp "$b" "$FINAL_DIR/$tile/"; done
+  n_moved=$((n_moved + 1))
 done
+echo "Collected $n_moved tile locus tables into $FINAL_DIR"
 cp "$WORK/parallel.log" "$FINAL_DIR/" 2>/dev/null
 
 n_final=$(find "$FINAL_DIR" -name locus_table.txt | wc -l)
