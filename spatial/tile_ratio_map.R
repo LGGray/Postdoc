@@ -6,10 +6,13 @@
 # in-tissue tile, including the ones below SINTO_MIN_UMI that were never
 # submitted - so "grey" always means "pending", never "no tissue".
 #
-# Reads whatever exists, in this order:
-#   1. ase/<sample>/Allelome.PRO2_tiles_<um>um/<tile>/locus_table.txt  (collected)
-#   2. $SCRATCH/spatial_tiles_<sample>_<um>um/allelome/<dated>/locus_table.txt
-# so it works before spatial_sinto_tiles.slurm reaches its collect stage.
+# Input is the collected output on permanent storage:
+#   adult_aged_spatial/ase/<sample>/Allelome.PRO2_tiles_<um>um/<tile>/locus_table.txt
+# plus, unless SCRATCH_SUPPLEMENT is FALSE, any tile that Allelome.PRO2 has
+# finished but the tile job has not copied there yet:
+#   $SCRATCH/spatial_tiles_<sample>_<um>um/allelome/<dated>/locus_table.txt
+# The log says how many came from each, so a stale permanent copy is visible
+# rather than silent.
 #
 # Run on the cluster:  sbatch ~/Postdoc/slurm/spatial_tile_map.slurm
 #              or:     TILE_UM=64 Rscript ~/Postdoc/spatial/tile_ratio_map.R
@@ -34,6 +37,12 @@ OUT_PDF <- Sys.getenv("OUT_PDF",
 # Draw the H&E underneath the ratio panel. Needs the png package; skipped with a
 # message if it is not installed rather than failing the whole script.
 USE_HE  <- TRUE
+
+# Read tiles that Allelome.PRO2 has produced but the tile job has not yet copied
+# to permanent storage, on top of the ones it has. FALSE plots strictly what is
+# in adult_aged_spatial/ase/<sample>/Allelome.PRO2_tiles_<um>um, which is what
+# you want for a figure that has to be reproducible from the archived data.
+SCRATCH_SUPPLEMENT <- TRUE
 
 # The capture array can sit rotated relative to the image. Axis-aligned squares
 # are drawn either way, so a large rotation would show as a staircased edge -
@@ -166,31 +175,56 @@ collect_sample <- function(smp) {
   map <- fread(map_tsv, header = FALSE, col.names = c("barcode", "tile"))
   submitted_tiles <- unique(map$tile)
 
-  # Collected layout first, then the live scratch layout.
+  # ---- where the locus tables are read from --------------------------------
+  #
+  # adult_aged_spatial/ase/<sample>/Allelome.PRO2_tiles_<um>um is the source of
+  # record: permanent storage, one directory per tile, written by the tile job's
+  # collect stage.
+  #
+  # $SCRATCH SUPPLEMENTS it rather than replacing it. The previous version read
+  # scratch only when the final directory was entirely empty, which is the wrong
+  # condition: a tile job killed at the wall clock never reaches its end-of-job
+  # collect, so the final directory holds what the NEXT job's startup collect
+  # rescued while scratch holds everything newer. A non-empty-but-stale final
+  # directory would then have silenced the scratch read and the plots would have
+  # shown fewer tiles than exist, with nothing to say so. Set
+  # SCRATCH_SUPPLEMENT to FALSE to plot strictly what is on permanent storage.
   lt_paths <- character(0)
   if (dir.exists(final_dir)) {
     lt_paths <- Sys.glob(file.path(final_dir, "*", "locus_table.txt"))
     names(lt_paths) <- basename(dirname(lt_paths))
   }
+  n_from_final <- length(lt_paths)
+  msg("  %d locus tables in %s", n_from_final, final_dir)
+
+  n_extra <- 0L
   scratch <- Sys.getenv("SCRATCH")
-  if (!length(lt_paths) && nzchar(scratch)) {
+  if (SCRATCH_SUPPLEMENT && nzchar(scratch)) {
     ap2 <- file.path(scratch, sprintf("spatial_tiles_%s_%dum", smp, TILE_UM),
                      "allelome")
-    p <- Sys.glob(file.path(ap2, paste0("*_", ANNOT_BASE, "_*"), "locus_table.txt"))
-    if (length(p)) {
+    sp <- Sys.glob(file.path(ap2, paste0("*_", ANNOT_BASE, "_*"), "locus_table.txt"))
+    if (length(sp)) {
       # 2026_08_27_tile_64um_r0019_c0050_chr_annotation_mm39.bed_1 -> tile name
-      nm <- basename(dirname(p))
+      nm <- basename(dirname(sp))
       nm <- sub("^[0-9]{4}_[0-9]{2}_[0-9]{2}_", "", nm)
       nm <- sub(paste0("_", ANNOT_BASE, "_[0-9]+$"), "", nm)
-      lt_paths <- p; names(lt_paths) <- nm
-      msg("  reading from scratch: %s", ap2)
+      names(sp) <- nm
+      # A resubmitted tile leaves _1.._n directories; keep the last.
+      sp <- sp[!duplicated(names(sp), fromLast = TRUE)]
+      # Permanent storage wins wherever both have the tile.
+      sp <- sp[!names(sp) %in% names(lt_paths)]
+      n_extra <- length(sp)
+      lt_paths <- c(lt_paths, sp)
     }
+  }
+  if (n_extra > 0) {
+    msg("  + %d not yet collected, read from %s", n_extra, ap2)
+    msg("    (a tile job was killed before its collect stage; resubmitting it")
+    msg("     copies these across, after which they come from permanent storage)")
   }
   if (!length(lt_paths)) {
     msg("  no locus tables found for %s - skipping", smp); return(NULL)
   }
-  # A resubmitted job leaves _1.._n for the same tile; keep the last.
-  lt_paths <- lt_paths[!duplicated(names(lt_paths), fromLast = TRUE)]
 
   scored <- rbindlist(lapply(seq_along(lt_paths), function(i) {
     r <- read_locus(lt_paths[[i]])
