@@ -196,6 +196,44 @@ ALLELIC_RATIOS_FILE <- file.path(RESULTS_ROOT, "whole_chr_allelic_ratios.txt")
 MIN_CEB_READS <- as.integer(Sys.getenv("MIN_CEB_READS", "5"))
 stopifnot(!is.na(MIN_CEB_READS), MIN_CEB_READS >= 1)
 
+# The per-gene block (03) has two thresholds of its own, and neither is
+# MIN_TOTAL_READS: that one is a whole-chrX depth per cell, while these are
+# per-GENE depths, which are one to two orders of magnitude smaller.
+#
+# Both were hardcoded as a bare `10` in three places in 03_all_genes.R while a
+# name that was never defined anywhere, MIN_READS, appeared in its plot titles
+# and comments. That name reached a runtime expression at 03_all_genes.R:325,
+# so the block threw as soon as control got that far; every earlier reference to
+# it was a comment and so silently described a number that was not there. Named
+# here, used there, so the figures now state the threshold they were actually
+# built with.
+#
+#   MIN_GENE_READS  pooled over the cells of one (gene, celltype), across
+#                   samples. Selects which genes have any signal at all.
+#   MIN_CELL_READS  within a single cell, for the per-cell scatter and violin
+#                   panels, where one cell's ratio has to mean something on its
+#                   own.
+# The core escape gene set, in one place.
+#
+# 03_all_genes.R flagged these by reading core_escape_genes_gene_df.txt, a file
+# that is READ there and WRITTEN nowhere in this repo - so
+# is_core_escape was silently all FALSE and the escape overlay in
+# VCM_subcluster_per_gene_delta_scatter.pdf was an empty layer with no error
+# anywhere. The list itself was never missing: it is the same eleven genes
+# OCM_heart/core_escape_SNPs.R uses to build the core escape SNP bed. Naming it
+# here removes the phantom file from the loop.
+#
+# Keep in step with new_core_escape_genes in OCM_heart/core_escape_SNPs.R, which
+# is a standalone script on the reference tree and does not source this file.
+CORE_ESCAPE_GENES <- c("Kdm5c", "Kdm6a", "Ddx3x", "Eif2s3x", "Ftx",
+                       "5530601H04Rik", "Jpx", "Pbdc1", "Utp14a",
+                       "Akap17a", "Sts")
+
+MIN_GENE_READS <- as.integer(Sys.getenv("MIN_GENE_READS", "10"))
+MIN_CELL_READS <- as.integer(Sys.getenv("MIN_CELL_READS", "10"))
+stopifnot(!is.na(MIN_GENE_READS), MIN_GENE_READS >= 1,
+          !is.na(MIN_CELL_READS), MIN_CELL_READS >= 1)
+
 CEB_DIR <- file.path(RESULTS_ROOT,
                      paste0("core_escape_cutoff_", MIN_CEB_READS))
 dir.create(CEB_DIR, showWarnings = FALSE, recursive = TRUE)
@@ -221,6 +259,51 @@ parse_allelome_cell <- function(paths) {
   sub("_[^_]*\\.bed_[0-9]+$", "", d)                # drop _<annotation>_<run no.>
 }
 
+# The cell key the Seurat object uses, <sample>_<barcode>, from a locus table
+# path. Trees are laid out as <tree>/<sample>/<job dir>/locus_table.txt.
+#
+# sinto names each cell's BAM from its cells file, and this project has written
+# that file both ways: some trees carry <barcode>.bam and some <sample>_<barcode>.bam.
+# Prepending the sample unconditionally is therefore wrong half the time, and
+# wrong in the worst way - it produces "9w_9w_AAACCC-1", which is a valid string
+# that matches no cell, so the subset comes back empty instead of erroring.
+# Testing for the prefix is correct under both conventions.
+allelome_cell_barcode <- function(paths, sample_of = NULL) {
+  cell <- parse_allelome_cell(paths)
+  smp  <- if (is.null(sample_of)) basename(dirname(dirname(paths))) else sample_of
+  ifelse(startsWith(cell, paste0(smp, "_")), cell, paste0(smp, "_", cell))
+}
+
+# Refuse to carry on with barcodes that do not match the object.
+#
+# This is the failure mode the whole helper above exists to prevent: a wrong
+# barcode parse yields strings Seurat simply does not find, so subset() returns
+# few or no cells and every downstream number is computed on that remainder
+# without a single error being raised. 04_core_escape.R - the LOX analysis - had
+# a hardcoded field index that only held for one tree name.
+check_barcode_match <- function(barcodes, obj_cells, what = "cells",
+                                min_frac = 0.5) {
+  n <- length(unique(barcodes))
+  hit <- length(intersect(unique(barcodes), obj_cells))
+  frac <- if (n) hit / n else 0
+  message(sprintf("%s: %d of %d parsed barcodes match the object (%.1f%%)",
+                  what, hit, n, 100 * frac))
+  if (hit == 0) {
+    stop(what, ": NONE of the ", n, " parsed barcodes match the Seurat object.\n",
+         "  parsed:  ", paste(head(unique(barcodes), 3), collapse = ", "), "\n",
+         "  object:  ", paste(head(obj_cells, 3), collapse = ", "), "\n",
+         "  The barcode parse is wrong - see allelome_cell_barcode(). Nothing ",
+         "downstream would\n  have errored, it would just have been computed on ",
+         "an empty subset.")
+  }
+  if (frac < min_frac) {
+    warning(what, ": only ", round(100 * frac, 1), "% of parsed barcodes match ",
+            "the object. Expected most of them; check the tree and the object ",
+            "are the same experiment.")
+  }
+  invisible(frac)
+}
+
 # One row per (cell, chromosome), counts summed over whatever intervals the
 # annotation bed defined.
 #
@@ -244,7 +327,7 @@ load_allelome_tree <- function(tree, samples = c("9w", "78w", "Sham", "TAC")) {
   if (!length(paths)) stop("No locus tables under ", tree)
 
   sample_of <- basename(dirname(dirname(paths)))
-  cell_of   <- parse_allelome_cell(paths)
+  cell_of   <- allelome_cell_barcode(paths, sample_of)
 
   rows <- lapply(seq_along(paths), function(i) {
     tmp <- tryCatch(read.delim(paths[i], header = TRUE, stringsAsFactors = FALSE),
@@ -253,7 +336,9 @@ load_allelome_tree <- function(tree, samples = c("9w", "78w", "Sham", "TAC")) {
     if (!all(c("chr", "A1_reads", "A2_reads") %in% names(tmp))) return(NULL)
     tmp$chr <- as.character(tmp$chr)
     agg <- aggregate(cbind(A1_reads, A2_reads) ~ chr, data = tmp, FUN = sum)
-    agg$cell_barcode <- paste0(sample_of[i], "_", cell_of[i])
+    # cell_of is already <sample>_<barcode>; allelome_cell_barcode() added the
+    # prefix only where the BAM name lacked it, so nothing is prepended twice.
+    agg$cell_barcode <- cell_of[i]
     agg$sample <- sample_of[i]
     agg
   })

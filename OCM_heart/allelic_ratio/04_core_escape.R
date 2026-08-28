@@ -13,13 +13,24 @@ heart$celltype <- Idents(heart)
 #################################################
 # Core escape genes analysis (block, whole-chr) #
 #################################################
+CEB_TREE <- Sys.getenv("CEB_TREE", "Allelome.PRO2_core_escape_new")
 barcodes <- lapply(c('9w', '78w', 'Sham', 'TAC'), function(x) {
-  list.files(paste0('Allelome.PRO2_core_escape_new/', x), pattern = 'locus_table.txt', recursive = TRUE, full.names = TRUE)
+  list.files(file.path(CEB_TREE, x), pattern = 'locus_table.txt', recursive = TRUE, full.names = TRUE)
 })
 barcodes <- unlist(barcodes)
+if (!length(barcodes)) stop("No locus tables under ", CEB_TREE)
 
-condition <- strsplit(dirname(barcodes), '_') %>% sapply(function(x) x[7])
-cellid <- strsplit(dirname(barcodes), '_') %>% sapply(function(x) x[8])
+# The cell key, via the shared helper rather than a fixed field index.
+#
+# This used to be strsplit(dirname(...), '_') with indices 7 and 8, which are
+# only correct while the tree is called Allelome.PRO2_core_escape_new: the index
+# counts underscores in the tree's OWN directory name, so it is 4/5 under
+# Allelome.PRO2/ and 6/7 under Allelome.PRO2_all_genes/. Rename the tree, or
+# point CEB_TREE at another one, and the parse silently returns strings that
+# match no cell in the Seurat object - subset() then quietly returns almost
+# nothing and every number below is computed on that remainder. 04 is the LOX
+# analysis, so it is the last place that should fail quietly.
+cell_barcodes <- allelome_cell_barcode(barcodes)
 
 core_escape_block_ratio <- lapply(barcodes, function(x) {
   if (file.exists(x)) {
@@ -33,7 +44,7 @@ core_escape_block_ratio <- lapply(barcodes, function(x) {
     NULL
   }
 })
-names(core_escape_block_ratio) <- paste0(condition, "_", cellid)
+names(core_escape_block_ratio) <- cell_barcodes
 core_escape_block_ratio <- core_escape_block_ratio[!sapply(core_escape_block_ratio, is.null)]
 core_escape_block_ratio <- bind_rows(core_escape_block_ratio, .id = "cell_barcode")
 
@@ -42,10 +53,26 @@ write.table(core_escape_block_ratio, CEB_RATIOS_FILE, sep = '\t', row.names = FA
 core_escape_block_ratio <- read.delim(CEB_RATIOS_FILE, header = TRUE)
 
 # Subset seurat object by barcodes
+check_barcode_match(core_escape_block_ratio$cell_barcode, colnames(heart),
+                    what = paste0("04 core escape (", CEB_TREE, ")"))
 subset_heart_ceb <- subset(heart, cells = core_escape_block_ratio$cell_barcode)
 core_escape_block_ratio <- core_escape_block_ratio[core_escape_block_ratio$cell_barcode %in% colnames(subset_heart_ceb), ]
 core_escape_block_ratio <- core_escape_block_ratio[match(colnames(subset_heart_ceb), core_escape_block_ratio$cell_barcode), ]
-subset_heart_ceb$allelic_ratio <- core_escape_block_ratio$allelic_ratio
+# NAMING. Allelome.PRO2's locus_table column is DIRECTIONAL - A1 / total, on
+# 0-1 - so a cell that lost the A1 allele sits near 0 and one that lost A2 sits
+# near 1. That is NOT what `allelic_ratio` means in 02, 06 and
+# 10_build_ratio_table.R, where the column of that name is ar_dom,
+# max(A1, A2) / total, on 0.5-1. The two were joined across in 05 without
+# either being named, so this block now says which it holds:
+#
+#   ar_a1   directional, 0-1     <- what the locus table gives
+#   ar_dom  dominant allele, 0.5-1  <- what 02/06/10 call allelic_ratio
+#
+# Both are carried. Anything asking "is this cell monoallelic" must use ar_dom,
+# because ar_a1 answers it at BOTH ends of its range.
+subset_heart_ceb$ar_a1 <- core_escape_block_ratio$allelic_ratio
+subset_heart_ceb$ar_dom <- pmax(subset_heart_ceb$ar_a1,
+                                1 - subset_heart_ceb$ar_a1)
 subset_heart_ceb$total_reads <- core_escape_block_ratio$total_reads
 subset_heart_ceb$A1_reads <- core_escape_block_ratio$A1_reads
 subset_heart_ceb$A2_reads <- core_escape_block_ratio$A2_reads
@@ -81,7 +108,7 @@ my_breaks  <- seq(0, 1, by = 0.05)
 samples_ceb <- levels(subset_heart_ceb_flt$sample)
 plots_ceb <- lapply(samples_ceb, function(s) {
   FeaturePlot(subset(subset_heart_ceb_flt, subset = sample == s),
-              features = "allelic_ratio",
+              features = "ar_a1",
               min.cutoff = 0,
               max.cutoff = 1) +
     scale_color_gradientn(colors = my_colors,
@@ -115,8 +142,8 @@ write.table(cell_counts_ceb, file.path(CEB_DIR, 'core_escape_block_cell_counts_p
 # would overstate precision the data doesn't support).
 metadata_ceb$LOX_status <- factor(
   case_when(
-    metadata_ceb$allelic_ratio <= 0.10 ~ "LOX-like (AR <= 0.10)",
-    metadata_ceb$allelic_ratio >= 0.9 ~ "LOX-like (AR >= 0.9)",
+    metadata_ceb$ar_a1 <= 0.10 ~ "LOX-like (AR <= 0.10)",
+    metadata_ceb$ar_a1 >= 0.9 ~ "LOX-like (AR >= 0.9)",
     TRUE ~ "Other"
   ),
   levels = c("LOX-like (AR <= 0.10)", "Other", "LOX-like (AR >= 0.9)")
@@ -129,7 +156,11 @@ metadata_ceb$sample <- factor(metadata_ceb$sample, levels = c("9w", "78w", "Sham
 # this script. `monoallelic` uses the same AR >= 0.90 LOX threshold as the
 # crosstab and sensitivity sections below, so the LOX definition stays
 # consistent across every part of the analysis that depends on it.
-metadata_ceb$monoallelic <- as.integer(metadata_ceb$allelic_ratio >= 0.90)
+# ar_dom, not ar_a1. With the directional ratio this test caught only the cells
+# that lost A2 and missed every cell at the other end - exactly the ones the
+# LOX_status factor above is careful to include as "LOX-like (AR <= 0.10)". So
+# 05 was excluding half the LOX cells it was written to exclude.
+metadata_ceb$monoallelic <- as.integer(metadata_ceb$ar_dom >= 0.90)
 
 write.table(metadata_ceb,
             file.path(CEB_DIR, 'core_escape_block_cell_metadata.txt'),
@@ -143,7 +174,7 @@ violin_tbl_ceb <- metadata_ceb %>%
   )
 
 pdf(file.path(CEB_DIR, 'core_escape_block_new_allelic_ratio_celltype_violin_plot_facet_wrap.pdf'))
-ggplot(violin_tbl_ceb, aes(x = sample_idx, y = allelic_ratio, fill = sample)) +
+ggplot(violin_tbl_ceb, aes(x = sample_idx, y = ar_a1, fill = sample)) +
   geom_violin(trim = TRUE, scale = "width") +
   geom_jitter(width = 0.15, size = 0.3, alpha = 0.3, color = "black") +
   facet_wrap(~celltype) +
@@ -179,7 +210,7 @@ xist_ar <- data.frame(
   A1_reads    = subset_heart_ceb_flt$A1_reads,
   A2_reads    = subset_heart_ceb_flt$A2_reads,
   total_reads = subset_heart_ceb_flt$total_reads,
-  allelic_ratio = subset_heart_ceb_flt$allelic_ratio,
+  ar_a1 = subset_heart_ceb_flt$ar_a1,
   sample      = subset_heart_ceb_flt$sample,
   celltype    = subset_heart_ceb_flt$celltype
 )
@@ -274,7 +305,7 @@ bb_ann <- AR_Xist_bb %>%
 sig_cols <- c(`TRUE` = "firebrick", `FALSE` = "grey40")
 
 pdf(file.path(CEB_DIR, 'core_escape_block_new_Xist_vs_AR_betabinomial.pdf'), width = 11, height = 14)
-ggplot(xist_ar, aes(x = Xist, y = allelic_ratio)) +
+ggplot(xist_ar, aes(x = Xist, y = ar_a1)) +
   geom_point(aes(size = total_reads), alpha = 0.3, colour = "steelblue") +
   geom_ribbon(data = bb_pred, aes(y = fit, ymin = lwr, ymax = upr, fill = sig),
               alpha = 0.2, colour = NA) +
@@ -304,7 +335,7 @@ vcm_bins <- filter(bb_bins,    celltype == "Ventricular Cardiomyocytes")
 vcm_ann_bb <- filter(bb_ann,   celltype == "Ventricular Cardiomyocytes")
 
 pdf(file.path(CEB_DIR, 'core_escape_block_new_Xist_vs_AR_betabinomial_VCM.pdf'), width = 11, height = 3.5)
-ggplot(vcm_pts, aes(x = Xist, y = allelic_ratio)) +
+ggplot(vcm_pts, aes(x = Xist, y = ar_a1)) +
   geom_point(aes(size = total_reads), alpha = 0.3, colour = "steelblue") +
   geom_ribbon(data = vcm_pred, aes(y = fit, ymin = lwr, ymax = upr, fill = sig),
               alpha = 0.2, colour = NA) +
@@ -432,8 +463,8 @@ write.table(extreme_expected, file.path(CEB_DIR, 'core_escape_block_new_extreme_
 # remove them and a second artefact process (ambient RNA, misassignment,
 # doublets) is implicated.
 depth_extreme <- xist_ar %>%
-  mutate(ar_class = case_when(allelic_ratio <= 0.10 ~ "AR <= 0.10",
-                              allelic_ratio >= 0.90 ~ "AR >= 0.90",
+  mutate(ar_class = case_when(ar_a1 <= 0.10 ~ "AR <= 0.10",
+                              ar_a1 >= 0.90 ~ "AR >= 0.90",
                               TRUE ~ "Intermediate")) %>%
   group_by(sample, ar_class) %>%
   summarise(n_cells = n(),
@@ -444,7 +475,7 @@ depth_extreme <- xist_ar %>%
             .groups = "drop")
 
 depth_test <- xist_ar %>%
-  mutate(is_ar0 = allelic_ratio <= 0.10) %>%
+  mutate(is_ar0 = ar_a1 <= 0.10) %>%
   split(.$sample) %>%
   lapply(function(x) {
     if (length(unique(x$is_ar0)) < 2) return(NULL)
@@ -463,8 +494,8 @@ write.table(depth_test, file.path(CEB_DIR, 'core_escape_block_new_extreme_AR_dep
 
 pdf(file.path(CEB_DIR, 'core_escape_block_new_extreme_AR_depth.pdf'), width = 8, height = 4)
 xist_ar %>%
-  mutate(ar_class = case_when(allelic_ratio <= 0.10 ~ "AR <= 0.10",
-                              allelic_ratio >= 0.90 ~ "AR >= 0.90",
+  mutate(ar_class = case_when(ar_a1 <= 0.10 ~ "AR <= 0.10",
+                              ar_a1 >= 0.90 ~ "AR >= 0.90",
                               TRUE ~ "Intermediate")) %>%
   ggplot(aes(x = ar_class, y = total_reads, fill = ar_class)) +
   geom_violin(scale = "width", trim = TRUE) +
@@ -479,7 +510,7 @@ dev.off()
 # --- 3. Sensitivity refit excluding the AR <= 0.10 cells ---------------------
 # Those cells sit at logit(-Inf) and drag the curve down wherever they fall on
 # the Xist axis. If the VCM result depends on them it is not a real result.
-xist_ar_sens <- filter(xist_ar, allelic_ratio > 0.10)
+xist_ar_sens <- filter(xist_ar, ar_a1 > 0.10)
 
 sens_split <- split(xist_ar_sens, list(xist_ar_sens$celltype, xist_ar_sens$sample), drop = TRUE)
 sens_split <- sens_split[sapply(sens_split, function(x) nrow(x) >= 20 && length(unique(x$Xist)) >= 5)]
@@ -537,7 +568,7 @@ dev.off()
 # it is a coarsened version of the same two variables as the model above.
 xist_lox <- xist_ar %>%
   mutate(xist_zero = ifelse(Xist == 0, "Xist == 0", "Xist > 0"),
-         LOX_call  = ifelse(allelic_ratio >= 0.90, "LOX-like (AR >= 0.90)", "Other"))
+         LOX_call  = ifelse(ar_a1 >= 0.90, "LOX-like (AR >= 0.90)", "Other"))
 
 xist_lox_tab <- xist_lox %>%
   count(sample, celltype, xist_zero, LOX_call, name = "n_cells")
@@ -611,7 +642,7 @@ colnames(umap_emb) <- c("UMAP_1", "UMAP_2")
 umap_df <- data.frame(
   umap_emb,
   Xist          = GetAssayData(subset_heart_ceb_flt, assay = "SCT", layer = "data")["Xist", ],
-  allelic_ratio = subset_heart_ceb_flt$allelic_ratio,
+  ar_a1 = subset_heart_ceb_flt$ar_a1,
   total_reads   = subset_heart_ceb_flt$total_reads,
   sample        = subset_heart_ceb_flt$sample,
   celltype      = subset_heart_ceb_flt$celltype
@@ -625,7 +656,7 @@ ar_hi_cut   <- 0.90
 xist_hi_cut <- median(umap_df$Xist, na.rm = TRUE)
 
 umap_df <- umap_df %>%
-  mutate(ar_class   = ifelse(allelic_ratio >= ar_hi_cut, "hi", "lo"),
+  mutate(ar_class   = ifelse(ar_a1 >= ar_hi_cut, "hi", "lo"),
          xist_class = ifelse(Xist >= xist_hi_cut, "hi", "lo"),
          bivar = factor(paste0("AR ", ar_class, " / Xist ", xist_class),
                         levels = c("AR lo / Xist lo", "AR hi / Xist lo",
@@ -642,7 +673,7 @@ umap_theme <- theme_bw() +
         legend.key.height = unit(0.8, "cm"))
 
 # --- a: allelic ratio -------------------------------------------------------
-p_a <- ggplot(umap_df, aes(x = UMAP_1, y = UMAP_2, colour = allelic_ratio)) +
+p_a <- ggplot(umap_df, aes(x = UMAP_1, y = UMAP_2, colour = ar_a1)) +
   geom_point(size = 0.5, alpha = 0.9) +
   facet_wrap(~sample, nrow = 1) +
   scale_color_gradientn(colors = my_colors, breaks = seq(0, 1, by = 0.25),
@@ -701,7 +732,7 @@ p_c_keyed <- (p_c | p_key) + plot_layout(widths = c(1, key_width))
 
 # --- d: Xist in LOX-like vs other cells -------------------------------------
 lox_box_df <- umap_df %>%
-  mutate(LOX_call = factor(ifelse(allelic_ratio >= ar_hi_cut, "LOX-like", "Other"),
+  mutate(LOX_call = factor(ifelse(ar_a1 >= ar_hi_cut, "LOX-like", "Other"),
                            levels = c("Other", "LOX-like")))
 
 lox_box_test <- lox_box_df %>%

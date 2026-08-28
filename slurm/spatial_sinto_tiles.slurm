@@ -74,6 +74,20 @@ TILE_UM="${1:-${TILE_UM:-}}"
 # genome-wide SNP bed, and whether that is 2 minutes or 20 decides whether the
 # full run fits in the wall clock.
 MAX_TILES="${2:-0}"
+# Optional arg 3: which SNP mask to score against. The bed is
+# SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_<label>.bed, and every output path
+# carries the label so two masks coexist instead of overwriting each other.
+#
+# The expensive stages - the sinto split and the duplicate/MAPQ filter - are
+# MASK-INDEPENDENT and stay shared, so a second mask costs only the
+# Allelome.PRO2 pass, not another split of a 200 GB BAM.
+#
+#   sbatch $0 64                    # no_Xist, the original paths, unchanged
+#   sbatch $0 64 0 no_Xic500kb      # Xist +- 500 kb masked, alongside it
+#
+# Do this only if spatial_mask_comparison.slurm says the Xic carries the effect.
+# It is ~14h per sample; the per-allele rates answer the same question for free.
+SNP_LABEL="${3:-no_Xist}"
 if [ -z "$TILE_UM" ]; then
   echo "Usage: sbatch $0 <tile_um>    e.g. sbatch $0 64" >&2
   echo "Must match the size the sweep wrote a map for." >&2
@@ -107,8 +121,12 @@ BARCODE_TAG=sb
 # per-tile invocation parses the full SNP and annotation beds.
 ANNOTATION=$BASE/GRCm39/chr_annotation_mm39.bed
 # Xist reports the inactive X and would invert every ratio, so it stays out,
-# matching the snRNA-seq runs in scAllelome_*.slurm.
-SNPS=$BASE/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_no_Xist.bed
+# matching the snRNA-seq runs in scAllelome_*.slurm. no_Xic500kb additionally
+# drops Ftx, Jpx, Tsix and the intergenic Xic, which the Xist gene span leaves
+# behind and which are effectively CAST-only in this design.
+SNPS=$BASE/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_${SNP_LABEL}.bed
+# Empty for the default mask, so every existing path is byte-identical.
+if [ "$SNP_LABEL" = "no_Xist" ]; then SUF=""; else SUF="_$SNP_LABEL"; fi
 
 MIN_READ=1
 TOTAL_READ=1
@@ -127,7 +145,7 @@ TOTAL_READ=1
 DEDUP=1
 FILTER_MAPQ=255
 
-FINAL_DIR=$SPATIAL/ase/$SAMPLE/Allelome.PRO2_tiles_${TILE_UM}um
+FINAL_DIR=$SPATIAL/ase/$SAMPLE/Allelome.PRO2_tiles_${TILE_UM}um${SUF}
 
 for f in "$BAM" "$CELLS" "$ANNOTATION" "$SNPS" "$PIPELINE"; do
   if [ ! -f "$f" ]; then echo "Missing file: $f" >&2; exit 1; fi
@@ -154,10 +172,16 @@ fi
 # Persistent across retries, deliberately: no job id in the path. Splitting a
 # ~200GB BAM into 3700 pieces is hours of work, and a job that hits the wall
 # clock during Allelome.PRO2 should not have to redo it.
+# WORK and BAM_DIR carry no mask label: the tile BAMs are the same whichever
+# SNP bed scores them, and re-splitting for a second mask would be hours wasted.
 WORK=$SCRATCH/spatial_tiles_${SAMPLE}_${TILE_UM}um
 BAM_DIR=$WORK/bam
-AP2_DIR=$WORK/allelome
+AP2_DIR=$WORK/allelome${SUF}
 mkdir -p "$BAM_DIR" "$AP2_DIR"
+echo "SNP mask: $SNP_LABEL"
+echo "  bed        $SNPS"
+echo "  scored to  $AP2_DIR"
+echo "  collected  $FINAL_DIR"
 
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 
@@ -285,7 +309,7 @@ MIN_LOCI=10
 # for the life of the project, at 6.6 min of CPU each time, and the tile count
 # would never reach N_TILES.
 MAX_REDO=2
-REDO_DIR=$WORK/redo-count
+REDO_DIR=$WORK/redo-count${SUF}
 mkdir -p "$REDO_DIR"
 
 # Exit 0 = complete. 2 = structurally sound but carrying no chrX row.
@@ -409,7 +433,7 @@ collect_tables startup
 # deciding what still needs running. Removing rather than ignoring matters for
 # the scratch copies: the collect stage globs that directory, so a truncated
 # table left in place could still be copied over a good one.
-DISCARDED=$WORK/locus-tables-discarded.txt
+DISCARDED=$WORK/locus-tables-discarded${SUF}.txt
 n_trunc=0; n_nox=0; n_nox_kept=0
 for lt in "$FINAL_DIR"/*/locus_table.txt \
           "$AP2_DIR"/*_"$ANNOT_BASE"_*/locus_table.txt; do
@@ -444,7 +468,8 @@ fi
 
 # Only tiles without a locus table. A timed-out run therefore picks up where it
 # stopped instead of starting over.
-: > "$WORK/task-list.txt"
+TASK_LIST=$WORK/task-list${SUF}.txt
+: > "$TASK_LIST"
 n_todo=0; n_done=0
 while IFS= read -r bam; do
   tile=$(basename "$bam" .bam)
@@ -463,18 +488,18 @@ while IFS= read -r bam; do
   fi
   echo "$PIPELINE -i $bam -a $ANNOTATION -s $SNPS -r $MIN_READ -t $TOTAL_READ -o $AP2_DIR"
   n_todo=$((n_todo + 1))
-done < <(find "$SCORE_DIR" -name '*.bam' | sort) >> "$WORK/task-list.txt"
+done < <(find "$SCORE_DIR" -name '*.bam' | sort) >> "$TASK_LIST"
 
 if [ "$MAX_TILES" -gt 0 ]; then
-  head -n "$MAX_TILES" "$WORK/task-list.txt" > "$WORK/task-list.head.txt"
-  mv "$WORK/task-list.head.txt" "$WORK/task-list.txt"
-  n_todo=$(wc -l < "$WORK/task-list.txt")
+  head -n "$MAX_TILES" "$TASK_LIST" > "$TASK_LIST.head"
+  mv "$TASK_LIST.head" "$TASK_LIST"
+  n_todo=$(wc -l < "$TASK_LIST")
   echo "TIMING RUN: limited to $n_todo tiles"
 fi
 echo "[$(date +%T)] Allelome.PRO2: $n_todo to run, $n_done already done"
 
 start=$SECONDS
-parallel -j "$nproc" --joblog "$WORK/parallel.log" :::: "$WORK/task-list.txt"
+parallel -j "$nproc" --joblog "$WORK/parallel${SUF}.log" :::: "$TASK_LIST"
 elapsed=$((SECONDS - start))
 
 if [ "$n_todo" -gt 0 ]; then
@@ -486,12 +511,12 @@ if [ "$n_todo" -gt 0 ]; then
   echo "  ~${per_tile}s of CPU per tile -> ~${total_h}h for all $N_TILES tiles"
 fi
 
-FAILED=$(awk 'NR>1 && $7 != 0' "$WORK/parallel.log" 2>/dev/null | wc -l)
+FAILED=$(awk 'NR>1 && $7 != 0' "$WORK/parallel${SUF}.log" 2>/dev/null | wc -l)
 echo "Allelome.PRO2 failures this pass: $FAILED / $n_todo"
 
 ##### ---- collect ---- #####
 collect_tables final
-cp "$WORK/parallel.log" "$FINAL_DIR/" 2>/dev/null
+cp "$WORK/parallel${SUF}.log" "$FINAL_DIR/" 2>/dev/null
 
 # Count complete tables, not files that exist: the whole point of the guard is
 # that those two numbers can differ.

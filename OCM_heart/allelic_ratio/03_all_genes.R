@@ -206,14 +206,32 @@ g1 <- per_gene %>% filter(sub == "c1") %>%
 per_gene_wide <- inner_join(g0, g1, by = "name") %>%
   mutate(delta = frac0 - frac1)
 
-# flag the known core escape genes so they can be seen against the background
-core_escape_names <- character(0)
-if (file.exists(file.path(RESULTS_ROOT, "core_escape_genes_gene_df.txt"))) {
-  core_escape_names <- unique(read.table(
-    file.path(RESULTS_ROOT, "core_escape_genes_gene_df.txt"),
-    sep = '\t', header = TRUE, stringsAsFactors = FALSE)$name)
+# Flag the known core escape genes so they can be seen against the background.
+#
+# The list comes from CORE_ESCAPE_GENES in 00_functions.R, not from
+# core_escape_genes_gene_df.txt: that file is read here and written nowhere in
+# the repo, so this flag was always FALSE and the escape
+# overlay in VCM_subcluster_per_gene_delta_scatter.pdf was empty - silently,
+# because file.exists() made the absence a no-op. The file is still honoured if
+# it turns up, as an override.
+core_escape_names <- CORE_ESCAPE_GENES
+ceg_file <- file.path(RESULTS_ROOT, "core_escape_genes_gene_df.txt")
+if (file.exists(ceg_file)) {
+  core_escape_names <- unique(read.table(ceg_file, sep = '\t', header = TRUE,
+                                         stringsAsFactors = FALSE)$name)
+  message("Core escape genes taken from ", ceg_file, " (",
+          length(core_escape_names), " genes)")
 }
 per_gene_wide$is_core_escape <- per_gene_wide$name %in% core_escape_names
+message(sprintf("Core escape genes flagged: %d of %d in the per-gene table (%s)",
+                sum(per_gene_wide$is_core_escape), nrow(per_gene_wide),
+                paste(intersect(core_escape_names, per_gene_wide$name),
+                      collapse = ", ")))
+if (!any(per_gene_wide$is_core_escape)) {
+  warning("No core escape gene is present in the per-gene table, so the escape ",
+          "overlay will be empty. Check the gene names match the annotation ",
+          "this tree was built with.")
+}
 
 write.table(per_gene_wide,
             file.path(CUTOFF_DIR, 'VCM_subcluster_per_gene_inactive_fraction.txt'),
@@ -295,7 +313,7 @@ if (nrow(gene_df_signal) > 0) {
   signal_gene_celltype <- gene_df_signal %>%
     group_by(name, celltype) %>%
     summarise(total_reads_sum = sum(total_reads, na.rm = TRUE), .groups = "drop") %>%
-    filter(total_reads_sum >= 10)
+    filter(total_reads_sum >= MIN_GENE_READS)
 
   signal_genes <- signal_gene_celltype %>%
     group_by(name) %>%
@@ -306,7 +324,8 @@ if (nrow(gene_df_signal) > 0) {
               file.path(CUTOFF_DIR, 'all_genes_signal_genes_by_celltype.txt'),
               sep = '\t', row.names = FALSE, quote = FALSE)
 
-  # keep only the (gene, celltype) combinations that individually cleared MIN_READS,
+  # keep only the (gene, celltype) combinations that individually cleared
+  # MIN_GENE_READS (00_functions.R),
   # pooled across samples -- other celltypes for the same gene are dropped, not just shown empty
   per_cell_signal_genes <- gene_df_signal %>%
     semi_join(signal_gene_celltype, by = c("name", "celltype"))
@@ -322,7 +341,7 @@ if (nrow(gene_df_signal) > 0) {
   ggplot(signal_genes, aes(x = reorder(name, total_reads_sum), y = total_reads_sum)) +
     geom_col(fill = '#3b7a57', width = 0.7) +
     coord_flip() +
-    labs(x = NULL, y = 'Total reads (summed across cells in qualifying celltypes)', title = paste('Genes with >=', MIN_READS, 'reads in at least one celltype (pooled across samples)')) +
+    labs(x = NULL, y = 'Total reads (summed across cells in qualifying celltypes)', title = paste('Genes with >=', MIN_GENE_READS, 'reads in at least one celltype (pooled across samples)')) +
     theme_bw()
   dev.off()
 
@@ -337,19 +356,20 @@ if (nrow(gene_df_signal) > 0) {
   dev.off()
 }
 
-# inspect the signal-gene ranking to judge whether MIN_READS is picking out
+# inspect the signal-gene ranking to judge whether MIN_GENE_READS is picking out
 # a sensible number of "main player" genes, before committing to a single one
 head(signal_genes, 20)
 quantile(signal_genes$total_reads_sum, probs = c(0.5, 0.75, 0.9, 0.95, 0.99))
 
-# stricter gene selection: require at least one cell with total_reads > 10 in
+# stricter gene selection: require at least one cell with more than
+# MIN_CELL_READS reads in
 # every celltype x sample combination, restricted to the 4 largest celltypes
 # (requiring every celltype in the object left zero genes -- too sparse)
 top4_celltypes <- names(sort(table(Idents(heart)), decreasing = TRUE))[1:4]
 n_combos <- length(top4_celltypes) * 4
 
 gene_combo_coverage <- gene_df_signal %>%
-  filter(total_reads > 10, celltype %in% top4_celltypes) %>%
+  filter(total_reads > MIN_CELL_READS, celltype %in% top4_celltypes) %>%
   distinct(name, celltype, sample) %>%
   group_by(name) %>%
   summarise(n_combos_covered = n(), .groups = "drop")
@@ -365,7 +385,7 @@ length(full_coverage_genes)
 target_gene <- signal_genes$name[1]
 
 single_gene_df <- per_cell_signal_genes %>%
-  filter(name %in% target_gene & total_reads >= 10)
+  filter(name %in% target_gene & total_reads >= MIN_CELL_READS)
 single_gene_df$celltype <- droplevels(single_gene_df$celltype)
 
 pdf(file.path(CUTOFF_DIR, 'all_genes_top6_allelic_ratio_violin_by_sample.pdf'), width = 16, height = 12)

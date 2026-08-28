@@ -94,24 +94,59 @@ ggplot(heart_metadata, aes(x = celltype, y = nCount_RNA, fill = sample)) +
         legend.position = "none")
 dev.off()
 
-# Boxplot of Xist expression (approximate TPM) per sample, split by celltype
-# Xist gene length from mm10 chrX:102,503,972-102,537,573
-xist_length_kb <- (102537573 - 102503972 + 1) / 1000
+# Boxplot of Xist expression per sample, split by celltype.
+#
+# The gene length was hardcoded as mm10 chrX:102,503,972-102,537,573 in a
+# pipeline that is mm39 everywhere else. It is read from the mm39 annotation the
+# rest of the project uses instead of being restated here, so it cannot drift
+# from the assembly the reads were mapped to.
+#
+# Worth knowing what it can and cannot have affected: the length is a single
+# constant applied to every cell in every sample, so a wrong one rescales the
+# whole y axis and changes no comparison on this figure. It matters only if the
+# number is quoted as a TPM next to a TPM from somewhere else. On a 3'-biased
+# nuclear assay a length normalisation is questionable anyway, which is why the
+# fallback below is CPM with the axis relabelled rather than a guessed length.
+XIST_ANNOT <- Sys.getenv("XIST_ANNOT", file.path(
+  "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/andergassen_lab/Y_references/mm39",
+  "20250512_RefSeq", "annotation_us.bed"))
+xist_length_kb <- NA_real_
+if (file.exists(XIST_ANNOT)) {
+  a <- read.delim(XIST_ANNOT, header = FALSE, stringsAsFactors = FALSE)
+  x <- a[a$V4 == "Xist" & a$V1 == "chrX", , drop = FALSE]
+  if (nrow(x)) {
+    # Union of the transcript intervals, in BED half-open coordinates, so the
+    # length is V3 - V2 with no +1.
+    xist_length_kb <- (max(x$V3) - min(x$V2)) / 1000
+    message(sprintf("Xist (mm39, from %s): chrX:%d-%d, %.2f kb",
+                    basename(XIST_ANNOT), min(x$V2), max(x$V3), xist_length_kb))
+  }
+}
 
 xist_counts <- GetAssayData(heart, assay = "RNA", layer = "counts")["Xist", ]
 total_counts <- heart$nCount_RNA
 
-xist_df <- data.frame(
-  sample = heart$sample,
-  celltype = heart$celltype,
-  Xist_TPM = (xist_counts / xist_length_kb) / (total_counts / 1e6)
-)
+if (is.finite(xist_length_kb)) {
+  xist_df <- data.frame(
+    sample = heart$sample,
+    celltype = heart$celltype,
+    Xist_expr = (xist_counts / xist_length_kb) / (total_counts / 1e6))
+  y_lab <- sprintf("Xist TPM (approx., mm39 length %.1f kb)", xist_length_kb)
+} else {
+  message("No mm39 Xist interval available (", XIST_ANNOT, ") - plotting CPM ",
+          "instead of an approximate TPM, so no gene length is assumed.")
+  xist_df <- data.frame(
+    sample = heart$sample,
+    celltype = heart$celltype,
+    Xist_expr = xist_counts / (total_counts / 1e6))
+  y_lab <- "Xist CPM"
+}
 
 pdf('Allelic_ratio_results/xist_expression_TPM_boxplot_by_celltype.pdf')
-ggplot(xist_df, aes(x = sample, y = Xist_TPM, fill = sample)) +
+ggplot(xist_df, aes(x = sample, y = Xist_expr, fill = sample)) +
   geom_boxplot(outlier.size = 0.5) +
   facet_wrap(~celltype) +
-  labs(y = "Xist TPM (approx.)", x = NULL) +
+  labs(y = y_lab, x = NULL) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         legend.position = "none")

@@ -29,6 +29,51 @@ anticonservative. Reads sharing (CB, UB) are collapsed and the allele is decided
 by majority vote across whatever SNPs that UMI's reads happen to cover; ties are
 discarded.
 
+Three optional extra outputs, all off by default so the existing output path is
+byte-for-byte unchanged:
+
+  --subset-bed NAME=PATH        Extra count columns NAME_ref / NAME_alt, holding
+                                only the UMIs whose informative SNPs fall inside
+                                PATH's intervals. Repeatable. Append
+                                ":complement" to the path to count the UMIs
+                                OUTSIDE the intervals instead, on the
+                                chromosomes the bed names.
+                                A subset bed may name chromosomes that are
+                                neither --x-chrom nor in --autosome-chroms; those
+                                are fetched interval-by-interval, so an autosomal
+                                positive control costs seconds, not a whole
+                                chromosome of memory.
+                                Subsets are counted in the SAME pass as the main
+                                columns, so all of them partition one consistent
+                                set of UMI calls - which is the point: escape vs
+                                non-escape and Xic-masked vs not have to be
+                                measured on the same molecules to be comparable.
+                                A subset and its complement therefore sum to the
+                                main column up to the handful of molecules that
+                                cover informative SNPs on both sides of an
+                                interval boundary, which are counted in both.
+
+  --window-out PATH             Sparse per-window count table, allele-split:
+                                chrom, win_start, tile_row, tile_col, ref, alt.
+                                Windows are --window-size bp (default 100000);
+                                the tile grid is --window-tile-um (default 64,
+                                use 2 for one row per 2um bin). This is what
+                                answers "where on the chromosome are the excess
+                                chrX UMIs" - the main table has already summed
+                                over position and cannot.
+
+  --locus-out PATH              Per-interval UMI counts for every named interval
+                                in every --subset-bed, pooled over the section:
+                                subset, locus, chrom, start, end, ref, alt.
+                                Use it to check a positive control has usable
+                                depth before reading anything into its curve.
+
+Every run also writes <out>.provenance.tsv: the SNP bed path and its md5, the
+same for each subset and interval bed, the argument vector, and the number of
+distinct informative SNPs and genes per chromosome set. Three "no-Xist" SNP beds
+are named in this repo and only one is live, so a result without its bed's
+fingerprint next to it cannot be attributed later.
+
 Run: see slurm/spatial_ase_sweep.slurm
 """
 
@@ -37,7 +82,9 @@ import bisect
 import collections
 import csv
 import gzip
+import hashlib
 import os
+import re
 import sys
 
 import pysam
@@ -104,11 +151,31 @@ def sniff_snp_layout(path, explicit=None):
     )
 
 
-def load_snps(path, chroms, pos_col, ref_i, alt_i, packed_sep, offset, swap):
-    """chrom -> (sorted position array, {pos: (ref, alt)}), 0-based positions."""
+def load_snps(path, chroms, pos_col, ref_i, alt_i, packed_sep, offset, swap,
+              subsets=()):
+    """chrom -> (sorted position array, {pos: (ref, alt, members)}), 0-based.
+
+    `members` is a tuple of subset indices this SNP position belongs to, empty
+    for a SNP in no subset. Computed once here rather than per read: the
+    counting loop touches every SNP hundreds of times and an interval search
+    there would dominate the run. The tuples are interned, so N SNPs sharing a
+    membership pattern cost one tuple, not N.
+    """
     want = set(chroms)
     tables = {c: {} for c in chroms}
     skipped = 0
+    intern = {}
+
+    def members_for(chrom, pos):
+        m = []
+        for i, s in enumerate(subsets):
+            if chrom not in s.chroms:
+                continue
+            if s.contains(chrom, pos) != s.complement:
+                m.append(i)
+        m = tuple(m)
+        return intern.setdefault(m, m)
+
     with open_maybe_gz(path) as fh:
         for line in fh:
             if line.startswith(("#", "track", "browser")):
@@ -135,11 +202,160 @@ def load_snps(path, chroms, pos_col, ref_i, alt_i, packed_sep, offset, swap):
             if len(ref) != 1 or len(alt) != 1 or ref == alt:
                 skipped += 1
                 continue
-            tables[chrom][pos] = (ref, alt)
+            tables[chrom][pos] = (ref, alt, members_for(chrom, pos))
     out = {}
     for c, d in tables.items():
         out[c] = (sorted(d), d)
     return out, skipped
+
+
+# ----------------------------------------------------------- interval subsets
+
+class Intervals:
+    """Sorted per-chromosome intervals with names, for containment and lookup.
+
+    COORDINATES. These beds are real BED: column 2 is a 0-based start and
+    column 3 an exclusive end, so an interval covers [start, end). The SNP bed
+    is NOT - column 2 there is a 1-based VCF position written as `pos, pos+1`,
+    which is why the counter takes --snp-offset -1 to reach the 0-based
+    coordinate pysam reports. Membership is therefore tested with the SNP
+    position ALREADY shifted to 0-based against a half-open BED interval, which
+    is the one combination that needs no further correction. If an interval bed
+    ever arrives in the SNP bed's convention instead, pass
+    --subset-bed-offset -1 rather than adjusting the intervals by hand.
+    """
+
+    def __init__(self, path, offset=0):
+        self.path = path
+        per = collections.defaultdict(list)
+        with open_maybe_gz(path) as fh:
+            for line in fh:
+                if line.startswith(("#", "track", "browser")):
+                    continue
+                f = line.rstrip("\n").split("\t")
+                if len(f) < 3:
+                    continue
+                try:
+                    start, end = int(f[1]) + offset, int(f[2]) + offset
+                except ValueError:
+                    continue
+                if end <= start:
+                    continue
+                name = f[3] if len(f) > 3 and f[3] not in ("", ".") else \
+                    "%s:%d-%d" % (f[0], start, end)
+                per[f[0]].append((start, end, name))
+        self.by_chrom = {}
+        for c, ivs in per.items():
+            ivs.sort()
+            # Prefix maximum of the ends, so a containment test can stop as soon
+            # as no earlier interval can still reach the query. Overlapping
+            # gene-body intervals are the norm in a RefSeq bed, so the cheaper
+            # "previous interval only" test would be wrong here.
+            starts, ends, names, maxend = [], [], [], []
+            run = -1
+            for s, e, n in ivs:
+                starts.append(s)
+                ends.append(e)
+                names.append(n)
+                run = max(run, e)
+                maxend.append(run)
+            self.by_chrom[c] = (starts, ends, names, maxend)
+        self.chroms = set(self.by_chrom)
+        self.n = sum(len(v[0]) for v in self.by_chrom.values())
+
+    def contains(self, chrom, pos):
+        t = self.by_chrom.get(chrom)
+        if t is None:
+            return False
+        starts, ends, _, maxend = t
+        i = bisect.bisect_right(starts, pos) - 1
+        while i >= 0 and maxend[i] > pos:
+            if ends[i] > pos:
+                return True
+            i -= 1
+        return False
+
+    def name_at(self, chrom, pos):
+        """First interval (by start) containing pos, or None.
+
+        Ties are resolved by start position, so a SNP inside two overlapping
+        transcripts of the same gene is attributed once and deterministically.
+        """
+        t = self.by_chrom.get(chrom)
+        if t is None:
+            return None
+        starts, ends, names, maxend = t
+        i = bisect.bisect_right(starts, pos) - 1
+        hit = None
+        while i >= 0 and maxend[i] > pos:
+            if ends[i] > pos:
+                hit = names[i]
+            i -= 1
+        return hit
+
+    def merged(self, chrom):
+        t = self.by_chrom.get(chrom)
+        if t is None:
+            return []
+        out = []
+        for s, e in zip(t[0], t[1]):
+            if out and s <= out[-1][1]:
+                out[-1][1] = max(out[-1][1], e)
+            else:
+                out.append([s, e])
+        return [(s, e) for s, e in out]
+
+
+class Subset:
+    """One extra pair of count columns, defined by a bed of intervals."""
+
+    def __init__(self, name, path, complement, offset=0):
+        if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", name):
+            raise SystemExit(
+                "Bad --subset-bed name %r: use letters, digits and underscores, "
+                "starting with a letter (it becomes a column name)." % name)
+        if name in ("x", "a", "barcode", "array_row", "array_col"):
+            raise SystemExit("--subset-bed name %r collides with an existing "
+                             "column" % name)
+        self.name = name
+        self.complement = complement
+        self.iv = Intervals(path, offset)
+        self.path = path
+
+    @property
+    def chroms(self):
+        return self.iv.chroms
+
+    def contains(self, chrom, pos):
+        return self.iv.contains(chrom, pos)
+
+
+def parse_subset_args(specs, offset):
+    """NAME=PATH, optionally NAME=PATH:complement."""
+    out = []
+    for spec in specs or ():
+        if "=" not in spec:
+            raise SystemExit("--subset-bed wants NAME=PATH, got %r" % spec)
+        name, rest = spec.split("=", 1)
+        complement = False
+        if rest.endswith(":complement"):
+            complement = True
+            rest = rest[: -len(":complement")]
+        if not os.path.exists(rest):
+            raise SystemExit("--subset-bed %s: no such file %s" % (name, rest))
+        out.append(Subset(name.strip(), rest, complement, offset))
+    names = [s.name for s in out]
+    if len(set(names)) != len(names):
+        raise SystemExit("--subset-bed names must be unique: %s" % names)
+    return out
+
+
+def md5_of(path):
+    h = hashlib.md5()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 # ------------------------------------------------------------ bin coordinates
@@ -310,13 +526,47 @@ def load_barcode_map(path, spatial_dir, pos):
 
 # ------------------------------------------------------------------ main pass
 
-def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats):
-    """UMI-collapsed (2um bin -> [ref, alt]) for one chromosome."""
-    votes = collections.defaultdict(lambda: [0, 0])   # (bin, umi) -> votes
-    umi_bin = {}                                      # (bin, umi) -> bin
-    n_obs = n_hit = 0
+def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
+                subsets=(), sub_counts=None, primary=True, regions=None,
+                windows=None, resolve=None, win_k=None, loci=None, seen=None):
+    """UMI-collapsed (2um bin -> [ref, alt]) for one chromosome.
 
-    for read in bam.fetch(chrom):
+    Side outputs, all optional and all derived from the SAME per-UMI allele
+    calls as the return value, so nothing here can disagree with the main table:
+
+      sub_counts  list of dicts, one per subset, bin -> [ref, alt]. Accumulated
+                  across chromosomes by the caller, since a subset bed may span
+                  several.
+      windows     (chrom, window index, tile row, tile col) -> [ref, alt].
+      loci        (subset name, locus name) -> [ref, alt].
+      seen        {"snps": set, "genes": set} for the provenance sidecar.
+
+    primary=False counts nothing into the returned table. That is the mode for a
+    chromosome that appears only in a subset bed: its reads exist to fill the
+    subset columns and must not join the autosomal control set.
+    regions limits the fetch to a list of (start, end), which is what makes such
+    a chromosome cheap.
+    """
+    votes = {}                                        # (bin, umi) -> [r, a, pos]
+    umi_bin = {}                                      # (bin, umi) -> bin
+    svotes = [{} for _ in subsets]
+    n_obs = n_hit = 0
+    snps_seen = seen["snps"] if seen else None
+    genes_seen = seen["genes"] if seen else None
+
+    if regions is None:
+        it = bam.fetch(chrom)
+    else:
+        # A generator rather than a concatenated list: the intervals of a
+        # positive-control bed are small, but a read overlapping two of them
+        # would otherwise be counted twice, so the UMI keys deduplicate it.
+        def _iter():
+            for s, e in regions:
+                for r in bam.fetch(chrom, max(0, s), e):
+                    yield r
+        it = _iter()
+
+    for read in it:
         stats["reads_seen"] += 1
         if read.is_unmapped or read.is_secondary or read.is_supplementary:
             stats["drop_not_primary"] += 1
@@ -354,6 +604,7 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats):
         key = (bin_bc, read.get_tag("UB"))
         seq = read.query_sequence
         qual = read.query_qualities
+        v = None
         for qpos, rpos in read.get_aligned_pairs(matches_only=True):
             allele = snp_map.get(rpos)
             if allele is None:
@@ -363,25 +614,93 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats):
             n_obs += 1
             base = seq[qpos]
             if base == allele[0]:
-                votes[key][0] += 1
-                n_hit += 1
+                bucket = 0
             elif base == allele[1]:
-                votes[key][1] += 1
-                n_hit += 1
-        if key in votes:
-            umi_bin[key] = bin_bc
+                bucket = 1
+            else:
+                continue
+            n_hit += 1
+            if snps_seen is not None:
+                snps_seen.add(rpos)
+            if v is None:
+                v = votes.get(key)
+                if v is None:
+                    v = votes[key] = [0, 0, rpos]
+                umi_bin[key] = bin_bc
+            v[bucket] += 1
+            # The UMI's position on the chromosome, for the window table. The
+            # leftmost informative SNP, not the read start: it is the SNP that
+            # carries the allele, and a 3' read can start a long way from it.
+            if rpos < v[2]:
+                v[2] = rpos
+            for si in allele[2]:
+                sv = svotes[si].get(key)
+                if sv is None:
+                    sv = svotes[si][key] = [0, 0, rpos]
+                sv[bucket] += 1
+                # The subset's own leftmost informative SNP, which is not
+                # necessarily the UMI's: a molecule can cover a SNP inside an
+                # escape gene and another outside it, and the per-locus table
+                # has to be keyed on the one that put it in the subset.
+                if rpos < sv[2]:
+                    sv[2] = rpos
+        if v is not None and genes_seen is not None and read.has_tag(args.gene_tag):
+            genes_seen.add(read.get_tag(args.gene_tag))
 
     # Majority vote per UMI; a tie means the UMI saw both alleles, which is
     # either a chimera or an alignment artefact - drop it rather than guess.
+    def decide(r, a):
+        return 0 if r > a else (1 if a > r else None)
+
     per_bin = collections.defaultdict(lambda: [0, 0])
     ties = 0
-    for key, (r, a) in votes.items():
-        if r > a:
-            per_bin[umi_bin[key]][0] += 1
-        elif a > r:
-            per_bin[umi_bin[key]][1] += 1
-        else:
-            ties += 1
+    tile_of = {}
+    for key, (r, a, pos) in votes.items():
+        b = decide(r, a)
+        if primary:
+            if b is None:
+                ties += 1
+            else:
+                per_bin[umi_bin[key]][b] += 1
+        if windows is not None and b is not None and primary:
+            bc = umi_bin[key]
+            t = tile_of.get(bc, False)
+            if t is False:
+                coord = resolve(bc)
+                t = None if coord is None else (int(coord[0]) // win_k,
+                                                int(coord[1]) // win_k)
+                tile_of[bc] = t
+            if t is not None:
+                wk = (chrom, pos // args.window_size, t[0], t[1])
+                w = windows.get(wk)
+                if w is None:
+                    w = windows[wk] = [0, 0]
+                w[b] += 1
+
+    for si, s in enumerate(subsets):
+        if chrom not in s.chroms:
+            continue
+        tgt = sub_counts[si] if sub_counts is not None else None
+        for key, (r, a, spos) in svotes[si].items():
+            b = decide(r, a)
+            if b is None:
+                continue
+            if tgt is not None:
+                cell = tgt.get(umi_bin[key])
+                if cell is None:
+                    cell = tgt[umi_bin[key]] = [0, 0]
+                cell[b] += 1
+            # Per-locus depth. Meaningless for a complement subset - "not in any
+            # of these intervals" has no interval to attribute to - so those are
+            # skipped rather than filed under a made-up name.
+            if loci is not None and not s.complement:
+                nm = s.iv.name_at(chrom, spos)
+                if nm is not None:
+                    lk = (s.name, nm)
+                    cell = loci.get(lk)
+                    if cell is None:
+                        cell = loci[lk] = [0, 0]
+                    cell[b] += 1
 
     stats["snp_observations"] += n_obs
     stats["snp_matching_an_allele"] += n_hit
@@ -506,10 +825,86 @@ def main():
                         "single-threaded; this only speeds up reading.")
     p.add_argument("--drop-duplicates", action="store_true", default=True)
     p.add_argument("--keep-duplicates", dest="drop_duplicates", action="store_false")
+    p.add_argument("--subset-bed", action="append", default=None,
+                   metavar="NAME=PATH[:complement]",
+                   help="Extra count columns NAME_ref/NAME_alt holding only the "
+                        "UMIs whose informative SNPs fall inside PATH's "
+                        "intervals; ':complement' counts the ones outside "
+                        "instead. Repeatable. Chromosomes named only here are "
+                        "fetched interval by interval and do not join the "
+                        "autosomal control.")
+    p.add_argument("--subset-bed-offset", type=int, default=0,
+                   help="Added to subset interval starts and ends to reach "
+                        "0-based half-open. 0 for a real BED, which is what the "
+                        "lab's annotation beds are; -1 only if an interval bed "
+                        "arrives in the SNP bed's 1-based convention.")
+    p.add_argument("--window-out", default=None,
+                   help="Sparse per-window allele counts: chrom, win_start, "
+                        "tile_row, tile_col, ref, alt. Answers where on the "
+                        "chromosome the UMIs are, which the main table cannot.")
+    p.add_argument("--window-size", type=int, default=100000,
+                   help="Window width in bp for --window-out (default 100000).")
+    p.add_argument("--window-tile-um", type=int, default=64,
+                   help="Tile grid for --window-out, in microns. 2 gives one "
+                        "row per 2um bin, which is exact but large; 64 matches "
+                        "the tile size the downstream analysis uses.")
+    p.add_argument("--window-chroms", default=None,
+                   help="Restrict --window-out to these chromosomes (default: "
+                        "the X chromosome only, which is where the question is; "
+                        "'all' includes the autosomal control).")
+    p.add_argument("--locus-out", default=None,
+                   help="Per-interval UMI counts for every named interval in "
+                        "every --subset-bed, pooled over the section. Check a "
+                        "positive control has depth before reading its curve.")
+    p.add_argument("--provenance-out", default=None,
+                   help="Bed paths and md5s, the argument vector, and the "
+                        "informative SNP and gene counts. Default: "
+                        "<out>.provenance.tsv")
     args = p.parse_args()
+
+    if args.window_tile_um % 2 != 0 or args.window_tile_um < 2:
+        raise SystemExit("--window-tile-um must be an even number of microns "
+                         "(the capture grid is 2um), got %d" % args.window_tile_um)
 
     autosomes = [c for c in args.autosome_chroms.split(",") if c]
     chroms = [args.x_chrom] + autosomes
+
+    subsets = parse_subset_args(args.subset_bed, args.subset_bed_offset)
+    # A subset bed may name chromosomes the main pass does not process. Those
+    # get their own region-limited pass: the point of an autosomal positive
+    # control is that it costs a handful of intervals, not chr7 in memory.
+    sub_only = []
+    for s in subsets:
+        for c in sorted(s.chroms):
+            if c not in chroms and c not in sub_only:
+                if s.complement:
+                    raise SystemExit(
+                        "--subset-bed %s is a complement over %s, which is not "
+                        "in --x-chrom or --autosome-chroms.\nA complement there "
+                        "would mean the whole chromosome, which is not what the "
+                        "flag is for - add %s to --autosome-chroms if that is "
+                        "really the intent." % (s.name, c, c))
+                sub_only.append(c)
+    all_chroms = chroms + sub_only
+    if subsets:
+        for s in subsets:
+            sys.stderr.write(
+                "Subset %-12s %d intervals on %s%s\n  %s\n"
+                % (s.name, s.iv.n, ",".join(sorted(s.chroms)),
+                   "  [COMPLEMENT: SNPs outside them]" if s.complement else "",
+                   s.path))
+        if sub_only:
+            sys.stderr.write("  region-limited passes for: %s\n"
+                             % ", ".join(sub_only))
+
+    win_chroms = None
+    if args.window_out:
+        if args.window_chroms in (None, ""):
+            win_chroms = {args.x_chrom}
+        elif args.window_chroms == "all":
+            win_chroms = set(chroms)
+        else:
+            win_chroms = {c for c in args.window_chroms.split(",") if c}
 
     ref_i, alt_i, packed = sniff_snp_layout(args.snps, args.snp_cols)
     sys.stderr.write(
@@ -524,15 +919,30 @@ def main():
     # The probe does its own offset arithmetic against unshifted keys, so it
     # must not be handed a pre-shifted table.
     load_offset = 0 if args.probe else args.snp_offset
-    snps, snp_skipped = load_snps(args.snps, chroms, args.snp_pos_col - 1,
+    snps, snp_skipped = load_snps(args.snps, all_chroms, args.snp_pos_col - 1,
                                   ref_i, alt_i, packed, load_offset,
-                                  args.swap_alleles)
-    for c in chroms:
-        sys.stderr.write("  %s: %d SNPs\n" % (c, len(snps[c][0])))
+                                  args.swap_alleles, subsets)
+    for c in all_chroms:
+        n_sub = ["%s %d" % (s.name, sum(1 for p in snps[c][0]
+                                        if i in snps[c][1][p][2]))
+                 for i, s in enumerate(subsets) if c in s.chroms]
+        sys.stderr.write("  %s: %d SNPs%s\n"
+                         % (c, len(snps[c][0]),
+                            ("  (" + ", ".join(n_sub) + ")") if n_sub else ""))
     if snp_skipped:
         sys.stderr.write("  %d SNP lines skipped (unparseable or indel)\n" % snp_skipped)
-    if not any(snps[c][0] for c in chroms):
+    if not any(snps[c][0] for c in all_chroms):
         raise SystemExit("No SNPs loaded - check --snp-pos-col / chromosome naming.")
+    for i, s in enumerate(subsets):
+        n = sum(1 for c in s.chroms if c in snps
+                for p in snps[c][0] if i in snps[c][1][p][2])
+        if n == 0:
+            sys.stderr.write(
+                "\n*** WARNING: subset %s matches no SNP at all.\n"
+                "*** Its columns will be all-zero, which downstream looks like "
+                "a biological\n*** absence rather than a coordinate mismatch. "
+                "Check the bed's assembly and\n*** that --subset-bed-offset "
+                "matches its convention.\n" % s.name)
 
     pos = load_positions(args.spatial_dir)
     sys.stderr.write("Tissue-covered 2um bins: %d\n" % len(pos))
@@ -558,7 +968,7 @@ def main():
 
     bam = pysam.AlignmentFile(args.bam, "rb", threads=args.threads)
     bam_chroms = set(bam.references)
-    missing = [c for c in chroms if c not in bam_chroms]
+    missing = [c for c in all_chroms if c not in bam_chroms]
     if missing:
         raise SystemExit(
             "Not in the BAM header: %s\nBAM uses e.g. %s - chromosome naming "
@@ -613,12 +1023,46 @@ def main():
         return
 
     stats = collections.Counter()
-    x_counts = count_chrom(bam, args.x_chrom, *snps[args.x_chrom], args, stats)
+    sub_counts = [{} for _ in subsets]
+    windows = {} if args.window_out else None
+    loci = {} if args.locus_out else None
+    seen = {}          # chromosome set -> informative SNP and gene identities
+    win_k = args.window_tile_um // 2
+
+    def kw(c, primary=True, regions=None, label=None):
+        lab = label or c
+        seen.setdefault(lab, {"snps": set(), "genes": set()})
+        return dict(subsets=subsets, sub_counts=sub_counts, primary=primary,
+                    regions=regions,
+                    windows=windows if (win_chroms and c in win_chroms) else None,
+                    resolve=resolve, win_k=win_k, loci=loci, seen=seen[lab])
+
+    x_counts = count_chrom(bam, args.x_chrom, *snps[args.x_chrom], args, stats,
+                           **kw(args.x_chrom))
     a_counts = collections.defaultdict(lambda: [0, 0])
     for c in autosomes:
-        for bc, (r, a) in count_chrom(bam, c, *snps[c], args, stats).items():
+        for bc, (r, a) in count_chrom(bam, c, *snps[c], args, stats,
+                                      **kw(c, label="autosome")).items():
             a_counts[bc][0] += r
             a_counts[bc][1] += a
+    # Chromosomes that exist only to fill a subset column: fetched interval by
+    # interval, and counted into no main column.
+    for c in sub_only:
+        regions = []
+        for s in subsets:
+            regions.extend(s.iv.merged(c))
+        regions.sort()
+        merged = []
+        for st, en in regions:
+            if merged and st <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], en)
+            else:
+                merged.append([st, en])
+        sys.stderr.write("  %s: %d subset regions, %.2f Mb\n"
+                         % (c, len(merged),
+                            sum(e - s for s, e in merged) / 1e6))
+        count_chrom(bam, c, *snps[c], args, stats,
+                    **kw(c, primary=False, regions=merged, label="subset_only"))
     bam.close()
 
     tissue_out = args.tissue_out or (args.out + ".tissue_bins.tsv.gz")
@@ -634,6 +1078,8 @@ def main():
     # Try the literal barcode first, then the suffix-stripped form, and refuse
     # to write an empty table quietly if neither lands.
     observed = set(x_counts) | set(a_counts)
+    for sc in sub_counts:
+        observed |= set(sc)
     n_match = sum(1 for b in observed if resolve(b) is not None)
     if observed and n_match == 0:
         sys.stderr.write(
@@ -657,19 +1103,53 @@ def main():
 
     n_written = 0
     x_umi = a_umi = 0
+    sub_umi = [0] * len(subsets)
     with open(args.out, "w") as out:
-        out.write("barcode\tarray_row\tarray_col\tx_ref\tx_alt\ta_ref\ta_alt\n")
+        # Subset columns are appended, never interleaved, so a reader that only
+        # knows the original seven columns still reads this file correctly.
+        head = ["barcode", "array_row", "array_col",
+                "x_ref", "x_alt", "a_ref", "a_alt"]
+        for s in subsets:
+            head += [s.name + "_ref", s.name + "_alt"]
+        out.write("\t".join(head) + "\n")
         for bc in observed:
             coord = resolve(bc)
             if coord is None:          # off-tissue bin
                 continue
             xr, xa = x_counts.get(bc, (0, 0))
             ar, aa = a_counts.get(bc, (0, 0))
-            out.write("%s\t%d\t%d\t%d\t%d\t%d\t%d\n"
-                      % (bc, coord[0], coord[1], xr, xa, ar, aa))
+            row = [bc, coord[0], coord[1], xr, xa, ar, aa]
+            for i, sc in enumerate(sub_counts):
+                sr, sa = sc.get(bc, (0, 0))
+                row += [sr, sa]
+                sub_umi[i] += sr + sa
+            out.write("\t".join(str(v) for v in row) + "\n")
             x_umi += xr + xa
             a_umi += ar + aa
             n_written += 1
+
+    if windows is not None:
+        with gzip.open(args.window_out, "wt") as wf:
+            wf.write("chrom\twin_start\ttile_row\ttile_col\tref\talt\n")
+            for (c, wi, tr, tc), (r, a) in sorted(windows.items()):
+                wf.write("%s\t%d\t%d\t%d\t%d\t%d\n"
+                         % (c, wi * args.window_size, tr, tc, r, a))
+        sys.stderr.write("Wrote %d window x tile rows to %s (%d kb windows, "
+                         "%d um tiles, %s)\n"
+                         % (len(windows), args.window_out,
+                            args.window_size // 1000, args.window_tile_um,
+                            ",".join(sorted(win_chroms))))
+
+    if loci is not None:
+        with open(args.locus_out, "w") as lf:
+            lf.write("subset\tlocus\tref\talt\tn\tref_frac\n")
+            for (sn, nm), (r, a) in sorted(loci.items(),
+                                           key=lambda kv: (kv[0][0], -sum(kv[1]))):
+                lf.write("%s\t%s\t%d\t%d\t%d\t%.4f\n"
+                         % (sn, nm, r, a, r + a,
+                            r / (r + a) if r + a else float("nan")))
+        sys.stderr.write("Wrote %d subset x locus rows to %s\n"
+                         % (len(loci), args.locus_out))
 
     n_bins = len(pos)
     match_rate = (100.0 * stats["snp_matching_an_allele"] / stats["snp_observations"]
@@ -714,6 +1194,57 @@ def main():
                 "\n*** NOTE: autosomal ref fraction is %.3f, a larger reference\n"
                 "*** bias than the standard 10x B6 reference usually produces.\n"
                 "*** Worth a look before trusting absolute ratios.\n" % a_ref_frac)
+
+    for i, s in enumerate(subsets):
+        r = sum(v[0] for v in sub_counts[i].values())
+        n = sub_umi[i]
+        sys.stderr.write("subset %-12s %d informative UMIs, ref fraction %s\n"
+                         % (s.name, n, "%.4f" % (r / n) if n else "n/a"))
+
+    # ------------------------------------------------------------- provenance
+    #
+    # Which SNP bed produced a result is not recoverable after the fact: three
+    # "no-Xist" builds are named in this repo and only one is live, and none of
+    # the output files carries a fingerprint. Written unconditionally, next to
+    # the counts, so an archived result can always be attributed.
+    prov = args.provenance_out or (args.out + ".provenance.tsv")
+    with open(prov, "w") as pf:
+        pf.write("key\tvalue\n")
+        pf.write("argv\t%s\n" % " ".join(sys.argv))
+        pf.write("bam\t%s\n" % args.bam)
+        pf.write("spatial_dir\t%s\n" % args.spatial_dir)
+        pf.write("snp_bed\t%s\n" % args.snps)
+        pf.write("snp_bed_md5\t%s\n" % md5_of(args.snps))
+        pf.write("snp_offset\t%d\n" % args.snp_offset)
+        pf.write("min_mapq\t%d\n" % args.min_mapq)
+        pf.write("min_baseq\t%d\n" % args.min_baseq)
+        pf.write("drop_duplicates\t%s\n" % args.drop_duplicates)
+        pf.write("x_chrom\t%s\n" % args.x_chrom)
+        pf.write("autosome_chroms\t%s\n" % ",".join(autosomes))
+        for s in subsets:
+            pf.write("subset_%s_bed\t%s\n" % (s.name, s.path))
+            pf.write("subset_%s_bed_md5\t%s\n" % (s.name, md5_of(s.path)))
+            pf.write("subset_%s_complement\t%s\n" % (s.name, s.complement))
+            pf.write("subset_%s_intervals\t%d\n" % (s.name, s.iv.n))
+        # How many distinct SNPs and genes actually contribute. Without this the
+        # 12% pair-correlation floor cannot be attributed: one badly behaved
+        # locus carrying a tenth of the chrX signal and a thousand loci each
+        # carrying a thousandth look identical in the aggregate.
+        for lab in sorted(seen):
+            pf.write("informative_snps_%s\t%d\n" % (lab, len(seen[lab]["snps"])))
+            pf.write("informative_genes_%s\t%d\n" % (lab, len(seen[lab]["genes"])))
+        pf.write("informative_umis_chrX\t%d\n" % x_umi)
+        pf.write("informative_umis_autosome\t%d\n" % a_umi)
+        for i, s in enumerate(subsets):
+            pf.write("informative_umis_%s\t%d\n" % (s.name, sub_umi[i]))
+    sys.stderr.write("\nProvenance written to %s\n" % prov)
+    for lab in sorted(seen):
+        sys.stderr.write("  %-12s %d distinct informative SNPs, %d distinct %s "
+                         "values\n" % (lab, len(seen[lab]["snps"]),
+                                       len(seen[lab]["genes"]), args.gene_tag))
+    sys.stderr.write("  (%s counts EXONIC assignment only, so it is a floor on "
+                     "the gene count,\n   not the number of genes contributing "
+                     "- most reads here are intronic.)\n" % args.gene_tag)
 
     sys.stderr.write("\nlambda x (s/2)^2 is the expected informative UMIs in an "
                      "s-um tile; the sweep does this properly.\n")

@@ -20,6 +20,7 @@
 # against a tile job that is still going.
 #
 #   sbatch ~/Postdoc/slurm/spatial_tile_map.slurm 64
+#   sbatch ~/Postdoc/slurm/spatial_tile_map.slurm 64 9w,78w no_Xic500kb
 #
 # Not an array job - both samples are drawn in one pass so they land in one PDF,
 # and the whole thing is 254 small text files plus tissue_positions.
@@ -33,6 +34,11 @@ module load slurm_setup
 # reaching the job. Must match the size the tile run used.
 TILE_UM="${1:-64}"
 SAMPLES="${2:-9w,78w}"
+# Which SNP mask the tile run used. Must match the label passed to
+# spatial_sinto_tiles.slurm, since that is what named its output directory.
+# no_Xist reads and writes the original paths; no_Xic500kb sits alongside them.
+SNP_LABEL="${3:-no_Xist}"
+if [ "$SNP_LABEL" = "no_Xist" ]; then SUF=""; else SUF="_$SNP_LABEL"; fi
 
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 REPO=$BASE/Postdoc
@@ -58,8 +64,8 @@ Rscript -e 'for (p in c("arrow","png")) if (!requireNamespace(p, quietly=TRUE))
               message("note: R package \"", p, "\" not installed - see the script header")' \
   2>&1 | sed 's/^/  /'
 
-TILE_UM="$TILE_UM" SAMPLES="$SAMPLES" \
-  OUT_PDF="$BASE/adult_aged_spatial/ase/tile_ratio_map_${TILE_UM}um.pdf" \
+TILE_UM="$TILE_UM" SAMPLES="$SAMPLES" SNP_LABEL="$SNP_LABEL" \
+  OUT_PDF="$BASE/adult_aged_spatial/ase/tile_ratio_map_${TILE_UM}um${SUF}.pdf" \
   Rscript "$REPO/spatial/tile_ratio_map.R"
 
 echo "Done. PDF and CSV in $BASE/adult_aged_spatial/ase/"

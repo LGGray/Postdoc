@@ -24,6 +24,45 @@
 # mapping bias from using the standard 10x B6 reference, plus whatever technical
 # spatial structure the slide has. Only chrX above that null means anything.
 #
+# EVERY EXTRA COLUMN PAIR in the count table is carried through automatically.
+# ase_bin_allele_counts.py --subset-bed writes <name>_ref / <name>_alt for any
+# interval set, so escape vs non-escape chrX, Xic-masked chrX and the imprinted
+# positive controls all appear here as additional curves with no code change.
+# What each one is for:
+#
+#   escape / nonescape   Partitions the C(d) floor. C(4um) = 0.785 on chrX says
+#                        ~12% of chrX UMI allele calls disagree with their own
+#                        cell's XCI state. If dropping the escapees lifts the
+#                        short range toward 1, that floor is escape and the
+#                        global skew is ~0.88. If it does not, the floor is
+#                        per-UMI assignment error and the chrX numbers built on
+#                        it are measuring a noise rate.
+#
+#   imppat / impmat      The positive control that decides between those two.
+#                        An imprinted locus is monoallelic in EVERY cell, so
+#                        two UMIs from one should agree at any separation. The
+#                        two sets are separate because H19/Igf2, Airn/Igf2r and
+#                        Meg3/Dlk1 are reciprocally imprinted - pooling them
+#                        would mix UMIs carrying opposite alleles and land C(d)
+#                        near 0.5 on perfect data. See OCM_heart/core_escape_SNPs.R.
+#
+#   noxic / xic          chrX with Xist +- 500 kb masked, and the masked-out
+#                        region on its own, for comparison against the
+#                        Xist-gene-only mask the SNP bed applies.
+#
+# Set names come from the --subset-bed flags in slurm/spatial_ase_sweep.slurm.
+# Column names are lowercased on read, so name them in lower case there to keep
+# the two ends readable together.
+#
+# NOTE on the imprinted control: it is a test of the per-UMI ERROR FLOOR, not of
+# spatial resolution. Imprinting is uniform across the tissue, so C_imprinted(d)
+# is expected flat and high, NOT decaying - there is no patch structure for it
+# to resolve. A flat curve near 1 is the pass condition; decay would be the
+# surprise. The resolution question the analysis plan also asks of it cannot be
+# answered this way, because no monoallelic-and-spatially-patchy locus exists to
+# calibrate against; the chrX excess over the autosomal null remains the only
+# handle on patch structure.
+#
 # Run on the cluster:  sbatch ~/Postdoc/slurm/spatial_ase_sweep.slurm
 
 .libPaths(c("~/R/matrix-dev", .libPaths()))
@@ -38,7 +77,8 @@ suppressPackageStartupMessages({
 })
 
 ##### ---------------------- CONFIG ---------------------- #####
-BASE      <- "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_spatial"
+BASE      <- Sys.getenv("BASE",
+  "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_spatial")
 # The SLURM array sets SAMPLE; the default is what you get running by hand.
 SAMPLE    <- Sys.getenv("SAMPLE", "9w")
 IN_TSV    <- file.path(BASE, "ase", SAMPLE, "bin_allele_counts.tsv")
@@ -72,6 +112,12 @@ COVERAGE_TARGETS <- c(10, 20, 50)
 CD_MAX_UM     <- 2000
 CD_N_STRATA   <- 32
 CD_PER_STRATUM <- 200000L
+
+# Which column sets get a C(d) curve. Cost is linear in the number of sets, so
+# a table with six subsets takes ~4x as long as the original two. "all" is the
+# default because the subsets are the whole point of the current round; set it
+# to "chrX,autosome" to get the old behaviour and the old runtime.
+CD_SETS <- Sys.getenv("CD_SETS", "all")
 
 # Angular sectors for C(d). 0 = one all-angles curve, which is the simple
 # reading and the default. Set to 4 to also split C(d) by direction on the
@@ -128,6 +174,22 @@ if (!is.null(DOMAIN_TSV)) {
   bins <- bins[barcode %in% keep]
   message("Domain filter: kept ", nrow(bins), " / ", n0, " bins with data")
 }
+
+# Column sets. chrX and the autosomal control are always there; anything else
+# the counter emitted as a <name>_ref / <name>_alt pair joins the analysis
+# automatically, in the order the columns appear.
+SET_COLS <- list(chrX = c("x_ref", "x_alt"), autosome = c("a_ref", "a_alt"))
+extra <- setdiff(sub("_ref$", "", grep("_ref$", names(bins), value = TRUE)),
+                 c("x", "a"))
+for (nm in extra) {
+  alt <- paste0(nm, "_alt")
+  if (!alt %in% names(bins)) {
+    warning("Column ", nm, "_ref has no matching ", alt, " - ignoring it")
+    next
+  }
+  SET_COLS[[nm]] <- c(paste0(nm, "_ref"), alt)
+}
+if (length(extra)) message("Subset columns found: ", paste(extra, collapse = ", "))
 
 bins[, x_n := x_ref + x_alt]
 bins[, a_n := a_ref + a_alt]
@@ -241,10 +303,11 @@ sweep_one <- function(size_um, ref_col, alt_col, label) {
 }
 
 message("\nSweeping tile sizes ...")
-sweep <- rbindlist(c(
-  lapply(SIZES_UM, sweep_one, ref_col = "x_ref", alt_col = "x_alt", label = "chrX"),
-  lapply(SIZES_UM, sweep_one, ref_col = "a_ref", alt_col = "a_alt", label = "autosome")
-))
+sweep <- rbindlist(lapply(names(SET_COLS), function(lab) {
+  cols <- SET_COLS[[lab]]
+  rbindlist(lapply(SIZES_UM, sweep_one, ref_col = cols[1], alt_col = cols[2],
+                   label = lab))
+}))
 fwrite(sweep, file.path(OUT_DIR, "tile_size_sweep.csv"))
 msg_table(sweep[chrom_set == "chrX",
                 .(size_um, n_tissue_tiles, median_umi, frac_ge_10, frac_ge_20,
@@ -295,10 +358,19 @@ pair_correlation <- function(ref_col, alt_col, label) {
 
     # sector -1 is the all-angles curve, kept so the isotropic reading stays
     # available and directly comparable to the per-sector ones.
-    iso <- hit[, .(sector = -1L, dist_um = mean(d_real), n_pairs = .N,
-                   C = mean(agree), se = sd(agree) / sqrt(.N))]
+    #
+    # dist_nominal vs dist_um is the integer-rounding drift, and it is reported
+    # rather than left implicit because it is worst at exactly the short range
+    # the escape and imprinted comparisons depend on: at a nominal 4um the
+    # offset is +-1 bin, so the realised separations are 2, 2.83 and 4um and
+    # the mean lands near 3, not 4.
+    iso <- hit[, .(sector = -1L, dist_nominal = dd, dist_um = mean(d_real),
+                   d_sd = sd(d_real), d_min = min(d_real), d_max = max(d_real),
+                   n_pairs = .N, C = mean(agree), se = sd(agree) / sqrt(.N))]
     per <- if (CD_N_SECTORS > 0L) {
-      hit[, .(dist_um = mean(d_real), n_pairs = .N, C = mean(agree),
+      hit[, .(dist_nominal = dd, dist_um = mean(d_real), d_sd = sd(d_real),
+              d_min = min(d_real), d_max = max(d_real),
+              n_pairs = .N, C = mean(agree),
               se = sd(agree) / sqrt(.N)), by = sector][n_pairs >= 100]
     } else NULL
     rbindlist(list(iso, per), use.names = TRUE)[, chrom_set := label][]
@@ -306,13 +378,101 @@ pair_correlation <- function(ref_col, alt_col, label) {
   out
 }
 
-message("Estimating pair correlation ...")
+cd_sets <- if (CD_SETS == "all") names(SET_COLS) else
+  intersect(strsplit(CD_SETS, ",")[[1]], names(SET_COLS))
+message("Estimating pair correlation for: ", paste(cd_sets, collapse = ", "))
 set.seed(1)
-cd <- rbindlist(list(
-  pair_correlation("x_ref", "x_alt", "chrX"),
-  pair_correlation("a_ref", "a_alt", "autosome")
-))
+cd <- rbindlist(lapply(cd_sets, function(lab) {
+  cols <- SET_COLS[[lab]]
+  n_bins_set <- bins[get(cols[1]) + get(cols[2]) > 0, .N]
+  n_umi_set  <- bins[, sum(get(cols[1]) + get(cols[2]))]
+  message(sprintf("  %-12s %d bins carry a UMI, %d UMIs total%s",
+                  lab, n_bins_set, n_umi_set,
+                  if (n_bins_set < 1000) "  -- too few, skipped" else ""))
+  r <- pair_correlation(cols[1], cols[2], lab)
+  # A subset with too little depth returns NULL rather than a noisy curve. Say
+  # so here: an absent curve in the PDF is otherwise indistinguishable from a
+  # subset bed that matched nothing.
+  if (is.null(r)) return(NULL)
+  r[, `:=`(n_bins_set = n_bins_set, n_umi_set = n_umi_set)][]
+}), use.names = TRUE)
 fwrite(cd, file.path(OUT_DIR, "pair_correlation.csv"))
+if (!nrow(cd)) stop("No set produced a pair-correlation curve")
+
+# The short-range table, all sets together. This is the whole of tasks 3 and 4
+# in one place: the imprinted sets give the per-UMI error floor, escape vs
+# non-escape says whether the chrX floor is escape, and chrX and the autosomal
+# control are the reference points.
+#
+# err is the per-UMI allele-call error rate implied by C, on the model that each
+# UMI is called wrong independently with probability e:
+#   C = (1-e)^2 + e^2  for a truly monoallelic locus
+# solved for e, taking the root below 0.5. It is only meaningful for a set that
+# SHOULD be monoallelic everywhere - the imprinted ones - which is why it is
+# printed for all sets but interpreted only for those.
+implied_err <- function(C) {
+  ok <- is.finite(C) & C >= 0.5 & C <= 1
+  out <- rep(NA_real_, length(C))
+  out[ok] <- (1 - sqrt(2 * C[ok] - 1)) / 2
+  out
+}
+short <- cd[sector == -1L][order(chrom_set, dist_um)][
+  , .SD[1:min(3L, .N)], by = chrom_set][
+  , .(dist_nominal = dist_nominal[1], dist_um = round(dist_um[1], 2),
+      d_range = sprintf("%.1f-%.1f", d_min[1], d_max[1]),
+      n_pairs = n_pairs[1], C = round(C[1], 4), se = round(se[1], 4),
+      C_mean3 = round(mean(C), 4), implied_umi_err = round(implied_err(C[1]), 4)),
+  by = chrom_set]
+message("\nShort-range pair correlation, every set (realised separations, not nominal):")
+msg_table(short)
+fwrite(short, file.path(OUT_DIR, "pair_correlation_short_range.csv"))
+
+imp <- short[grepl("^imp", chrom_set)]
+if (nrow(imp)) {
+  message("\n--- imprinted positive control ---")
+  for (i in seq_len(nrow(imp))) {
+    message(sprintf(
+      "%s: C(%.1fum) = %.4f -> implied per-UMI error %.1f%%",
+      imp$chrom_set[i], imp$dist_um[i], imp$C[i],
+      100 * imp$implied_umi_err[i]))
+  }
+  cx0 <- short[chrom_set == "chrX", C]
+  if (length(cx0) && all(is.finite(imp$C))) {
+    if (max(imp$C) >= 0.97) {
+      message("PASS: an imprinted locus is called consistently, so per-UMI ",
+              "assignment is not the\n  ceiling, and the chrX floor of ",
+              sprintf("%.3f", cx0), " is biology (escape or leak), not error.")
+    } else if (max(imp$C) <= cx0 + 0.05) {
+      message("FAIL: the imprinted control sits at ", sprintf("%.3f", max(imp$C)),
+              ", no better than chrX's ", sprintf("%.3f", cx0), ".")
+      message("  Per-UMI allele assignment, not biology, is the ceiling. The ",
+              "tile analysis cannot\n  go further on this data and the ",
+              "per-allele rate is measuring a noise rate.")
+    } else {
+      message("PARTIAL: the imprinted control is above chrX but below 0.97. ",
+              "Some of the chrX\n  floor is error and some is biology; the ",
+              "split is the gap between the two.")
+    }
+    message("  Before reading any of that: check the per-locus depth and ",
+            "ratios in the counter's\n  --locus-out table. A set pooled over ",
+            "loci that are not all monoallelic in heart\n  (Grb10 and Ube3a ",
+            "are the usual offenders) fails this test for the wrong reason.")
+  }
+}
+if (all(c("escape", "nonescape") %in% short$chrom_set)) {
+  message("\n--- escape partition ---")
+  message(sprintf("all chrX %.4f   core-escape only %.4f   chrX minus escape %.4f",
+                  short[chrom_set == "chrX", C],
+                  short[chrom_set == "escape", C],
+                  short[chrom_set == "nonescape", C]))
+  if (short[chrom_set == "nonescape", C] - short[chrom_set == "chrX", C] > 0.02) {
+    message("Removing the escapees lifts the short range, so escape is part of ",
+            "the floor.")
+  } else {
+    message("Removing the escapees changes nothing: the floor is not escape at ",
+            "these 11 genes.")
+  }
+}
 
 # C(d) = Cinf + (C0 - Cinf) * exp(-d / L). L is the patch length; tiles should
 # sit at or below it, and below L/2 to resolve patch shape rather than just
@@ -398,6 +558,11 @@ if (CD_N_SECTORS > 0L) {
 
 pdf(file.path(OUT_DIR, "tile_size_sweep.pdf"), width = 7.5, height = 5.5)
 
+# SAMPLE goes in every title. Both samples write a file of this name into their
+# own directory, and the two PDFs were previously distinguishable only by parent
+# directory - which has already caused one mix-up.
+titled <- function(s) paste0(SAMPLE, " - ", s)
+
 cov_long <- melt(sweep, id.vars = c("chrom_set", "size_um"),
                  measure.vars = paste0("frac_ge_", COVERAGE_TARGETS),
                  variable.name = "target", value.name = "frac")
@@ -406,7 +571,7 @@ print(
   ggplot(cov_long[chrom_set == "chrX"], aes(size_um, frac, colour = target)) +
     geom_line() + geom_point() +
     scale_x_log10(breaks = SIZES_UM) +
-    labs(title = "Coverage: tiles reaching a usable depth",
+    labs(title = titled("Coverage: tiles reaching a usable depth"),
          subtitle = "chrX informative UMIs per tile",
          x = "tile size (um)", y = "fraction of tissue tiles",
          colour = "UMIs") +
@@ -417,7 +582,7 @@ print(
   ggplot(sweep, aes(size_um, rho_bb, colour = chrom_set)) +
     geom_line() + geom_point() +
     scale_x_log10(breaks = SIZES_UM) +
-    labs(title = "Mosaic dispersion rho(s)",
+    labs(title = titled("Mosaic dispersion rho(s)"),
          subtitle = paste("Beta-binomial intraclass correlation.",
                           "chrX above the autosomal null is real structure;",
                           "the fall-off marks where tiles start averaging",
@@ -428,18 +593,47 @@ print(
 
 if (nrow(cd)) {
   print(
-    ggplot(cd[sector == -1L], aes(dist_um, C, colour = chrom_set)) +
+    ggplot(cd[sector == -1L & chrom_set %in% c("chrX", "autosome")],
+           aes(dist_um, C, colour = chrom_set)) +
       geom_ribbon(aes(ymin = C - 2 * se, ymax = C + 2 * se, fill = chrom_set),
                   alpha = 0.15, colour = NA) +
       geom_line() +
       scale_x_log10() +
-      labs(title = "Pair correlation C(d) - no tiling involved",
+      labs(title = titled("Pair correlation C(d) - no tiling involved"),
            subtitle = sprintf("Decay length: chrX %.0f um, autosome %.0f um",
                               L_x, L_a),
            x = "separation (um)",
            y = "P(two UMIs share an allele)") +
       theme_bw()
   )
+
+  # Every set on one axis, with the two reference lines that make it readable:
+  # 1 is what a monoallelic locus should give, 0.5 what an unstructured
+  # biallelic one gives. The imprinted curves belong up against the top; how far
+  # short they fall IS the per-UMI error floor, and the same distance is
+  # subtracted from every chrX number in this project.
+  if (uniqueN(cd$chrom_set) > 2L) {
+    print(
+      ggplot(cd[sector == -1L], aes(dist_um, C, colour = chrom_set)) +
+        geom_hline(yintercept = c(0.5, 1), linetype = 2, colour = "grey60") +
+        geom_ribbon(aes(ymin = C - 2 * se, ymax = C + 2 * se, fill = chrom_set),
+                    alpha = 0.12, colour = NA) +
+        geom_line() +
+        scale_x_log10() +
+        # coord_cartesian, not scale limits: a curve that leaves the panel
+        # should be clipped, not dropped with a warning about missing values.
+        coord_cartesian(ylim = c(0.4, 1.02)) +
+        labs(title = titled("C(d) by SNP set: the floor, partitioned"),
+             subtitle = paste("imp* are imprinted positive controls - monoallelic",
+                              "in every cell, so they should sit flat near 1 and",
+                              "the shortfall is per-UMI error.\nescape/nonescape",
+                              "partition chrX; noXic is chrX with Xist +- 500 kb",
+                              "masked. Sets are counted on the same UMIs."),
+             x = "separation (um)", y = "P(two UMIs share an allele)",
+             colour = "SNP set", fill = "SNP set") +
+        theme_bw() + theme(plot.subtitle = element_text(size = 7))
+    )
+  }
 
   if (!is.null(excess)) {
     print(
@@ -449,7 +643,7 @@ if (nrow(cd)) {
                     alpha = 0.15) +
         geom_line() +
         scale_x_log10() +
-        labs(title = "chrX clonal signal: C(d) above the autosomal null",
+        labs(title = titled("chrX clonal signal: C(d) above the autosomal null"),
              subtitle = paste("Autosomes carry the same cell-footprint and",
                               "bursting correlation without clonal XCI, so",
                               "the excess is the mosaicism. Flat at zero",
@@ -467,7 +661,7 @@ if (nrow(cd)) {
         geom_line() +
         facet_wrap(~ chrom_set) +
         scale_x_log10() +
-        labs(title = "C(d) by direction on the capture grid",
+        labs(title = titled("C(d) by direction on the capture grid"),
              subtitle = paste("Sectors that separate on chrX but not on the",
                               "autosomal control mean the patches are",
                               "elongated - set the tile size from the",
@@ -489,7 +683,7 @@ for (s in intersect(c(16, 32, 64, 128, 256), SIZES_UM)) {
   print(
     ggplot(tl, aes(x / n)) +
       geom_histogram(bins = 40, fill = "grey30") +
-      labs(title = paste0("chrX allelic ratio per tile, ", s, " um"),
+      labs(title = titled(paste0("chrX allelic ratio per tile, ", s, " um")),
            subtitle = paste0(nrow(tl), " of ",
                              n_tissue_tiles[[as.character(s)]],
                              " tissue tiles clear ", MIN_UMI,
@@ -600,5 +794,45 @@ if (!is.null(TILE_UM_FOR_SINTO)) {
   fwrite(depth[tile %in% keep][order(-n_chrX)],
          file.path(OUT_DIR, sprintf("tile_depth_%dum.csv", TILE_UM_FOR_SINTO)))
 }
+
+# ------------------------------------------------------------- provenance
+#
+# Which SNP bed, which count table, which thresholds. The count table's own
+# sidecar (written by ase_bin_allele_counts.py) carries the bed path and md5, so
+# it is folded in here rather than restated - if it is missing, that is itself
+# worth recording, because it means the counts predate the sidecar and their bed
+# cannot be identified.
+# NOT data.table(key = ..., value = ...): `key` is data.table()'s own argument,
+# so that form sets a key instead of making a column, and errors.
+prov <- data.table(
+  k = c("script", "sample", "run_at", "counts_tsv", "counts_tsv_md5",
+          "tissue_tsv", "min_umi", "coverage_targets", "sizes_um",
+          "cd_max_um", "cd_n_strata", "cd_per_stratum", "cd_sets",
+          "cd_n_sectors", "domain_tsv", "tile_um_for_sinto", "sinto_min_umi",
+          "sets", "r_version"),
+  v = c("spatial/ase_tile_sweep.R", SAMPLE,
+            format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+            IN_TSV, unname(tools::md5sum(IN_TSV)), TISSUE_TSV,
+            MIN_UMI, paste(COVERAGE_TARGETS, collapse = ","),
+            paste(SIZES_UM, collapse = ","), CD_MAX_UM, CD_N_STRATA,
+            CD_PER_STRATUM, paste(cd_sets, collapse = ","), CD_N_SECTORS,
+            if (is.null(DOMAIN_TSV)) "NULL" else DOMAIN_TSV,
+            if (is.null(TILE_UM_FOR_SINTO)) "NULL" else TILE_UM_FOR_SINTO,
+            SINTO_MIN_UMI, paste(names(SET_COLS), collapse = ","),
+            paste(R.version$major, R.version$minor, sep = ".")))
+setnames(prov, c("key", "value"))
+counter_prov <- paste0(IN_TSV, ".provenance.tsv")
+if (file.exists(counter_prov)) {
+  cp <- fread(counter_prov, colClasses = "character")
+  prov <- rbindlist(list(prov, cp[, .(key = paste0("counter.", key), value)]))
+} else {
+  miss <- data.table(k = "counter.provenance",
+                     v = paste0("MISSING: ", counter_prov,
+                       " - the SNP bed behind these counts cannot be identified"))
+  setnames(miss, c("key", "value"))
+  prov <- rbindlist(list(prov, miss))
+}
+fwrite(prov, file.path(OUT_DIR, "provenance_tile_sweep.tsv"), sep = "\t")
+message("Provenance in ", file.path(OUT_DIR, "provenance_tile_sweep.tsv"))
 
 message("\nDone. Outputs in ", OUT_DIR)

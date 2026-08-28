@@ -30,9 +30,18 @@ SAMPLES <- strsplit(Sys.getenv("SAMPLES", "9w,78w"), ",")[[1]]
 TILE_UM <- as.integer(Sys.getenv("TILE_UM", "64"))
 BIN     <- "square_002um"
 ANNOT_BASE <- "chr_annotation_mm39.bed"
+
+# Which SNP mask the tile run was scored against. Must match the SNP_LABEL
+# spatial_sinto_tiles.slurm used, because that is what named its output
+# directory. "no_Xist" keeps every path as it was; anything else reads and
+# writes alongside it, so the two masks can be compared rather than one
+# silently replacing the other.
+SNP_LABEL <- Sys.getenv("SNP_LABEL", "no_Xist")
+SUF     <- if (SNP_LABEL == "no_Xist") "" else paste0("_", SNP_LABEL)
 OUT_PDF <- Sys.getenv("OUT_PDF",
                       file.path(BASE, "ase",
-                                sprintf("tile_ratio_map_%dum.pdf", TILE_UM)))
+                                sprintf("tile_ratio_map_%dum%s.pdf",
+                                        TILE_UM, SUF)))
 
 # Draw the H&E underneath the ratio panel. Needs the png package; skipped with a
 # message if it is not installed rather than failing the whole script.
@@ -164,7 +173,8 @@ read_locus <- function(path) {
 
 collect_sample <- function(smp) {
   ase_dir   <- file.path(BASE, "ase", smp)
-  final_dir <- file.path(ase_dir, sprintf("Allelome.PRO2_tiles_%dum", TILE_UM))
+  final_dir <- file.path(ase_dir, sprintf("Allelome.PRO2_tiles_%dum%s",
+                                          TILE_UM, SUF))
   map_tsv   <- file.path(ase_dir, sprintf("sinto_tiles_%dum.tsv", TILE_UM))
   if (!file.exists(map_tsv)) {
     msg("  no sinto map at %s - skipping %s", map_tsv, smp); return(NULL)
@@ -201,7 +211,7 @@ collect_sample <- function(smp) {
   scratch <- Sys.getenv("SCRATCH")
   if (SCRATCH_SUPPLEMENT && nzchar(scratch)) {
     ap2 <- file.path(scratch, sprintf("spatial_tiles_%s_%dum", smp, TILE_UM),
-                     "allelome")
+                     paste0("allelome", SUF))
     sp <- Sys.glob(file.path(ap2, paste0("*_", ANNOT_BASE, "_*"), "locus_table.txt"))
     if (length(sp)) {
       # 2026_08_27_tile_64um_r0019_c0050_chr_annotation_mm39.bed_1 -> tile name
@@ -366,7 +376,8 @@ panel_ratio <- function(d, he = FALSE) {
                          midpoint = 0.5, limits = c(0, 1),
                          breaks = c(0, 0.25, 0.5, 0.75, 1),
                          name = "Bl6 (A1)\nfraction") +
-    labs(title = sprintf("%s - chrX allelic ratio per %d um tile", d$sample[1], TILE_UM),
+    labs(title = sprintf("%s - chrX allelic ratio per %d um tile [%s]",
+                         d$sample[1], TILE_UM, SNP_LABEL),
          subtitle = sprintf("%d of %d submitted tiles scored; grey = submitted, not yet scored",
                             n_ok, n_sub),
          caption = paste("Faint boxes are in-tissue tiles below SINTO_MIN_UMI that were never submitted.",
@@ -384,8 +395,8 @@ panel_ratio_ocm <- function(d, he = FALSE) {
     scale_fill_manual(values = OCM_COLORS, limits = OCM_LABELS, drop = FALSE,
                       na.value = COL_NA, name = "Allelic ratio") +
     guides(fill = guide_legend(ncol = 1, reverse = TRUE)) +
-    labs(title = sprintf("%s - chrX allelic ratio per %d um tile (OCM bins)",
-                         d$sample[1], TILE_UM),
+    labs(title = sprintf("%s - chrX allelic ratio per %d um tile (OCM bins) [%s]",
+                         d$sample[1], TILE_UM, SNP_LABEL),
          subtitle = sprintf("%d of %d submitted tiles scored; %d (%.0f%%) below 0.5. Grey = submitted, not yet scored.",
                             n_ok, n_sub, lo, 100 * lo / max(n_ok, 1)),
          caption = paste("Bins and colours from OCM_heart/allelic_ratio (02_whole_chrX.R).",
@@ -498,7 +509,8 @@ clustering_test <- function(d, label, n_perm = 2000L) {
   invisible(NULL)
 }
 
-msg("Tile size %d um, samples: %s", TILE_UM, paste(SAMPLES, collapse = ", "))
+msg("Tile size %d um, samples: %s, SNP mask: %s",
+    TILE_UM, paste(SAMPLES, collapse = ", "), SNP_LABEL)
 all_d <- list()
 pdf(OUT_PDF, width = 9, height = 8)
 for (s in SAMPLES) {
@@ -621,7 +633,34 @@ if (length(all_d)) {
   csv <- sub("\\.pdf$", ".csv", OUT_PDF)
   fwrite(out[, .(sample, tile, x, y, n_bins, x_a1, x_a2, x_n, a_a1, a_a2, a_n,
                  x_ratio, x_bin, a_ratio, z, call, submitted)], csv)
-  msg("\nWrote %s\n       %s", OUT_PDF, csv)
+  # Provenance sidecar. Three "no-Xist" SNP beds are named in this repo and only
+  # one is live, so a figure without its bed's fingerprint next to it cannot be
+  # attributed later. NOT data.table(key = ...): `key` is data.table()'s own
+  # argument and that form errors.
+  # BASE is <root>/adult_aged_spatial and the beds live in <root>/GRCm39.
+  snp_bed <- file.path(dirname(BASE), "GRCm39",
+                       sprintf("SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_%s.bed",
+                               SNP_LABEL))
+  prov <- data.table(
+    k = c("script", "run_at", "tile_um", "samples", "snp_label", "snp_bed",
+          "snp_bed_md5", "annotation", "scratch_supplement", "z_call",
+          "auto_sd_per_sample", "tiles_scored"),
+    v = c("spatial/tile_ratio_map.R", format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+          TILE_UM, paste(levels(out$sample), collapse = ","), SNP_LABEL,
+          snp_bed,
+          if (file.exists(snp_bed)) unname(tools::md5sum(snp_bed)) else
+            "bed not readable from here",
+          ANNOT_BASE, SCRATCH_SUPPLEMENT, Z_CALL,
+          paste(sprintf("%s=%.4f", names(all_d),
+                        vapply(all_d, function(d) d$auto_sd[1], 0)),
+                collapse = ","),
+          paste(sprintf("%s=%d", names(all_d),
+                        vapply(all_d, function(d) sum(!is.na(d$x_ratio)), 0L)),
+                collapse = ",")))
+  setnames(prov, c("key", "value"))
+  fwrite(prov, sub("\\.pdf$", "_provenance.tsv", OUT_PDF), sep = "\t")
+  msg("\nWrote %s\n       %s\n       %s", OUT_PDF, csv,
+      sub("\\.pdf$", "_provenance.tsv", OUT_PDF))
   msg("Pooled chrX ratio per sample.")
   msg("NOTE: tiles are scored in tile-name order, so the finished set is a")
   msg("      contiguous band of the section, not a random sample of it. These")

@@ -60,6 +60,11 @@ out  <- bind_rows(df, auto)
 # monoallelic, i.e. the dominant-allele convention. Write that as the default
 # and keep the directional ratio alongside it, so nothing downstream changes
 # meaning but the direction is still recoverable.
+#
+# `allelic_ratio` HERE MEANS ar_dom, on 0.5-1. 04_core_escape.R holds the
+# directional A1/total ratio and names it ar_a1 for exactly this reason; 05
+# joins the two files and checks the convention before it does. Do not add a
+# third meaning for this column name.
 out$allelic_ratio <- out$ar_dom
 
 write.table(out, ALLELIC_RATIOS_FILE, sep = "\t", row.names = FALSE, quote = FALSE)
