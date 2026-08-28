@@ -58,7 +58,10 @@ SNP_TO_BED_SHIFT <- 1L
 # How far either side of Xist to mask. 500 kb reaches Ftx, Jpx, Tsix and the
 # intergenic Xic, all of which report the inactive X in this design and are
 # therefore effectively CAST-only - exactly the reads a "no-Xist" mask leaves
-# behind. mm39 puts Xist at chrX:102.28 Mb, so this covers ~101.7-103.0 Mb.
+# behind. In this annotation Xist is chrX:102,503,978-102,526,839 (mm39, 22.9 kb),
+# so the mask covers chrX:102,003,978-103,026,839. The corresponding mm10 locus
+# is at 103.46 Mb - a ~956 kb shift, which is the check that the annotation and
+# the BAM are on the same assembly.
 XIC_FLANK <- 500000L
 
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
@@ -205,27 +208,105 @@ imprinted_paternal <- c(
   # canonical paternally expressed
   "Igf2", "Airn", "Snrpn", "Peg3", "Dlk1", "Peg10", "Mest", "Nnat",
   "Plagl1", "Impact", "Nap1l5", "Magel2", "Ndn", "Mkrn3", "Slc38a4",
-  "Kcnq1ot1", "Rtl1", "Zim1", "Usp29"
+  "Kcnq1ot1", "Rtl1", "Usp29"
 )
 imprinted_maternal <- c(
-  # canonical maternally expressed
-  "H19", "Igf2r", "Meg3", "Rian", "Mirg", "Cdkn1c", "Grb10", "Ube3a",
-  "Phlda2", "Osbpl5", "Ascl2", "Tssc4", "Slc22a18", "Zrsr1", "Gnas"
+  # canonical maternally expressed. Zim1 belongs HERE, not in the paternal set:
+  # it is the maternally expressed reciprocal partner of Peg3 at the same locus.
+  "H19", "Igf2r", "Meg3", "Rian", "Mirg", "Cdkn1c", "Zim1",
+  "Phlda2", "Osbpl5", "Ascl2", "Slc22a18", "Zrsr1"
 )
+
+# Imprinted, but NOT usable in a positive control that has to be clean. Kept as
+# a named list because they are still subtracted from both control beds below -
+# dropping a gene from the control does not stop its reads landing inside a
+# neighbour's collapsed interval.
+#
+#   Ube3a   maternal in brain, biallelic in most peripheral tissues
+#   Gnas    direction depends on the transcript (Nesp maternal, Nespas paternal)
+#   Grb10   maternal in most tissues, paternal in brain
+#   Tssc4   weak and tissue-specific
+imprinted_unreliable <- c("Ube3a", "Gnas", "Grb10", "Tssc4", "Nesp", "Nespas")
 # The five loci the analysis plan names, kept as its own bed so the headline
 # control can be run on textbook-solid ground before the wider list is used to
 # buy depth.
 imprinted_core <- c("H19", "Igf2", "Airn", "Igf2r", "Snrpn", "Peg3",
                     "Meg3", "Dlk1")
 
+# Remove from `a` every base covered by `b`, keeping a's name on each surviving
+# piece. An interval can be split in two, or vanish entirely.
+#
+# This is load-bearing, not tidying. gene_level() collapses transcript rows to
+# one min-max interval per gene, and for genes with a long non-coding form that
+# span is far larger than the coding gene: Snrpn collapses to 468 kb because of
+# the Snhg14 transcript, which in mouse runs antisense ACROSS Ube3a. Ube3a is
+# maternally expressed. Without this subtraction, 3377 of the paternal set's
+# 4115 SNPs sit in that one interval, Ube3a's reads are counted as paternal, and
+# the positive control drifts toward 0.5 - failing for a reason that has nothing
+# to do with the per-UMI error rate it is meant to measure.
+subtract_intervals <- function(a, b) {
+  if (!nrow(a) || !nrow(b)) return(a)
+  out <- list()
+  for (i in seq_len(nrow(a))) {
+    lo <- a$V2[i]; hi <- a$V3[i]
+    cuts <- b[b$V1 == a$V1[i] & b$V3 > lo & b$V2 < hi, ]
+    cuts <- cuts[order(cuts$V2), ]
+    pieces <- list(c(lo, hi))
+    for (j in seq_len(nrow(cuts))) {
+      nxt <- list()
+      for (pc in pieces) {
+        if (cuts$V3[j] <= pc[1] || cuts$V2[j] >= pc[2]) { nxt[[length(nxt) + 1]] <- pc; next }
+        if (cuts$V2[j] > pc[1]) nxt[[length(nxt) + 1]] <- c(pc[1], cuts$V2[j])
+        if (cuts$V3[j] < pc[2]) nxt[[length(nxt) + 1]] <- c(cuts$V3[j], pc[2])
+      }
+      pieces <- nxt
+    }
+    for (pc in pieces) {
+      out[[length(out) + 1]] <- data.table(V1 = a$V1[i], V2 = pc[1], V3 = pc[2],
+                                           V4 = a$V4[i], V5 = 0L, V6 = a$V6[i])
+    }
+  }
+  if (!length(out)) return(a[0, ])
+  rbindlist(out)[order(V1, V2)]
+}
+
+# Intervals of every imprinted gene, whatever direction and whatever its
+# reliability. Whichever control bed is being built, everything in here that is
+# not part of that set gets cut out of it.
+imprinted_all <- unique(c(imprinted_paternal, imprinted_maternal,
+                          imprinted_unreliable))
+imprinted_annot <- annotation[V4 %in% imprinted_all & V1 != "chrX" & V1 != "chrY", ]
+imprinted_gl <- gene_level(imprinted_annot)
+
 imprinted_bed <- function(genes, label, file) {
-  dt <- annotation[V4 %in% genes & V1 != "chrX" & V1 != "chrY", ]
-  miss <- setdiff(genes, dt$V4)
-  g <- gene_level(dt)
+  keep <- imprinted_gl[imprinted_gl$V4 %in% genes, ]
+  miss <- setdiff(genes, keep$V4)
   if (length(miss)) message("  ", label, ": not in the annotation - ",
                             paste(miss, collapse = ", "))
-  write_bed(g, file, sprintf("%s, %d of %d genes found",
-                             label, nrow(g), length(genes)))
+  if (!nrow(keep)) { message("  ", label, ": nothing to write"); return(keep) }
+  drop <- imprinted_gl[!imprinted_gl$V4 %in% genes, ]
+  g <- subtract_intervals(as.data.table(keep), as.data.table(drop))
+  # Report per gene what the subtraction cost, so a control that has been eaten
+  # by its neighbours is visible here and not inferred from a flat curve later.
+  before <- as.data.table(keep)[, .(kb0 = sum(V3 - V2) / 1000), by = V4]
+  after  <- g[, .(kb1 = sum(V3 - V2) / 1000, pieces = .N), by = V4]
+  cmp <- merge(before, after, by = "V4", all.x = TRUE)
+  cmp[is.na(kb1), `:=`(kb1 = 0, pieces = 0L)]
+  cut <- cmp[kb1 < kb0 - 0.001][order(kb1 - kb0)]
+  if (nrow(cut)) {
+    message("  ", label, ": trimmed where another imprinted gene overlaps -")
+    for (i in seq_len(nrow(cut))) {
+      message(sprintf("    %-10s %8.1f -> %8.1f kb (%d piece%s)",
+                      cut$V4[i], cut$kb0[i], cut$kb1[i], cut$pieces[i],
+                      if (cut$pieces[i] == 1L) "" else "s"))
+    }
+  }
+  if (any(cmp$kb1 == 0)) {
+    message("  ", label, ": entirely removed - ",
+            paste(cmp[kb1 == 0, V4], collapse = ", "))
+  }
+  write_bed(g, file, sprintf("%s, %d of %d genes, %d intervals after removing overlaps",
+                             label, uniqueN(g$V4), length(genes), nrow(g)))
   g
 }
 
@@ -249,13 +330,18 @@ message("  imprinted chromosomes: ",
 # How much SNP density each imprinted locus has. A locus with no informative SNP
 # cannot contribute to the control however well it is expressed, and finding
 # that out here is free.
+# One row per GENE, summed over its pieces: after the overlap subtraction a gene
+# can be several intervals, and a per-interval table would double-count nothing
+# but would also hide how much SNP density the gene has left.
 snp_density <- function(g, label) {
   if (!nrow(g)) return(NULL)
   d <- rbindlist(lapply(seq_len(nrow(g)), function(i) {
     n <- SNPfile[V1 == g$V1[i] & V2 > g$V2[i] & V2 <= g$V3[i], .N]
     data.table(set = label, gene = g$V4[i], chr = g$V1[i],
-               kb = round((g$V3[i] - g$V2[i]) / 1000), snps = n)
+               kb = (g$V3[i] - g$V2[i]) / 1000, snps = n)
   }))
+  d <- d[, .(kb = round(sum(kb)), snps = sum(snps), pieces = .N),
+         by = .(set, gene, chr)]
   d[order(-snps)]
 }
 dens <- rbindlist(list(snp_density(imp_pat, "paternal"),
