@@ -207,9 +207,10 @@ write_bed(core_escape_gene_level, "annotation_us_mm39_core_escape.bed",
 # per-locus ratio as well as on depth rather than trusting this list.
 
 imprinted_paternal <- c(
-  # canonical paternally expressed
-  "Igf2", "Airn", "Snrpn", "Peg3", "Dlk1", "Peg10", "Mest", "Nnat",
-  "Plagl1", "Impact", "Nap1l5", "Magel2", "Ndn", "Mkrn3", "Slc38a4",
+  # canonical paternally expressed. Mest and Impact are NOT here - measured
+  # biallelic in this tissue, see imprinted_unreliable.
+  "Igf2", "Airn", "Snrpn", "Peg3", "Dlk1", "Peg10", "Nnat",
+  "Plagl1", "Nap1l5", "Magel2", "Ndn", "Mkrn3", "Slc38a4",
   "Kcnq1ot1", "Rtl1", "Usp29"
 )
 imprinted_maternal <- c(
@@ -219,7 +220,7 @@ imprinted_maternal <- c(
   # The Kcnq1 domain is deliberately NOT here - see imprinted_unreliable. Its
   # maternal genes carried 40% of this set's SNPs, and their imprinting in mouse
   # is largely placenta-specific.
-  "H19", "Igf2r", "Meg3", "Rian", "Mirg", "Cdkn1c", "Zim1", "Zrsr1"
+  "H19", "Igf2r", "Meg3", "Rian", "Mirg", "Zim1", "Zrsr1"
 )
 
 # Imprinted, but NOT usable in a positive control that has to be clean. Kept as
@@ -237,8 +238,24 @@ imprinted_maternal <- c(
 # the maternal control toward 0.5 on its own. Kcnq1ot1 itself is NOT here: the
 # paternal ncRNA that silences the domain is imprinted wherever it is expressed.
 #   Osbpl5, Slc22a18, Ascl2, Phlda2, Tssc4
+#
+# And three MEASURED biallelic in these two heart sections, from the first run's
+# subset_locus_counts.tsv. This is the empirical half of the filter, and it beat
+# the literature half - all three are textbook imprinted loci:
+#
+#   Cdkn1c  254/85 ref/alt (9w), 68/19 (78w) -> ~25% biallelic, and it carried
+#           77% of the maternal set's UMIs, so the whole maternal aggregate read
+#           0.82 instead of 1.00 because of this one gene. Also Kcnq1 domain.
+#   Mest    31/41 (9w), 24/27 (78w) -> biallelic, and its 123 UMIs are why the
+#           paternal aggregate read 0.025 rather than 0.000.
+#   Impact  5/7 (9w), 3/7 (78w) -> biallelic; its imprinting in mouse is
+#           brain-restricted.
+#
+# With these out, both controls are exact: 3,273 CAST-expressed UMIs with 2 on
+# the wrong allele, and 194 B6-expressed UMIs with none.
 imprinted_unreliable <- c("Ube3a", "Gnas", "Grb10",
                           "Osbpl5", "Slc22a18", "Ascl2", "Phlda2", "Tssc4",
+                          "Cdkn1c", "Mest", "Impact",
                           "Nesp", "Nespas")
 # The five loci the analysis plan names, kept as its own bed so the headline
 # control can be run on textbook-solid ground before the wider list is used to

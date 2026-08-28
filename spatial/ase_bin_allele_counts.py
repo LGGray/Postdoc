@@ -1104,6 +1104,7 @@ def main():
     n_written = 0
     x_umi = a_umi = 0
     sub_umi = [0] * len(subsets)
+    sub_ref = [0] * len(subsets)
     with open(args.out, "w") as out:
         # Subset columns are appended, never interleaved, so a reader that only
         # knows the original seven columns still reads this file correctly.
@@ -1123,6 +1124,7 @@ def main():
                 sr, sa = sc.get(bc, (0, 0))
                 row += [sr, sa]
                 sub_umi[i] += sr + sa
+                sub_ref[i] += sr
             out.write("\t".join(str(v) for v in row) + "\n")
             x_umi += xr + xa
             a_umi += ar + aa
@@ -1141,6 +1143,11 @@ def main():
                             ",".join(sorted(win_chroms))))
 
     if loci is not None:
+        # NOTE: unlike the main table, this one counts every barcode the BAM
+        # carried, including bins that did not resolve to tissue. That is
+        # deliberate - its job is to check a control locus's depth and direction,
+        # and the off-tissue bins carry the same alleles - but it means the totals
+        # here run a few percent above the corresponding column in the main table.
         with open(args.locus_out, "w") as lf:
             lf.write("subset\tlocus\tref\talt\tn\tref_frac\n")
             for (sn, nm), (r, a) in sorted(loci.items(),
@@ -1195,9 +1202,14 @@ def main():
                 "*** bias than the standard 10x B6 reference usually produces.\n"
                 "*** Worth a look before trusting absolute ratios.\n" % a_ref_frac)
 
+    # Both from the write loop, so both count only bins that resolved to tissue.
+    # Summing the numerator over every barcode in sub_counts while taking the
+    # denominator from the write loop inflated every subset ref fraction by the
+    # off-tissue share - 1.9% in 9w, 5.3% in 78w - which is enough to make the
+    # subsets fail to add back up to the chrX column and to misreport the Xic.
+    # The written table was never affected; only this line was.
     for i, s in enumerate(subsets):
-        r = sum(v[0] for v in sub_counts[i].values())
-        n = sub_umi[i]
+        r, n = sub_ref[i], sub_umi[i]
         sys.stderr.write("subset %-12s %d informative UMIs, ref fraction %s\n"
                          % (s.name, n, "%.4f" % (r / n) if n else "n/a"))
 

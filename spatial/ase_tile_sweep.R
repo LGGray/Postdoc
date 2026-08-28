@@ -1,28 +1,44 @@
-# Choose a tile size for the spatial allele-specific analysis.
+# Measure escape from X inactivation per unit area, and size the tiles for it.
 #
-# Input is the per-2um-bin allelic count table from ase_bin_allele_counts.py.
-# Because tile sizes are nested (each is a whole number of 2um bins per side),
-# every candidate tiling is a pure summation of that one table - so the sweep
-# costs minutes, and sinto only ever gets run once, at the size chosen here.
+# ---------------------------------------------------------------------------
+# THE GENOTYPE, which decides what every statistic below can mean.
 #
-# Three things are measured, and they disagree with each other on purpose:
+# These animals carry an Xist deletion on the B6 X. B6 therefore CANNOT be
+# inactivated, so the CAST X is the inactive one in EVERY cell. Consequences:
 #
-#   1. Coverage      fraction of tiles reaching a usable UMI count. Rises with
-#                    tile size. Sets the floor.
-#   2. Dispersion    rho(s), the fraction of the maximum possible mosaic
-#                    variance in allelic ratio that is real rather than
-#                    sampling noise. Falls with tile size as tiles start
-#                    averaging over more than one clonal patch. Sets the ceiling.
-#   3. C(d)          probability that two informative UMIs d microns apart carry
-#                    the same allele. Needs no tiling at all, so it estimates
-#                    the patch size without the thing we are trying to choose
-#                    contaminating the answer. This is the one to trust.
+#   * XCI is not random and there is no mosaic. No clonal patches of "which X is
+#     active" exist, at any scale, by construction.
+#   * CAST expression from chrX IS escape (or leak) from the inactive X. That is
+#     the quantity of interest, and it is what alt / (ref + alt) measures.
+#   * B6 expression is the active X, and the B6-ward reference mapping bias
+#     therefore makes escape UNDER-estimated, not over. The autosomal control
+#     measures that bias: autosomal ref fraction minus 0.5 is the size of it.
 #
-# Everything is computed for chrX and, identically, for the autosomal control.
-# Autosomes are biallelic and should have no spatial structure, so autosomal
-# rho and C(d) are the empirical null - they already contain the reference
-# mapping bias from using the standard 10x B6 reference, plus whatever technical
-# spatial structure the slide has. Only chrX above that null means anything.
+# An earlier version of this script was built around finding a clonal patch
+# scale. That question cannot have a positive answer under this genotype, which
+# is why half_decay() returned NA and the chrX-minus-autosome excess was flat at
+# 0.28 across three orders of magnitude: a flat excess is not patchiness, it is
+# arithmetic. With a global ratio p, two UMIs drawn at random agree with
+# probability p^2 + (1-p)^2, which at p = 0.873 is 0.778 - the observed C(d),
+# to three decimals, at every separation from 4 um to 2 mm. The statistics are
+# kept, but they are now read as follows:
+#
+#   1. Coverage      fraction of tiles reaching a usable UMI count. Sets how
+#                    precisely escape can be measured per tile - see the escape
+#                    precision table, which is what now picks the tile size.
+#   2. rho(s)        between-tile variance in the escape fraction beyond
+#                    sampling noise. NOT mosaicism: there is none to find. This
+#                    asks whether escape LEVEL varies from place to place.
+#   3. C(d) residual C(d) minus a permutation null in which each anchor is
+#                    paired with a random bin instead of its neighbour at
+#                    distance d. The null carries the global allele fractions
+#                    with the same sampling weights, so the residual is the
+#                    only part of C(d) that is spatial at all. Zero residual
+#                    means escape is spatially uniform.
+#
+# The autosomal control is still the technical null: biallelic, so it carries
+# the reference mapping bias and any spatial artefact of the slide without any
+# monoallelic biology.
 #
 # EVERY EXTRA COLUMN PAIR in the count table is carried through automatically.
 # ase_bin_allele_counts.py --subset-bed writes <name>_ref / <name>_alt for any
@@ -86,7 +102,9 @@ IN_TSV    <- file.path(BASE, "ase", SAMPLE, "bin_allele_counts.tsv")
 # for the coverage denominator - IN_TSV only holds bins that carry data, and
 # using that as the denominator would report near-perfect coverage at 8um.
 TISSUE_TSV <- paste0(IN_TSV, ".tissue_bins.tsv.gz")
-OUT_DIR   <- file.path(BASE, "ase", SAMPLE)
+# Overridable so the sweep can be re-run against archived counts without
+# writing back over them.
+OUT_DIR   <- Sys.getenv("OUT_DIR", file.path(BASE, "ase", SAMPLE))
 
 # Candidate tile sizes, in microns. Every one is a whole number of 2um bins per
 # side, so the tilings nest exactly and the sweep is strict aggregation with no
@@ -356,6 +374,20 @@ pair_correlation <- function(ref_col, alt_col, label) {
     if (nrow(hit) < 100) return(NULL)
     hit[, agree := (r1 * ref + a1 * alt) / (n1 * n)]
 
+    # The null that matters. Same anchors, but partnered with a bin drawn at
+    # random from anywhere in the section instead of the bin at distance dd.
+    # Anything C(d) has above this comes from the two bins being NEAR each
+    # other; everything at or below it is the global allele fraction and carries
+    # no spatial information.
+    #
+    # Done by permutation rather than as p^2 + (1-p)^2 because the analytic form
+    # needs the right p, and the anchors are sampled uniformly over BINS while
+    # the global ratio is UMI-weighted. Those differ by a couple of points here,
+    # which is the same size as the residual being tested for. The permutation
+    # inherits the sampling weights exactly and needs no p at all.
+    rnd <- d[sample.int(nrow(d), nrow(hit), replace = TRUE)]
+    hit[, agree0 := (r1 * rnd$ref + a1 * rnd$alt) / (n1 * rnd$n)]
+
     # sector -1 is the all-angles curve, kept so the isotropic reading stays
     # available and directly comparable to the per-sector ones.
     #
@@ -364,14 +396,21 @@ pair_correlation <- function(ref_col, alt_col, label) {
     # the escape and imprinted comparisons depend on: at a nominal 4um the
     # offset is +-1 bin, so the realised separations are 2, 2.83 and 4um and
     # the mean lands near 3, not 4.
+    # se_resid is the PAIRED standard error: the null uses the same anchors, so
+    # the difference is far better determined than either term separately.
     iso <- hit[, .(sector = -1L, dist_nominal = dd, dist_um = mean(d_real),
                    d_sd = sd(d_real), d_min = min(d_real), d_max = max(d_real),
-                   n_pairs = .N, C = mean(agree), se = sd(agree) / sqrt(.N))]
+                   n_pairs = .N, C = mean(agree), se = sd(agree) / sqrt(.N),
+                   C0 = mean(agree0), resid = mean(agree - agree0),
+                   se_resid = sd(agree - agree0) / sqrt(.N))]
     per <- if (CD_N_SECTORS > 0L) {
       hit[, .(dist_nominal = dd, dist_um = mean(d_real), d_sd = sd(d_real),
               d_min = min(d_real), d_max = max(d_real),
               n_pairs = .N, C = mean(agree),
-              se = sd(agree) / sqrt(.N)), by = sector][n_pairs >= 100]
+              se = sd(agree) / sqrt(.N), C0 = mean(agree0),
+              resid = mean(agree - agree0),
+              se_resid = sd(agree - agree0) / sqrt(.N)),
+          by = sector][n_pairs >= 100]
     } else NULL
     rbindlist(list(iso, per), use.names = TRUE)[, chrom_set := label][]
   }))
@@ -421,57 +460,119 @@ short <- cd[sector == -1L][order(chrom_set, dist_um)][
   , .(dist_nominal = dist_nominal[1], dist_um = round(dist_um[1], 2),
       d_range = sprintf("%.1f-%.1f", d_min[1], d_max[1]),
       n_pairs = n_pairs[1], C = round(C[1], 4), se = round(se[1], 4),
+      C0 = round(C0[1], 4), resid = round(resid[1], 4),
+      se_resid = round(se_resid[1], 4),
+      resid_sd = round(resid[1] / pmax(se_resid[1], 1e-9), 1),
       C_mean3 = round(mean(C), 4), implied_umi_err = round(implied_err(C[1]), 4)),
   by = chrom_set]
-message("\nShort-range pair correlation, every set (realised separations, not nominal):")
+message("\nShort-range pair correlation, every set (realised separations, not nominal).")
+message("C0 is the permutation null - the same anchors paired with a random bin.")
+message("resid = C - C0 is the ONLY spatial part; resid_sd is it in units of its own SE.")
 msg_table(short)
 fwrite(short, file.path(OUT_DIR, "pair_correlation_short_range.csv"))
 
+# The imprinted controls, BY DIRECTION - which is the whole point of them here.
+#
+# Escape is CAST expression from an inactive CAST X. The error that would FAKE
+# escape is therefore a B6 molecule called CAST, and only a B6-expressed
+# monoallelic locus tests that. A CAST-expressed locus like Snrpn tests the
+# opposite direction, which cannot manufacture escape.
+#
+# The pooled ref fraction is a better estimator than C(d) here and is reported
+# alongside: it uses every UMI in the set rather than the few thousand sampled
+# pairs, and it needs no independence assumption. C(d) on a set of ~2000 UMIs
+# resamples a small number of distinct bin pairs, so its printed SE of 0.0000 is
+# not to be quoted.
 imp <- short[grepl("^imp", chrom_set)]
-if (nrow(imp)) {
-  message("\n--- imprinted positive control ---")
-  for (i in seq_len(nrow(imp))) {
+imp_ref <- rbindlist(lapply(grep("^imp", names(SET_COLS), value = TRUE),
+                            function(nm) {
+  cols <- SET_COLS[[nm]]
+  r <- bins[, sum(get(cols[1]))]; a <- bins[, sum(get(cols[2]))]
+  if (r + a == 0) return(NULL)
+  # Which allele the locus set expresses, read off the data rather than assumed.
+  expressed <- if (r > a) "B6 (ref)" else "CAST (alt)"
+  wrong <- if (r > a) a else r
+  data.table(set = nm, n = r + a, expressed = expressed, wrong_allele = wrong,
+             err = wrong / (r + a),
+             # One-sided 95% upper bound. With no failures the rule of three
+             # gives 3/n, which is the honest way to report 0 out of 194.
+             err_hi = if (wrong == 0) 3 / (r + a) else
+               qbeta(0.95, wrong + 1, r + a - wrong))
+}))
+if (nrow(imp_ref)) {
+  message("\n--- imprinted controls, by direction ---")
+  msg_table(imp_ref[order(-n), .(set, n, expressed, wrong_allele,
+                                 err = round(err, 5),
+                                 err_95_upper = round(err_hi, 5))])
+  x_escape <- 1 - sweep[chrom_set == "chrX" & size_um == max(SIZES_UM), p_bar]
+  b6 <- imp_ref[expressed == "B6 (ref)"]
+  if (nrow(b6)) {
+    e_hi <- max(b6$err_hi)
     message(sprintf(
-      "%s: C(%.1fum) = %.4f -> implied per-UMI error %.1f%%",
-      imp$chrom_set[i], imp$dist_um[i], imp$C[i],
-      100 * imp$implied_umi_err[i]))
-  }
-  cx0 <- short[chrom_set == "chrX", C]
-  if (length(cx0) && all(is.finite(imp$C))) {
-    if (max(imp$C) >= 0.97) {
-      message("PASS: an imprinted locus is called consistently, so per-UMI ",
-              "assignment is not the\n  ceiling, and the chrX floor of ",
-              sprintf("%.3f", cx0), " is biology (escape or leak), not error.")
-    } else if (max(imp$C) <= cx0 + 0.05) {
-      message("FAIL: the imprinted control sits at ", sprintf("%.3f", max(imp$C)),
-              ", no better than chrX's ", sprintf("%.3f", cx0), ".")
-      message("  Per-UMI allele assignment, not biology, is the ceiling. The ",
-              "tile analysis cannot\n  go further on this data and the ",
-              "per-allele rate is measuring a noise rate.")
+      "B6-expressed loci: %d UMIs, %d on the wrong allele -> false-escape rate <= %.2f%% (95%%)",
+      sum(b6$n), sum(b6$wrong_allele), 100 * e_hi))
+    message(sprintf("Observed chrX escape (CAST fraction): %.2f%%",
+                    100 * x_escape))
+    if (e_hi < x_escape / 3) {
+      message("PASS: the false-escape ceiling is well below the observed escape,",
+              " so the CAST\n  signal on chrX is real escape, not allele ",
+              "misassignment.")
     } else {
-      message("PARTIAL: the imprinted control is above chrX but below 0.97. ",
-              "Some of the chrX\n  floor is error and some is biology; the ",
-              "split is the gap between the two.")
+      message("FAIL: the false-escape ceiling is the same order as the observed",
+              " escape. A B6\n  molecule is being called CAST often enough to ",
+              "manufacture this signal; the\n  escape estimate cannot be ",
+              "reported until that is understood.")
     }
-    message("  Before reading any of that: check the per-locus depth and ",
-            "ratios in the counter's\n  --locus-out table. A set pooled over ",
-            "loci that are not all monoallelic in heart\n  (Grb10 and Ube3a ",
-            "are the usual offenders) fails this test for the wrong reason.")
+  } else {
+    message("NO B6-EXPRESSED CONTROL. Only the CAST-expressed direction is ",
+            "covered, and that\n  direction cannot fake escape. The ",
+            "false-escape rate is UNMEASURED - add a\n  maternally expressed ",
+            "locus set (H19, Igf2r, Meg3/Rian/Mirg) and re-count.")
+  }
+  message("  Any control locus that is biallelic in heart fails this for the ",
+          "wrong reason.\n  Check per-locus ratios in the counter's ",
+          "--locus-out table: Cdkn1c, Mest and\n  Impact were all measured ",
+          "biallelic here and are excluded upstream.")
+}
+# How much escape each SNP set carries. This, not C(d), is the comparison that
+# means something now: escape IS the CAST fraction, so the question is whether
+# the chromosome-wide signal is concentrated in the known escapees or spread
+# across chrX, and how much of it the Xic contributes.
+esc <- rbindlist(lapply(names(SET_COLS), function(nm) {
+  cols <- SET_COLS[[nm]]
+  r <- bins[, sum(get(cols[1]))]; a <- bins[, sum(get(cols[2]))]
+  if (r + a == 0) return(NULL)
+  data.table(set = nm, umis = r + a, escape = a / (r + a))
+}))
+esc[, escape_se := sqrt(escape * (1 - escape) / umis)]
+message("\n--- escape by SNP set (CAST fraction = escape) ---")
+msg_table(esc[order(-umis), .(set, umis, escape = round(escape, 4),
+                              se = round(escape_se, 4))])
+message("Sampling SE only - it ignores overdispersion and the mapping bias, so")
+message("treat it as a floor on the uncertainty.")
+if (all(c("chrX", "escape", "nonescape") %in% esc$set)) {
+  e_all <- esc[set == "chrX", escape]
+  e_esc <- esc[set == "escape", escape]
+  e_non <- esc[set == "nonescape", escape]
+  message(sprintf("Core escape genes: %.1f%% escape, against %.1f%% for the rest of chrX (%.1fx).",
+                  100 * e_esc, 100 * e_non, e_esc / e_non))
+  if (e_esc > 1.5 * e_non) {
+    message("  The known escapees do escape more, which is the positive control")
+    message("  for the measurement itself. But they are a small fraction of the")
+    message("  chromosome's SNPs, so most of the chromosome-wide CAST signal")
+    message("  comes from OUTSIDE them - widespread low-level escape or leak.")
+  } else {
+    message("  The known escapees are NOT enriched for CAST expression. Either")
+    message("  the annotation is wrong or the CAST signal is not escape.")
   }
 }
-if (all(c("escape", "nonescape") %in% short$chrom_set)) {
-  message("\n--- escape partition ---")
-  message(sprintf("all chrX %.4f   core-escape only %.4f   chrX minus escape %.4f",
-                  short[chrom_set == "chrX", C],
-                  short[chrom_set == "escape", C],
-                  short[chrom_set == "nonescape", C]))
-  if (short[chrom_set == "nonescape", C] - short[chrom_set == "chrX", C] > 0.02) {
-    message("Removing the escapees lifts the short range, so escape is part of ",
-            "the floor.")
-  } else {
-    message("Removing the escapees changes nothing: the floor is not escape at ",
-            "these 11 genes.")
-  }
+if (all(c("xic", "noxic") %in% esc$set)) {
+  message(sprintf("Xic region: %.1f%% escape on %d UMIs; chrX with it masked: %.1f%%, against %.1f%% unmasked.",
+                  100 * esc[set == "xic", escape], esc[set == "xic", umis],
+                  100 * esc[set == "noxic", escape],
+                  100 * esc[set == "chrX", escape]))
+  message("  The Xic reports the inactive X by definition, so it is expected to")
+  message("  be CAST-heavy and to inflate the chromosome-wide figure.")
 }
 
 # C(d) = Cinf + (C0 - Cinf) * exp(-d / L). L is the patch length; tiles should
@@ -571,7 +672,7 @@ print(
   ggplot(cov_long[chrom_set == "chrX"], aes(size_um, frac, colour = target)) +
     geom_line() + geom_point() +
     scale_x_log10(breaks = SIZES_UM) +
-    labs(title = titled("Coverage: tiles reaching a usable depth"),
+    labs(title = titled("Coverage: tiles reaching a usable depth for escape"),
          subtitle = "chrX informative UMIs per tile",
          x = "tile size (um)", y = "fraction of tissue tiles",
          colour = "UMIs") +
@@ -582,11 +683,13 @@ print(
   ggplot(sweep, aes(size_um, rho_bb, colour = chrom_set)) +
     geom_line() + geom_point() +
     scale_x_log10(breaks = SIZES_UM) +
-    labs(title = titled("Mosaic dispersion rho(s)"),
-         subtitle = paste("Beta-binomial intraclass correlation.",
-                          "chrX above the autosomal null is real structure;",
-                          "the fall-off marks where tiles start averaging",
-                          "over more than one patch."),
+    labs(title = titled("Between-tile variance in the escape fraction"),
+         subtitle = paste("Beta-binomial intraclass correlation. NOT mosaicism -",
+                          "the CAST X is inactive in every cell, so there are no",
+                          "patches of\nactive X to average over. This asks",
+                          "whether the LEVEL of escape differs from tile to",
+                          "tile. chrX at the autosomal\nnull means escape is",
+                          "spatially uniform."),
          x = "tile size (um)", y = "rho") +
     theme_bw() + theme(plot.subtitle = element_text(size = 7))
 )
@@ -635,6 +738,30 @@ if (nrow(cd)) {
     )
   }
 
+  # The panel that replaces the "excess over autosome" reading. Each set against
+  # its OWN permutation null, so a flat line at zero is the honest statement
+  # that C(d) carries no spatial information - which is what the genotype
+  # predicts, and what the data show.
+  print(
+    ggplot(cd[sector == -1L], aes(dist_um, resid, colour = chrom_set)) +
+      geom_hline(yintercept = 0, colour = "grey40") +
+      geom_ribbon(aes(ymin = resid - 2 * se_resid, ymax = resid + 2 * se_resid,
+                      fill = chrom_set), alpha = 0.12, colour = NA) +
+      geom_line() +
+      scale_x_log10() +
+      labs(title = titled("C(d) residual: the only spatial part"),
+           subtitle = paste("C(d) minus a permutation null in which each anchor",
+                            "is paired with a RANDOM bin instead of its",
+                            "neighbour at distance d.\nThe null carries the",
+                            "global allele fractions with identical sampling",
+                            "weights, so everything left is proximity.",
+                            "\nFlat at zero = escape is spatially uniform. A",
+                            "decaying positive residual would be a real length."),
+           x = "separation (um)", y = "C(d) - permutation null",
+           colour = "SNP set", fill = "SNP set") +
+      theme_bw() + theme(plot.subtitle = element_text(size = 7))
+  )
+
   if (!is.null(excess)) {
     print(
       ggplot(excess, aes(dist_um, excess)) +
@@ -643,11 +770,13 @@ if (nrow(cd)) {
                     alpha = 0.15) +
         geom_line() +
         scale_x_log10() +
-        labs(title = titled("chrX clonal signal: C(d) above the autosomal null"),
-             subtitle = paste("Autosomes carry the same cell-footprint and",
-                              "bursting correlation without clonal XCI, so",
-                              "the excess is the mosaicism. Flat at zero",
-                              "means no patch structure at this depth."),
+        labs(title = titled("C(d) above the autosomal null - NOT a clonal signal"),
+             subtitle = paste("Kept for continuity, and it is the panel that",
+                              "misled: a flat excess is arithmetic, not",
+                              "patchiness.\nWith global ratios p_X and p_A it",
+                              "sits at (p_X^2+(1-p_X)^2) - (p_A^2+(1-p_A)^2)",
+                              "at EVERY separation.\nThe residual panel is the",
+                              "one that carries spatial information."),
              x = "separation (um)", y = "C_chrX(d) - C_autosome(d)") +
         theme_bw() + theme(plot.subtitle = element_text(size = 7))
     )
@@ -683,75 +812,104 @@ for (s in intersect(c(16, 32, 64, 128, 256), SIZES_UM)) {
   print(
     ggplot(tl, aes(x / n)) +
       geom_histogram(bins = 40, fill = "grey30") +
-      labs(title = titled(paste0("chrX allelic ratio per tile, ", s, " um")),
+      labs(title = titled(paste0("chrX escape per tile, ", s, " um")),
            subtitle = paste0(nrow(tl), " of ",
                              n_tissue_tiles[[as.character(s)]],
                              " tissue tiles clear ", MIN_UMI,
                              " UMIs; median ", median(tl$n), " UMIs among those"),
-           x = "B6 fraction", y = "tiles") +
+           x = "B6 (active X) fraction; escape is 1 minus this", y = "tiles") +
       theme_bw()
   )
 }
 invisible(dev.off())
 
 # --------------------------------------------------------- recommendation
+#
+# The tile size is chosen for PRECISION ON THE ESCAPE FRACTION, not for a patch
+# scale. There is no patch scale: the CAST X is inactive in every cell, so no
+# mosaic exists to resolve. What a tile has to do is estimate escape - the CAST
+# fraction - well enough to answer whatever question is being asked of it.
 
 x <- sweep[chrom_set == "chrX"]
-best_rho <- if (all(is.na(x$rho_bb))) NULL else x[which.max(rho_bb)]
-usable   <- x[frac_ge_10 >= 0.5]
-message("\n--- recommendation ---")
-if (!is.null(excess)) {
-  e0 <- mean(head(excess$excess, 3))
-  s0 <- mean(head(excess$se, 3))
-  if (is.finite(e0) && e0 > 2 * s0) {
-    message(sprintf("chrX carries clonal signal: excess %.4f at short range (%.1f SE).",
-                    e0, e0 / s0))
-    if (!is.na(L_x_free)) {
-      message(sprintf("  Patch half-decay ~%.0f um -> tile at <= %.0f um.",
-                      L_x_free, L_x_free / 2))
-    }
-  } else {
-    message(sprintf("No clonal signal: chrX C(d) sits %.4f above the autosomal null at short range (%.1f SE).",
-                    e0, if (s0 > 0) e0 / s0 else NA_real_))
-    message("  Either patches are smaller than the depth allows resolving, or")
-    message("  diffusion has smeared them. A grid map has nothing to show; the")
-    message("  per-domain pseudobulk is where the signal will be.")
-  }
-}
-if (!is.na(L_x)) {
-  message(sprintf("C(d) puts the chrX patch length at ~%.0f um (autosomal null %.0f um).",
-                  L_x, L_a))
-  message(sprintf("  -> to resolve patch shape, tile at <= %.0f um.", L_x / 2))
-}
-if (!is.null(sector_L) && sum(!is.na(sector_L$L_chrX)) >= 2) {
-  Lmin <- min(sector_L$L_chrX, na.rm = TRUE)
-  Lmax <- max(sector_L$L_chrX, na.rm = TRUE)
-  message(sprintf("Directional: %.0f um across the short axis, %.0f um along the long one (%.1fx).",
-                  Lmin, Lmax, Lmax / Lmin))
-  if (Lmax / Lmin >= 1.5) {
-    message(sprintf("  Patches are elongated, so the short axis governs: tile at <= %.0f um.",
-                    Lmin / 2))
-    message("  Square tiles are a fair first pass, but a tile sized for the ",
-            "long axis will be mixing patches across the fibre.")
-  }
-}
-if (is.null(best_rho)) {
-  message("rho could not be estimated at any tile size - too few tiles clear ",
-          "MIN_UMI. That is itself the answer: the grid is depth-limited.")
-} else {
-  message(sprintf("rho peaks at %d um (rho = %.3f).",
-                  best_rho$size_um, best_rho$rho_bb))
-}
+usable <- x[frac_ge_10 >= 0.5]
+escape_global <- 1 - x[size_um == max(SIZES_UM), p_bar]
+
+# Per-tile precision at each size. n is the MEDIAN over tissue tiles, so this is
+# the typical tile rather than the best one. mde is the smallest difference in
+# escape fraction a single tile could distinguish from the global level at
+# alpha = 0.05 and 80% power, i.e. 2.8 standard errors - the honest statement of
+# what one tile can and cannot see.
+prec <- x[, .(size_um, n_tissue_tiles, median_umi, frac_ge_10, frac_ge_20,
+              escape = round(1 - p_bar, 4))]
+prec[, se_escape := sqrt(escape_global * (1 - escape_global) /
+                           pmax(median_umi, 1))]
+prec[median_umi < 1, se_escape := NA_real_]
+prec[, mde := 2.8 * se_escape]
+# An MDE above 1 is not a number, it is "this tile can detect nothing".
+prec[mde > 1, `:=`(mde = NA_real_, se_escape = NA_real_)]
+prec[, `:=`(se_escape = round(se_escape, 4), mde = round(mde, 4))]
+
+message("\n--- escape and per-tile precision ---")
+message(sprintf("Global chrX escape (CAST fraction): %.4f", escape_global))
+message(sprintf("Autosomal control ref fraction: %.4f -> B6-ward mapping bias %.4f.",
+                sweep[chrom_set == "autosome" & size_um == max(SIZES_UM), p_bar],
+                sweep[chrom_set == "autosome" & size_um == max(SIZES_UM), p_bar] - 0.5))
+message("  That bias suppresses CAST reads, so the true escape is HIGHER than")
+message("  the figure above, not lower.")
+msg_table(prec)
+message("se_escape is the sampling SE on one tile's escape fraction at the median")
+message("depth; mde is the smallest difference from the global level that one tile")
+message("could call at 80% power. Both are floors - they ignore overdispersion.")
+
 if (nrow(usable)) {
+  best <- prec[median_umi >= 20][which.min(size_um)]
+  if (nrow(best)) {
+    message(sprintf("\nSmallest tile with a median of 20+ chrX UMIs: %d um (SE %.3f, MDE %.3f).",
+                    best$size_um, best$se_escape, best$mde))
+    message(sprintf("  At that size a tile separates escape of %.0f%% from %.0f%%, and nothing finer.",
+                    100 * escape_global, 100 * (escape_global + best$mde)))
+  }
   message(sprintf("Smallest tile where >=50%% of tiles clear 10 UMIs: %d um.",
                   min(usable$size_um)))
 } else {
-  message("No tile size gets 50% of tiles to 10 chrX UMIs. The grid map is not ",
-          "supportable at this depth - use the domain pseudobulk instead, or ",
-          "restrict to cardiomyocyte bins via DOMAIN_TSV and re-run.")
+  message("\nNo tile size gets 50% of tiles to 10 chrX UMIs. Per-tile escape is")
+  message("  not estimable at this depth - use a regional or per-domain pseudobulk,")
+  message("  or restrict to cardiomyocyte bins via DOMAIN_TSV and re-run.")
 }
+
+# Is escape spatially structured at all? Two independent answers.
+message("\n--- is escape spatially structured? ---")
+rx <- cd[chrom_set == "chrX" & sector == -1L][order(dist_um)]
+if (nrow(rx) >= 3L) {
+  r0 <- mean(head(rx$resid, 3)); s0 <- mean(head(rx$se_resid, 3))
+  message(sprintf("C(d) residual over the permutation null, short range: %+.4f (%.1f SE).",
+                  r0, if (s0 > 0) r0 / s0 else NA_real_))
+  if (is.finite(r0) && abs(r0) < 2 * s0) {
+    message("  Zero. Two UMIs 4 um apart - usually the same cardiomyocyte - are no")
+    message("  more likely to agree than two drawn from opposite ends of the")
+    message("  section. Escape is spatially uniform, and C(d) is fully accounted")
+    message("  for by the global CAST fraction.")
+  } else if (r0 > 0) {
+    message("  Positive: nearby UMIs agree more than chance, so escape level")
+    message("  varies between places. Read the residual curve for the scale over")
+    message("  which it decays - THAT is a real length, unlike the raw C(d).")
+  } else {
+    message("  Negative, which no biology predicts. Suspect the sampling or a")
+    message("  depth gradient before interpreting it.")
+  }
+}
+rho_x <- x[size_um == 64 & !is.na(rho_bb), rho_bb]
+rho_a <- sweep[chrom_set == "autosome" & size_um == 64 & !is.na(rho_bb), rho_bb]
+if (length(rho_x) && length(rho_a)) {
+  message(sprintf("rho at 64 um: chrX %.4f against an autosomal null of %.4f.",
+                  rho_x, rho_a))
+  message("  This is between-tile variance in the escape fraction beyond sampling")
+  message("  noise. It is NOT mosaicism - there is none under this genotype.")
+}
+message("\nNOTE: n = 1 animal per age. Nothing here is an age effect.")
 message("Set TILE_UM_FOR_SINTO once you have looked at ",
         file.path(OUT_DIR, "tile_size_sweep.pdf"))
+fwrite(prec, file.path(OUT_DIR, "escape_precision.csv"))
 
 # ------------------------------------------------- barcode -> tile for sinto
 

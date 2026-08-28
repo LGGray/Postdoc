@@ -7,6 +7,28 @@ the headline result is real; do not invest in 5–9 until they pass.
 
 ---
 
+## THE GENOTYPE — read this before any number below
+
+These animals carry an **Xist deletion on the B6 X**. B6 cannot be inactivated,
+so the **CAST X is the inactive X in every cell**. Therefore:
+
+- XCI is not random and **there is no mosaic**. No clonal patches of "which X is
+  active" exist at any scale, by construction.
+- **CAST expression from chrX is escape** (or leak) from the inactive X. That is
+  the quantity of interest, and it is `alt / (ref + alt)`.
+- B6 is the active X, so the B6-ward reference mapping bias makes escape
+  **under**-estimated. The autosomal ref fraction minus 0.5 is that bias: 0.028
+  (9w), 0.043 (78w).
+- The error that could **fake** escape is a B6 molecule called CAST. Only a
+  **maternally expressed** imprinted locus tests that direction — the cross is
+  B6 mother × CAST father, established from the data (see below).
+
+Everything in "Context: what prompted this list" below was written before this
+was stated, and several of its conclusions do not survive it. In particular the
+flat `C(d)`, the NA `half_decay()` and the scale-invariant excess are not
+failures to explain — they are what this genotype predicts. There is no patch
+scale to find.
+
 ## Status, 2026-08-28
 
 Tasks **1–4**, **9** and **10** are implemented. Tasks **5–8** are deliberately
@@ -17,7 +39,56 @@ this round adds a second SNP mask and a second set of PDFs per sample, so
 unlabelled figures and un-fingerprinted beds would have made the new results
 harder to attribute than the old ones.
 
-Nothing has been run. Run order on the cluster:
+### Results of the first run
+
+The counting pass and sweep have run on both sections. What they establish:
+
+- **The measurement is clean, in both directions.** 3,273 CAST-expressed UMIs at
+  Snrpn with 2 on the wrong allele (0.06%); 194 B6-expressed UMIs at
+  H19/Rian/Igf2r/Meg3 with **zero** on the wrong allele, so the false-escape rate
+  is ≤1.5% (95% upper bound, rule of three) against an observed escape of 12.7%.
+  Task 3 passes in the direction that matters.
+- **The cross is B6 mother × CAST father**, from two opposite-direction sets:
+  paternally expressed loci are CAST (Snrpn ref 0.000), maternally expressed are
+  B6 (H19 ref 1.000). Previously unstated anywhere in the project.
+- **Three control loci were measured biallelic in heart** and are now excluded:
+  Cdkn1c (254/85 and 68/19 ref/alt — and it carried 77% of the maternal set's
+  UMIs, which is why that aggregate read 0.82), Mest (31/41, 24/27) and Impact
+  (5/7, 3/7). The empirical filter beat the literature filter; all three are
+  textbook imprinted loci.
+- **C(d) is fully accounted for by the global escape fraction.** With p = 0.8728
+  the no-structure value p² + (1−p)² is 0.7780 against an observed 0.7866 (9w);
+  78w predicts 0.7792 against 0.7784. The autosomal control matches to 0.0004.
+  The 0.28 "excess over the autosomal null" is arithmetic, not patchiness —
+  task 8's first bullet, confirmed. ρ at 64 µm is 0.006 / 0.003, so escape does
+  not vary spatially either.
+- **Per-gene escape is biologically sensible**, which is the best evidence the
+  assay measures what it claims: Ddx3x and Jpx near 50% (full escape), Ftx 41/35%,
+  Kdm6a 34/26%, Kdm5c 28/26%, Akap17a 26/20%, Pbdc1 13/10%, against 12.7% for the
+  chromosome as a whole.
+- **Escape is unchanged between the sections**: 12.72% (9w) vs 12.64% (78w) raw,
+  ~13.5% vs ~13.8% after correcting for the differing mapping bias. Nothing like
+  the +45% the read-level Allelome tile tables suggested.
+
+Two bugs found and fixed in the process: the counter's stderr summary divided an
+all-barcode numerator by an on-tissue denominator, inflating every subset ref
+fraction by the off-tissue share (1.9% in 9w, 5.3% in 78w — the written tables
+were never affected); and the sweep's interpretation asserted a clonal signal
+that this genotype makes impossible.
+
+### What the sweep now reports instead
+
+C(d) is compared against a **permutation null** — the same anchors paired with a
+random bin rather than the neighbour at distance *d*. The null inherits the
+sampling weights exactly, so the residual is the only part of C(d) that is
+spatial at all. Validated on synthetic data with planted 128 µm patches: residual
++0.24 at 96 SE where a uniformly monoallelic set gives −0.0002 at −0.2 SE.
+
+Tile size is now chosen for **precision on the escape fraction**, not for a patch
+scale, and the sweep prints the per-tile SE and minimum detectable difference at
+each size.
+
+### Run order on the cluster
 
 ```bash
 # 0. Build the SNP and interval beds. Once, on the reference tree.
