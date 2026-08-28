@@ -189,10 +189,15 @@ Rscript -e 'for (p in c("arrow","png")) if (!requireNamespace(p, quietly=TRUE))
 # that would make the comparison meaningless. Clearing it makes that read a
 # no-op; the script logs how many tables came from each source, so the zero is
 # visible rather than assumed.
+# COUNT_UNIT must match --ap2-level above. At 'umi' one unit in the locus tables
+# is a MOLECULE, not a read, and every panel label has to say so - reads vs
+# molecules is the entire difference between this map and the Allelome.PRO2 one
+# (chrX pooled 0.87 per molecule against 0.68/0.60 per read on the same data).
 env -u SCRATCH \
   TILE_UM="$TILE_UM" \
   SAMPLES="$SAMPLES" \
   SNP_LABEL="$LABEL" \
+  COUNT_UNIT="molecule" \
   OUT_PDF="$OUT_ROOT/tile_ratio_map_${TILE_UM}um_${LABEL}.pdf" \
   Rscript "$REPO/spatial/tile_ratio_map.R"
 rc=$?

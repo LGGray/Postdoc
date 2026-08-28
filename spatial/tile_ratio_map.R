@@ -38,6 +38,25 @@ ANNOT_BASE <- "chr_annotation_mm39.bed"
 # silently replacing the other.
 SNP_LABEL <- Sys.getenv("SNP_LABEL", "no_Xist")
 SUF     <- if (SNP_LABEL == "no_Xist") "" else paste0("_", SNP_LABEL)
+
+# What one unit in a1_reads/a2_reads/total_reads actually is. Allelome.PRO2
+# counts READS, so "read" is the default and the original figures are unchanged.
+# spatial/ase_tile_locus_counts.py can write either level, and at --ap2-level
+# umi one unit is a MOLECULE, not a read - pass COUNT_UNIT=molecule so every
+# panel says so.
+#
+# This is not cosmetic. After the duplicate flag is applied (-F 0x400, which
+# both routes do) there are still 2.5-3.8 reads per informative chrX molecule,
+# and that multiplier runs from 1.1x on an ordinary gene to 34x on a pile-up
+# locus. So pooling reads is a duplication-weighted average, and the two levels
+# give materially different answers on the same molecules: chrX pooled 0.87 per
+# molecule against 0.68 (9w) and 0.60 (78w) per read. A panel labelled "reads"
+# while showing molecules mislabels precisely the axis that distinction lives on.
+COUNT_UNIT  <- Sys.getenv("COUNT_UNIT", "read")
+UNIT_1      <- COUNT_UNIT                      # "read"  / "molecule"
+UNIT_N      <- paste0(COUNT_UNIT, "s")         # "reads" / "molecules"
+# For the pooled statistic, whose name has to change with the unit.
+UNIT_WEIGHT <- paste0(COUNT_UNIT, "-weighted")
 OUT_PDF <- Sys.getenv("OUT_PDF",
                       file.path(BASE, "ase",
                                 sprintf("tile_ratio_map_%dum%s.pdf",
@@ -365,6 +384,23 @@ base_map <- function(d, he = FALSE) {
     coord_fixed() + scale_y_reverse() + theme_slide
 }
 
+# "N of M submitted tiles scored" assumed every scored tile was a submitted one,
+# which was true while Allelome.PRO2 was the only source: sinto was handed the
+# tiles clearing SINTO_MIN_UMI and nothing else could be scored. The pysam route
+# scores every tile with an informative molecule, so N > M and the old wording
+# read as nonsense ("3937 of 3738 submitted tiles scored"). Report the two
+# counts as the different things they are, and name the extra tiles when there
+# are any - they are the shallow ones, so they matter to how the map reads.
+scored_line <- function(n_ok, n_sub, extra = "") {
+  base <- sprintf("%d tiles scored", n_ok)
+  if (n_ok > n_sub) {
+    sprintf("%s, of which %d were below SINTO_MIN_UMI and were never submitted to sinto%s",
+            base, n_ok - n_sub, extra)
+  } else {
+    sprintf("%s of %d submitted; grey = submitted, not yet scored%s", base, n_sub, extra)
+  }
+}
+
 panel_ratio <- function(d, he = FALSE) {
   n_ok <- sum(!is.na(d$x_ratio)); n_sub <- sum(d$submitted)
   base_map(d, he) +
@@ -378,8 +414,7 @@ panel_ratio <- function(d, he = FALSE) {
                          name = "Bl6 (A1)\nfraction") +
     labs(title = sprintf("%s - chrX allelic ratio per %d um tile [%s]",
                          d$sample[1], TILE_UM, SNP_LABEL),
-         subtitle = sprintf("%d of %d submitted tiles scored; grey = submitted, not yet scored",
-                            n_ok, n_sub),
+         subtitle = scored_line(n_ok, n_sub),
          caption = paste("Faint boxes are in-tissue tiles below SINTO_MIN_UMI that were never submitted.",
                          "\nMidpoint is near-white, not grey, so a biallelic tile stays distinct from an unscored one."))
 }
@@ -397,8 +432,9 @@ panel_ratio_ocm <- function(d, he = FALSE) {
     guides(fill = guide_legend(ncol = 1, reverse = TRUE)) +
     labs(title = sprintf("%s - chrX allelic ratio per %d um tile (OCM bins) [%s]",
                          d$sample[1], TILE_UM, SNP_LABEL),
-         subtitle = sprintf("%d of %d submitted tiles scored; %d (%.0f%%) below 0.5. Grey = submitted, not yet scored.",
-                            n_ok, n_sub, lo, 100 * lo / max(n_ok, 1)),
+         subtitle = scored_line(n_ok, n_sub,
+                                sprintf(". %d (%.0f%%) below 0.5.",
+                                        lo, 100 * lo / max(n_ok, 1))),
          caption = paste("Bins and colours from OCM_heart/allelic_ratio (02_whole_chrX.R).",
                          "\nLightness is not monotone along this ramp - the darkest bins are at both ends, so read the legend, not the darkness."))
 }
@@ -414,9 +450,9 @@ panel_auto <- function(d) {
                          breaks = c(0, 0.25, 0.5, 0.75, 1),
                          name = "Bl6 (A1)\nfraction") +
     labs(title = sprintf("%s - autosomal control, same tiles, same scale", d$sample[1]),
-         subtitle = sprintf("Should be flat near-white throughout. Observed sd %.3f on a median of %d reads.",
+         subtitle = sprintf("Should be flat near-white throughout. Observed sd %.3f on a median of %d %s.",
                             sd(d$a_ratio, na.rm = TRUE),
-                            as.integer(median(d$a_n, na.rm = TRUE))),
+                            as.integer(median(d$a_n, na.rm = TRUE)), UNIT_N),
          caption = paste("Any structure here is technical and invalidates the chrX panel over the same tiles.",
                          "\nDeliberately NOT the OCM ramp: autosomal ratios all sit in 0.40-0.60, which is two of its bins, so it would show nothing."))
 }
@@ -450,10 +486,19 @@ panel_depth <- function(d) {
     geom_tile(data = d[!is.na(x_n)], aes(fill = x_n),
               width = d$side[1], height = d$side[1], colour = NA) +
     scale_fill_gradient(low = "#cde2fb", high = "#0d366b", trans = "sqrt",
-                        name = "chrX reads") +
-    labs(title = sprintf("%s - informative chrX reads per tile", d$sample[1]),
-         subtitle = sprintf("median %d; a ratio needs ~20 reads to separate 0.8 from 0.5",
-                            as.integer(median(d$x_n, na.rm = TRUE))))
+                        name = paste("chrX", UNIT_N)) +
+    labs(title = sprintf("%s - informative chrX %s per tile", d$sample[1], UNIT_N),
+         subtitle = sprintf("median %d; a ratio needs ~20 independent %s to separate 0.8 from 0.5",
+                            as.integer(median(d$x_n, na.rm = TRUE)), UNIT_N),
+         # The ~20 figure is a binomial power calculation, so it counts
+         # INDEPENDENT observations. At COUNT_UNIT=read that assumption is
+         # false - reads of one molecule all carry the same allele - so the
+         # threshold is optimistic by whatever the local duplication rate is.
+         caption = if (identical(COUNT_UNIT, "read"))
+           paste("NOTE: these are reads, not molecules. Reads of one molecule are not",
+                 "independent observations of its allele,\nso the ~20 threshold is",
+                 "optimistic by the local duplication rate (2.5-3.8x on average here,",
+                 "up to 34x at a pile-up locus).") else NULL)
 }
 
 panel_call <- function(d) {
@@ -469,12 +514,40 @@ panel_call <- function(d) {
     # COL_FOOT on a white legend background is an invisible swatch; the border
     # is what makes "not submitted" readable as a key rather than a gap.
     guides(fill = guide_legend(override.aes = list(colour = "#c3c2b7"))) +
-    labs(title = sprintf("%s - call vs each tile's own autosomal ratio", d$sample[1]),
-         subtitle = sprintf("|z| > %d, against this sample's own %.3f autosomal null band: %s",
+    labs(title = sprintf("%s - where there is DEPTH to call a skew, not where skew is", d$sample[1]),
+         subtitle = sprintf("|z| > %d vs this sample's own %.3f autosomal null band: %s\n%s",
                             Z_CALL, d$auto_sd[1],
                             paste(sprintf("%s %d", lv[1:4],
                                           sapply(lv[1:4], function(l) sum(d2$call == l, na.rm = TRUE))),
-                                  collapse = ", ")))
+                                  collapse = ", "),
+                            depth_confound(d)),
+         caption = paste("READ THIS AS A POWER MAP. z = (x_ratio - a_ratio)/se and se shrinks with depth, so a",
+                         "tile is coloured\nwhen it is DEEP, not when it is skewed - the ratio itself barely moves",
+                         "across depth quartiles (see subtitle).",
+                         "\nDepth has strong spatial structure (Moran's I 0.67-0.80 on a_n), so any geometry here is",
+                         "inherited from coverage.\nA panel that answered \"does this tile differ from the section's",
+                         "own escape level\" needs the beta-binomial null of\nNEXT_ANALYSIS.md task 7, centred on the",
+                         "sample's global ratio rather than on its autosomal one."))
+}
+
+# The diagnostic that shows the calls panel is depth-limited rather than
+# spatial: split the scored tiles into depth quartiles and report the mean ratio
+# beside the fraction called skewed. If the ratio is flat while the called
+# fraction climbs, the panel is mapping statistical power. Printed into the
+# panel itself rather than left in the log, because the figure is what gets
+# looked at and the geometry is genuinely persuasive if unqualified.
+depth_confound <- function(d) {
+  s <- d[!is.na(x_ratio) & !is.na(x_n)]
+  if (nrow(s) < 40L) return("too few scored tiles to split by depth")
+  q <- cut(s$x_n, breaks = quantile(s$x_n, probs = seq(0, 1, 0.25), na.rm = TRUE),
+           include.lowest = TRUE, labels = FALSE)
+  t <- s[, .(depth = as.integer(median(x_n)), ratio = mean(x_ratio),
+             skew = mean(call %in% c("Bl6-skewed", "CAST-skewed"))),
+         by = .(q = q)][order(q)]
+  sprintf("by depth quartile - median depth %s; mean ratio %s (flat); frac called skewed %s",
+          paste(t$depth, collapse = "/"),
+          paste(sprintf("%.3f", t$ratio), collapse = "/"),
+          paste(sprintf("%.2f", t$skew), collapse = "/"))
 }
 
 clustering_test <- function(d, label, n_perm = 2000L) {
@@ -601,11 +674,19 @@ panel_violin <- function(out) {
     scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
     labs(title = "chrX against its own autosomal control, per tile",
          subtitle = paste0(
-           paste(sprintf("%s: n=%d, median %.2f, read-weighted %.2f, %.0f%% below 0.5",
-                         as.character(lab$sample), lab$n, lab$med, lab$pooled,
-                         100 * lab$lo),
+           paste(sprintf("%s: n=%d, median %.2f, %s %.2f, %.0f%% below 0.5",
+                         as.character(lab$sample), lab$n, lab$med, UNIT_WEIGHT,
+                         lab$pooled, 100 * lab$lo),
                  collapse = "   |   "),
-           "\nread-weighted well below the median means the DEEP tiles are the low-ratio ones"),
+           # Was unconditional, so it asserted a depth-ratio confound even when
+           # the pooled and median values agreed to 0.01 - which they do on the
+           # molecule-level data. Only say it when it is true of these numbers.
+           if (any(lab$med - lab$pooled > 0.03))
+             sprintf("\n%s well below the median means the DEEP tiles are the low-ratio ones",
+                     UNIT_WEIGHT)
+           else
+             sprintf("\n%s and median agree, so the ratio does not vary with tile depth",
+                     UNIT_WEIGHT)),
          x = NULL, y = "allelic ratio (Bl6 / total)",
          caption = paste("Violins scaled to equal width, so shape is comparable between",
                          "groups of different size; the box is the median and quartiles.",
