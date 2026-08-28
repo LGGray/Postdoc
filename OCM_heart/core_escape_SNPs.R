@@ -17,6 +17,8 @@
 #     annotation_us_mm39_Xic500kb.bed       the Xic mask interval itself
 #     annotation_us_mm39_imprinted_pat.bed  paternally expressed imprinted loci
 #     annotation_us_mm39_imprinted_mat.bed  maternally expressed imprinted loci
+#     annotation_us_mm39_imprinted_snrpn.bed     Snrpn alone, as a per-locus check
+#     annotation_us_mm39_imprinted_dlk1dio3.bed  Meg3/Rian/Mirg, likewise
 #
 # Also writes bed_provenance.tsv: every output, its md5, and the inputs it came
 # from. Three "no-Xist" builds are named in this repo and only one is live, so a
@@ -213,8 +215,11 @@ imprinted_paternal <- c(
 imprinted_maternal <- c(
   # canonical maternally expressed. Zim1 belongs HERE, not in the paternal set:
   # it is the maternally expressed reciprocal partner of Peg3 at the same locus.
-  "H19", "Igf2r", "Meg3", "Rian", "Mirg", "Cdkn1c", "Zim1",
-  "Phlda2", "Osbpl5", "Ascl2", "Slc22a18", "Zrsr1"
+  #
+  # The Kcnq1 domain is deliberately NOT here - see imprinted_unreliable. Its
+  # maternal genes carried 40% of this set's SNPs, and their imprinting in mouse
+  # is largely placenta-specific.
+  "H19", "Igf2r", "Meg3", "Rian", "Mirg", "Cdkn1c", "Zim1", "Zrsr1"
 )
 
 # Imprinted, but NOT usable in a positive control that has to be clean. Kept as
@@ -225,8 +230,16 @@ imprinted_maternal <- c(
 #   Ube3a   maternal in brain, biallelic in most peripheral tissues
 #   Gnas    direction depends on the transcript (Nesp maternal, Nespas paternal)
 #   Grb10   maternal in most tissues, paternal in brain
-#   Tssc4   weak and tissue-specific
-imprinted_unreliable <- c("Ube3a", "Gnas", "Grb10", "Tssc4", "Nesp", "Nespas")
+#
+# The Kcnq1 domain, whose maternal genes are imprinted mainly in placenta and
+# are expected to be biallelic in adult heart. Osbpl5 alone held 513 SNPs, 29%
+# of the maternal set - as its single largest contributor it would have dragged
+# the maternal control toward 0.5 on its own. Kcnq1ot1 itself is NOT here: the
+# paternal ncRNA that silences the domain is imprinted wherever it is expressed.
+#   Osbpl5, Slc22a18, Ascl2, Phlda2, Tssc4
+imprinted_unreliable <- c("Ube3a", "Gnas", "Grb10",
+                          "Osbpl5", "Slc22a18", "Ascl2", "Phlda2", "Tssc4",
+                          "Nesp", "Nespas")
 # The five loci the analysis plan names, kept as its own bed so the headline
 # control can be run on textbook-solid ground before the wider list is used to
 # buy depth.
@@ -320,6 +333,21 @@ imprinted_bed(intersect(imprinted_paternal, imprinted_core),
 imprinted_bed(intersect(imprinted_maternal, imprinted_core),
               "core, maternally expressed",
               "annotation_us_mm39_imprinted_core_mat.bed")
+
+# One locus per direction, on its own, as a check on the aggregates.
+#
+# Both control sets are unavoidably concentrated - Snrpn holds 82% of the
+# paternal SNPs, and the Dlk1-Dio3 cluster most of what is left on the maternal
+# side after the Kcnq1 domain comes out. If a pooled set falls short of C(d) ~ 1
+# there is no way to tell a genuine per-UMI error floor from one contaminating
+# locus WITHOUT a per-locus curve, and getting one after the fact costs another
+# full counting pass. These two beds are counted in the same pass as everything
+# else, so the check is free: if the single-locus curve matches its aggregate,
+# the aggregate is clean.
+imprinted_bed("Snrpn", "single locus, paternal",
+              "annotation_us_mm39_imprinted_snrpn.bed")
+imprinted_bed(c("Meg3", "Rian", "Mirg"), "single cluster, maternal",
+              "annotation_us_mm39_imprinted_dlk1dio3.bed")
 
 # Chromosomes the imprinted beds reach. The spatial counter fetches these
 # interval by interval rather than whole, so the control costs seconds - but it

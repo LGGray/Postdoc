@@ -53,7 +53,16 @@ Design decisions worth knowing before reading the output:
   Airn/Igf2r and Meg3/Dlk1 are *reciprocally* imprinted pairs. Pooled into one
   set they contribute UMIs carrying opposite parental alleles, and C(d) over that
   mixture sits near 0.5 on perfectly clean data — indistinguishable from a failed
-  control. Hence `imppat` and `impmat` as separate sets.
+  control. Hence `imppat` and `impmat` as separate sets, with the reciprocal
+  overlaps subtracted from both (Airn 118.6→90.2 kb against Igf2r, Igf2r
+  87.3→58.9 kb against Airn, Rtl1 and Meg3 likewise in the Dlk1–Dio3 cluster).
+  The Kcnq1 domain is excluded: its maternal genes carried 40% of the maternal
+  SNPs — Osbpl5 alone 29% — and their imprinting in mouse is largely
+  placenta-specific, so in adult heart they would have been biallelic and would
+  have dragged the control toward 0.5 on their own. Both sets are unavoidably
+  concentrated (Snrpn is 82% of the paternal SNPs), so `impsnrpn` and `impmeg3`
+  carry one locus each as a per-locus check on the aggregates — free in the same
+  pass, where getting one afterwards would cost a second counting pass.
 - **The imprinted control tests the per-UMI error floor, not spatial
   resolution.** Task 3 as written expects `C_imprinted(d)` to decay with
   distance; it should not. Imprinting is uniform across the tissue, so the

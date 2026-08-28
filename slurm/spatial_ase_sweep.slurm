@@ -108,6 +108,12 @@ ESCAPE_BED=$BASE/GRCm39/annotation_us_mm39_core_escape.bed
 XIC_BED=$BASE/GRCm39/annotation_us_mm39_Xic500kb.bed
 IMP_PAT_BED=$BASE/GRCm39/annotation_us_mm39_imprinted_pat.bed
 IMP_MAT_BED=$BASE/GRCm39/annotation_us_mm39_imprinted_mat.bed
+# One locus per direction on its own, as a check on the pooled sets. Both are
+# concentrated - Snrpn is 82% of the paternal SNPs - so if a pooled curve falls
+# short of C(d) ~ 1, only a per-locus curve separates a real per-UMI error floor
+# from one contaminating locus, and getting one afterwards costs another pass.
+IMP_SNRPN_BED=$BASE/GRCm39/annotation_us_mm39_imprinted_snrpn.bed
+IMP_DLK1_BED=$BASE/GRCm39/annotation_us_mm39_imprinted_dlk1dio3.bed
 
 for f in "$BAM" "$SNPS"; do
   if [ ! -f "$f" ]; then echo "Missing file: $f" >&2; exit 1; fi
@@ -144,6 +150,8 @@ add_subset noxic     "$XIC_BED" complement
 # the control costs seconds rather than a chromosome of memory.
 add_subset imppat    "$IMP_PAT_BED"
 add_subset impmat    "$IMP_MAT_BED"
+add_subset impsnrpn  "$IMP_SNRPN_BED"
+add_subset impmeg3   "$IMP_DLK1_BED"
 if [ ! -d "$SPATIAL_DIR" ]; then echo "Missing dir: $SPATIAL_DIR" >&2; exit 1; fi
 if [ ! -f "$BAM.bai" ] && [ ! -f "${BAM%.bam}.bai" ]; then
   echo "No index next to $BAM - the counter fetches by chromosome and needs one." >&2
