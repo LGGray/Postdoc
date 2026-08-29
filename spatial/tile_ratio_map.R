@@ -195,14 +195,30 @@ collect_sample <- function(smp) {
   final_dir <- file.path(ase_dir, sprintf("Allelome.PRO2_tiles_%dum%s",
                                           TILE_UM, SUF))
   map_tsv   <- file.path(ase_dir, sprintf("sinto_tiles_%dum.tsv", TILE_UM))
-  if (!file.exists(map_tsv)) {
-    msg("  no sinto map at %s - skipping %s", map_tsv, smp); return(NULL)
+  # A missing sinto map used to abort the sample. That was right when
+  # Allelome.PRO2 was the only source - no map meant no tiles had been split, so
+  # there was nothing to plot - but it is wrong for the pysam route, which reads
+  # the BAM directly and scores every tile regardless. It also made every tile
+  # size other than the one sinto was run at unplottable: at TILE_UM=8 this
+  # looked for sinto_tiles_8um.tsv, skipped both samples and wrote an empty PDF,
+  # AFTER the hour-per-sample counting pass had completed.
+  #
+  # With no map there is simply no "submitted" universe: nothing is pending,
+  # nothing is a grey box, and the scored set is the whole story.
+  submitted_tiles <- character(0)
+  have_map <- file.exists(map_tsv)
+  if (!have_map) {
+    msg("  no sinto map at %s", map_tsv)
+    msg("    -> no submitted/pending distinction; plotting the scored tiles only.")
+    msg("       (expected for the pysam route, and for any tile size sinto was not run at)")
   }
 
   # The submitted universe. This, not the set of locus tables, is the
   # denominator - it is what defines a grey box.
-  map <- fread(map_tsv, header = FALSE, col.names = c("barcode", "tile"))
-  submitted_tiles <- unique(map$tile)
+  if (have_map) {
+    map <- fread(map_tsv, header = FALSE, col.names = c("barcode", "tile"))
+    submitted_tiles <- unique(map$tile)
+  }
 
   # ---- where the locus tables are read from --------------------------------
   #
@@ -393,7 +409,12 @@ base_map <- function(d, he = FALSE) {
 # are any - they are the shallow ones, so they matter to how the map reads.
 scored_line <- function(n_ok, n_sub, extra = "") {
   base <- sprintf("%d tiles scored", n_ok)
-  if (n_ok > n_sub) {
+  if (n_sub == 0L) {
+    # No sinto map for this tile size, so there is no submitted universe to
+    # compare against and no tile can be "pending".
+    sprintf("%s; every in-tissue tile with an informative %s was scored%s",
+            base, UNIT_1, extra)
+  } else if (n_ok > n_sub) {
     sprintf("%s, of which %d were below SINTO_MIN_UMI and were never submitted to sinto%s",
             base, n_ok - n_sub, extra)
   } else {
