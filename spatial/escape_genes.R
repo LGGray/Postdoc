@@ -78,7 +78,18 @@ FDR_CUT          <- 0.05
 # KEEP_ABOVE_BIALLELIC brings them into the ranking and the plot if you want to
 # look at them directly. They are marked ! on the axis when kept.
 MAX_ESCAPE           <- 0.60
-KEEP_ABOVE_BIALLELIC <- FALSE
+KEEP_ABOVE_BIALLELIC <- TRUE
+
+# EFFECT-SIZE FLOOR, on the AR scale, because that is the scale the criterion is
+# usually stated on: a gene must reach AR < MAX_AR in at least one sample as
+# well as passing FDR. AR = B6 = active X, so AR < 0.90 is "at least 10% of
+# molecules come from the inactive X", the working definition of escape.
+#
+# Significance alone is not enough on its own here. Ndufb11 has 15,880
+# informative UMIs, so its 7.4% escape is significant against the 6.1%
+# chromosome rate while being nowhere near escape; the floor drops it. This is
+# the same effect-size-versus-p-value problem as MIN_ENRICH in tile_ratio_map.R.
+MAX_AR               <- 0.90
 
 ##### ----------------------- LOAD ----------------------- #####
 read_one <- function(s) {
@@ -142,12 +153,17 @@ cand <- if (KEEP_ABOVE_BIALLELIC) g[gene %chin% ok] else g[gene %chin% setdiff(o
 # Significant in at least one animal. n = 1 per age, so this is a screen for
 # genes worth looking at - NOT an age comparison. Nothing here supports a
 # statement about ageing without replication.
-hit  <- cand[fdr < FDR_CUT, unique(gene)]
+# Both conditions: significant AND big enough to be escape. Either alone gives
+# the wrong list - FDR alone lets Ndufb11 in on 15,880 UMIs at 7.4%, and AR
+# alone lets in any thinly covered gene that happened to draw a few CAST UMIs.
+sig  <- cand[fdr < FDR_CUT, unique(gene)]
+big  <- cand[(1 - escape) < MAX_AR, unique(gene)]
+hit  <- intersect(sig, big)
 rank <- cand[gene %chin% hit, .(m = mean(escape)), by = gene][order(-m)]
 top  <- head(rank$gene, N_TOP)
 
-cat("\n---", length(hit), "genes pass FDR <", FDR_CUT, "in at least one sample; plotting",
-    length(top), "---\n")
+cat("\n---", length(sig), "pass FDR <", FDR_CUT, "|", length(big), "reach AR <", MAX_AR,
+    "|", length(hit), "do both; plotting", length(top), "---\n")
 print(cand[gene %chin% top][order(match(gene, top), sample),
            .(gene, sample, n, escape = round(escape, 3),
              CI = sprintf("[%.3f-%.3f]", esc_lo, esc_hi), fdr = signif(fdr, 2))])
@@ -219,5 +235,5 @@ p <- ggplot(pl, aes(gene, AR, fill = sample)) +
         plot.subtitle = element_text(size = 8, colour = "#52514e"),
         plot.caption  = element_text(size = 7, colour = "#52514e", hjust = 0))
 
-ggsave(OUT, p, width = 11, height = 6)
+ggsave(OUT, p, width = 13, height = 6)
 cat("\nWrote", normalizePath(OUT), "\n")
