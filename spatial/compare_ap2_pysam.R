@@ -207,8 +207,11 @@ for (smp in SAMPLES) {
   if (!nrow(s)) next
   nb <- s[in_ap2 & in_py, .N]; na <- s[in_ap2 & !in_py, .N]
   np <- s[!in_ap2 & in_py, .N]
+  # (in_ap2), not in_ap2: a lone symbol in i is looked up in the calling scope,
+  # so the bare form asks for a variable that does not exist rather than
+  # filtering on the column.
   msg("%-5s  route A %5d   route B %5d   both %5d   Jaccard %.4f",
-      smp, s[in_ap2, .N], s[in_py, .N], nb, nb / (nb + na + np))
+      smp, s[(in_ap2), .N], s[(in_py), .N], nb, nb / (nb + na + np))
   msg("       only in A %4d   only in B %4d", na, np)
   if (np > 0) {
     q <- quantile(s[!in_ap2 & in_py, x_a1_rd + x_a2_rd], c(0, .5, .9, 1),
