@@ -90,6 +90,16 @@ AUTO_SD_FALLBACK <- 0.032
 MIN_TILES_FOR_SD <- 30
 Z_CALL  <- 3
 
+# Smallest adjacency enrichment the clustering test is allowed to call
+# structure. A permutation p value alone is not enough here: with 3117 called
+# tiles and 5243 adjacent pairs (9w at 64 um) the depth-matched null returns
+# p = 0.000 on an enrichment of 1.01x, which is a statement about the tile
+# count and not about the tissue. A patch large enough to matter produces a
+# large excess - the synthetic 128 um patches used to validate the sweep gave
+# +0.24 on C(d) - so anything under a 10% excess is reported as negligible
+# however small its p value.
+MIN_ENRICH <- 1.10
+
 # Diverging pair, neutral MID-POINT DELIBERATELY NEAR-WHITE rather than the
 # usual grey: grey is spent on NA here, and a grey midpoint would make a
 # genuinely biallelic tile indistinguishable from an unprocessed one.
@@ -585,6 +595,39 @@ depth_confound <- function(d) {
           paste(sprintf("%.2f", t$skew), collapse = "/"))
 }
 
+# Moran's I on the 4-neighbour scored-tile graph. Used to show that DEPTH is
+# spatially structured, which is what invalidates the free-permutation null in
+# clustering_test() below.
+moran_I <- function(sc, v) {
+  n <- nrow(sc)
+  if (n < 10L || !is.finite(stats::var(v)) || stats::var(v) == 0) return(NA_real_)
+  key <- function(r, cc) r * 100000L + cc
+  present <- key(sc$trow, sc$tcol)
+  dev <- v - mean(v)
+  pos <- match(key(sc$trow + 1L, sc$tcol), present)
+  rgt <- match(key(sc$trow, sc$tcol + 1L), present)
+  num <- 0; W <- 0L
+  for (nb in list(pos, rgt)) {
+    ok <- !is.na(nb)
+    num <- num + 2 * sum(dev[ok] * dev[nb[ok]])   # x2: the graph is symmetric
+    W   <- W + 2L * sum(ok)
+  }
+  if (W == 0L) return(NA_real_)
+  (n / W) * (num / sum(dev^2))
+}
+
+# Rank-based depth strata: order the tiles by chrX depth and cut into
+# `n_strata` equal-sized groups. Quantile breaks are unusable here because x_n
+# is a small integer (median 4-7 at 32 um), so most quantiles coincide and
+# cut() collapses to two or three levels.
+depth_strata <- function(x, n_strata = 10L) {
+  n <- length(x)
+  o <- order(x, seq_len(n))                 # deterministic tie-break
+  s <- integer(n)
+  s[o] <- pmin(n_strata, ((seq_len(n) - 1L) * n_strata) %/% n + 1L)
+  s
+}
+
 clustering_test <- function(d, label, n_perm = 2000L) {
   sc <- d[!is.na(x_ratio)]
   if (!nrow(sc)) return(invisible(NULL))
@@ -602,18 +645,65 @@ clustering_test <- function(d, label, n_perm = 2000L) {
     sum(c((key(sc$trow[is_lab] + 1L, sc$tcol[is_lab]) %in% kk),
           (key(sc$trow[is_lab], sc$tcol[is_lab] + 1L) %in% kk)))
   }
-  obs <- count_pairs(sc$call == label)
-  # Null: the same number of labels placed at random over the scored tiles, so
-  # the test is conditioned on the shape of the region actually processed.
-  perm <- vapply(seq_len(n_perm), function(i) {
+  is_lab <- sc$call == label
+  obs <- count_pairs(is_lab)
+
+  # Null 1, FREE permutation: the same number of labels placed at random over
+  # the scored tiles. Conditioned on the shape of the region processed, and on
+  # nothing else - which is the problem. A call is `z > Z_CALL` and se shrinks
+  # with x_n, so "skewed" is very largely "deep"; depth is a property of the
+  # tissue and is strongly spatially autocorrelated (the Moran's I printed
+  # below). This null therefore reports clustering for any label that tracks
+  # depth, and it is kept only to show how much of the signal that accounts for.
+  perm_free <- vapply(seq_len(n_perm), function(i) {
     idx <- rep(FALSE, nrow(sc)); idx[sample.int(nrow(sc), k)] <- TRUE
     count_pairs(idx)
   }, numeric(1))
-  pval <- (1 + sum(perm >= obs)) / (1 + n_perm)
-  msg("  %s: %d tiles, %d adjacent pairs (null %.1f, p = %.3f) -> %s",
-      label, k, obs, mean(perm), pval,
-      if (pval < 0.05) "CLUSTERED, consistent with a clonal population"
-      else "scattered, consistent with per-tile noise")
+  p_free <- (1 + sum(perm_free >= obs)) / (1 + n_perm)
+
+  # Null 2, DEPTH-MATCHED: permute the labels only WITHIN a chrX-depth decile,
+  # so each stratum keeps the number of calls it actually had. Any adjacency
+  # that comes from deep tiles sitting next to deep tiles is now in the null,
+  # and the residual is the only part that is about the allelic ratio.
+  strata <- split(seq_len(nrow(sc)), depth_strata(sc$x_n))
+  k_str  <- vapply(strata, function(g) sum(is_lab[g]), integer(1))
+  perm_dep <- vapply(seq_len(n_perm), function(i) {
+    idx <- rep(FALSE, nrow(sc))
+    for (j in seq_along(strata)) {
+      g <- strata[[j]]
+      if (k_str[j]) idx[g[sample.int(length(g), k_str[j])]] <- TRUE
+    }
+    count_pairs(idx)
+  }, numeric(1))
+  p_dep <- (1 + sum(perm_dep >= obs)) / (1 + n_perm)
+
+  enr_free <- obs / max(mean(perm_free), 1e-9)
+  enr_dep  <- obs / max(mean(perm_dep),  1e-9)
+
+  msg("  %s: %d tiles, %d adjacent pairs (median depth %.0f vs %.0f elsewhere)",
+      label, k, obs,
+      stats::median(sc$x_n[is_lab]), stats::median(sc$x_n[!is_lab]))
+  msg("      free permutation null %.1f (%.2fx, p = %.3f) - confounded by depth",
+      mean(perm_free), enr_free, p_free)
+  # NOTE ON THE VERDICT. These animals carry an Xist deletion on the B6 X, so
+  # the CAST X is the inactive X in EVERY cell: there is no mosaic and no clonal
+  # patch of "which X is active" at any scale, by construction. The verdict this
+  # test used to print - "consistent with a clonal population" - was therefore
+  # impossible for this genotype whatever the p value. What the depth-matched
+  # null can still detect is spatial variation in the ESCAPE FRACTION, which is
+  # a real hypothesis, so that is what it is now allowed to say - and only when
+  # the excess clears MIN_ENRICH as well as the p value.
+  msg("      depth-matched null   %.1f (%.2fx, p = %.3f) -> %s",
+      mean(perm_dep), enr_dep, p_dep,
+      if (p_dep < 0.05 && enr_dep >= MIN_ENRICH)
+        "structure beyond depth - escape may vary spatially"
+      else if (p_dep < 0.05)
+        sprintf("significant but negligible (%.2fx, under the %.2fx floor) - a large tile count, not a patch",
+                enr_dep, MIN_ENRICH)
+      else if (p_free < 0.05)
+        "NO structure beyond depth: the free-permutation signal is the depth confound"
+      else
+        "no structure under either null")
   invisible(NULL)
 }
 
@@ -633,6 +723,15 @@ for (s in SAMPLES) {
   print(panel_auto_zoom(d))
   print(panel_depth(d))
   print(panel_call(d))
+  # Print the depth autocorrelation FIRST, because it is what decides which of
+  # the two nulls in clustering_test() is the honest one. Moran's I near 0 on
+  # x_n would make the free permutation valid; in practice it is 0.3-0.8, since
+  # depth is tissue thickness and capture efficiency, both of which have
+  # geometry. The ratio's own I is printed beside it: if depth is structured
+  # and the ratio is not, every "cluster" below is a power map.
+  sc_m <- d[!is.na(x_ratio)]
+  msg("  spatial autocorrelation (Moran's I, 4-neighbour): chrX depth %.3f, autosomal depth %.3f, chrX ratio %.3f",
+      moran_I(sc_m, sc_m$x_n), moran_I(sc_m, sc_m$a_n), moran_I(sc_m, sc_m$x_ratio))
   msg("  spatial clustering of the calls:")
   for (lab in c("CAST-skewed", "Bl6-skewed", "mixed")) clustering_test(d, lab)
   all_d[[s]] <- d
@@ -687,7 +786,19 @@ panel_violin <- function(out) {
     n = .N,
     med = median(x_ratio),
     pooled = sum(x_a1) / sum(x_n),
-    lo = mean(x_ratio < 0.5)), by = sample][order(sample)]
+    lo = mean(x_ratio < 0.5),
+    # Does the ratio ACTUALLY vary with depth? Pooled ratio in the shallowest
+    # and deepest chrX-depth quartile, which is the direct test. A gap between
+    # the median and the pooled value is NOT that test: see below.
+    sh = sum(x_a1[x_n <= quantile(x_n, 0.25)]) / sum(x_n[x_n <= quantile(x_n, 0.25)]),
+    dp = sum(x_a1[x_n >= quantile(x_n, 0.75)]) / sum(x_n[x_n >= quantile(x_n, 0.75)]),
+    # How many tiles are pinned at exactly 1.0 in each. At 32 um the median
+    # tile carries 4-7 informative molecules, and with p ~ 0.87 more than half
+    # of a 4-molecule tile's draws come out 4/4 - so the median is 1.00 for
+    # arithmetic reasons and the median/pooled gap follows from that alone.
+    pin_sh = mean(x_ratio[x_n <= quantile(x_n, 0.25)] == 1),
+    pin_dp = mean(x_ratio[x_n >= quantile(x_n, 0.75)] == 1)),
+    by = sample][order(sample)]
 
   ggplot(long, aes(sample, ratio, fill = chrom_set)) +
     geom_hline(yintercept = 0.5, linetype = 2, colour = "#52514e") +
@@ -713,15 +824,27 @@ panel_violin <- function(out) {
                          as.character(lab$sample), lab$n, lab$med, UNIT_WEIGHT,
                          lab$pooled, 100 * lab$lo),
                  collapse = "   |   "),
-           # Was unconditional, so it asserted a depth-ratio confound even when
-           # the pooled and median values agreed to 0.01 - which they do on the
-           # molecule-level data. Only say it when it is true of these numbers.
-           if (any(lab$med - lab$pooled > 0.03))
-             sprintf("\n%s well below the median means the DEEP tiles are the low-ratio ones",
-                     UNIT_WEIGHT)
+           # Was inferred from the median/pooled gap, which does not measure it.
+           # At 32 um that gap is 0.13 while the pooled ratio is flat across
+           # depth quartiles to <0.02 - the gap is Jensen plus discretisation
+           # (67-78% of the shallowest tiles land on exactly 1.0 against 19-34%
+           # of the deepest), not a depth-dependent ratio. So the claim is now
+           # made against the shallow-vs-deep pooled ratio, which is the thing
+           # it is a claim about, and the discretisation is named when that is
+           # what the gap is.
+           if (any(abs(lab$sh - lab$dp) > 0.03))
+             sprintf("\nthe ratio DOES vary with depth: pooled %s in the shallowest vs deepest quartile",
+                     paste(sprintf("%.2f/%.2f", lab$sh, lab$dp), collapse = " and "))
+           else if (any(lab$med - lab$pooled > 0.03))
+             sprintf(paste("\nratio flat across depth (shallow/deep quartile pooled %s); the median-%s",
+                           "gap is discretisation - %s of the shallowest tiles sit on exactly 1.0"),
+                     paste(sprintf("%.2f/%.2f", lab$sh, lab$dp), collapse = " and "),
+                     UNIT_WEIGHT,
+                     paste(sprintf("%.0f%%", 100 * lab$pin_sh), collapse = " and "))
            else
-             sprintf("\n%s and median agree, so the ratio does not vary with tile depth",
-                     UNIT_WEIGHT)),
+             sprintf("\n%s and median agree, and the ratio is flat across depth (shallow/deep quartile pooled %s)",
+                     UNIT_WEIGHT,
+                     paste(sprintf("%.2f/%.2f", lab$sh, lab$dp), collapse = " and "))),
          x = NULL, y = "allelic ratio (Bl6 / total)",
          caption = paste("Violins scaled to equal width, so shape is comparable between",
                          "groups of different size; the box is the median and quartiles.",
