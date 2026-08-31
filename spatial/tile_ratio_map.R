@@ -422,6 +422,20 @@ scored_line <- function(n_ok, n_sub, extra = "") {
   }
 }
 
+# The faint footprint means different things with and without a sinto map. With
+# one, a faint box is an in-tissue tile below SINTO_MIN_UMI that was never
+# submitted. Without one - the pysam route, or any tile size sinto was not run
+# at - every tile is unsubmitted, so the footprint is simply every tile with no
+# informative unit, and naming SINTO_MIN_UMI there points at a threshold that
+# played no part in the figure.
+foot_caption <- function(n_sub) {
+  if (n_sub == 0L) {
+    sprintf("Faint boxes are in-tissue tiles with no informative %s.", UNIT_1)
+  } else {
+    "Faint boxes are in-tissue tiles below SINTO_MIN_UMI that were never submitted."
+  }
+}
+
 panel_ratio <- function(d, he = FALSE) {
   n_ok <- sum(!is.na(d$x_ratio)); n_sub <- sum(d$submitted)
   base_map(d, he) +
@@ -436,7 +450,7 @@ panel_ratio <- function(d, he = FALSE) {
     labs(title = sprintf("%s - chrX allelic ratio per %d um tile [%s]",
                          d$sample[1], TILE_UM, SNP_LABEL),
          subtitle = scored_line(n_ok, n_sub),
-         caption = paste("Faint boxes are in-tissue tiles below SINTO_MIN_UMI that were never submitted.",
+         caption = paste(foot_caption(n_sub),
                          "\nMidpoint is near-white, not grey, so a biallelic tile stays distinct from an unscored one."))
 }
 
