@@ -27,10 +27,12 @@
 #   (tile, chromosome) directly off the `sb` tag. Same statistic, one pass.
 #
 # NOTHING EXISTING IS OVERWRITTEN. Everything new lands in
-#   adult_aged_spatial/ase_pysam_64um/
+#   adult_aged_spatial/ase_pysam_64um/          (counting mode umi, the default)
+#   adult_aged_spatial/ase_pysam_reads_64um/    (mode reads)
+#   adult_aged_spatial/ase_pysam_dup_64um/      (mode dup)
 # except the Allelome.PRO2-format adapter tree, which has to sit where
 # tile_ratio_map.R looks for it:
-#   adult_aged_spatial/ase/<sample>/Allelome.PRO2_tiles_64um_pysam/
+#   adult_aged_spatial/ase/<sample>/Allelome.PRO2_tiles_64um_pysam{,_reads,_dup}/
 # That directory name is new, so the real Allelome.PRO2_tiles_64um tree beside
 # it is untouched, as are tile_ratio_map_64um.{csv,pdf}.
 #
@@ -50,16 +52,40 @@
 #   sbatch ~/Postdoc/slurm/spatial_tile_locus_map.slurm 64 force    # recount
 #   sbatch ~/Postdoc/slurm/spatial_tile_locus_map.slurm 64 "" plot  # replot only
 #
-# Outputs, in adult_aged_spatial/ase_pysam_64um/:
+# COUNTING MODE (arg 4) - what one unit in the map is
+#   umi    (default) one molecule, PCR duplicates dropped. Unchanged behaviour.
+#   reads            one read, PCR duplicates still dropped. Allelome.PRO2's
+#                    statistic on this counter's reads.
+#   dup              one read, PCR DUPLICATES KEPT. The pre-deduplication view.
+#
+#   sbatch ~/Postdoc/slurm/spatial_tile_locus_map.slurm 64 "" "" dup
+#
+# The three modes write to three separate OUT_ROOTs and three separate adapter
+# trees, so none of them overwrites another and all three can be compared.
+#
+# Multimapper handling is IDENTICAL in all three: --min-mapq 255 keeps only
+# STAR's uniquely-mapped reads, and secondary/supplementary alignments are
+# dropped in the counting loop. Only the duplicate flag and the counting unit
+# move.
+#
+# Why 'dup' is read-level and not molecule-level: collapsing on UB already
+# removes the duplicates, so keeping them barely moves the UMI counts. The
+# duplicates only show up when each read votes, which is exactly what
+# Allelome.PRO2 did before this counter existed. Note that the resulting ratios
+# are duplication-weighted, not independent observations - tile_ratio_map.R
+# prints that caveat on the coverage panel whenever COUNT_UNIT=read.
+#
+# Outputs, in adult_aged_spatial/ase_pysam<mode suffix>_64um/:
 #   <sample>/tile_chrom_counts.tsv         tile x chromosome, UMI and read level
 #   <sample>/tile_gene_counts.tsv.gz       tile x gene, both levels - the thing
 #                                          the Allelome.PRO2 route could not
 #                                          produce per tile at all
 #   <sample>/tile_locus_counts.provenance.tsv
-#   tile_ratio_map_64um_pysam.pdf          the map, panels as before
-#   tile_ratio_map_64um_pysam_distribution.pdf
-#   tile_ratio_map_64um_pysam.csv          same schema as tile_ratio_map_64um.csv
-#   tile_ratio_map_64um_pysam_provenance.tsv
+#   tile_ratio_map_64um_<label>.pdf        the map, panels as before
+#   tile_ratio_map_64um_<label>_distribution.pdf
+#   tile_ratio_map_64um_<label>.csv        same schema as tile_ratio_map_64um.csv
+#   tile_ratio_map_64um_<label>_provenance.tsv
+# where <label> is pysam / pysam_reads / pysam_dup.
 
 module load slurm_setup
 
@@ -68,6 +94,7 @@ module load slurm_setup
 TILE_UM="${1:-64}"
 FORCE="${2:-}"
 MODE="${3:-}"           # 'plot' skips counting and only redraws
+COUNT_MODE="${4:-umi}"  # umi | reads | dup   (see COUNTING MODE above)
 
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 SPATIAL=$BASE/adult_aged_spatial
@@ -76,10 +103,25 @@ SAMPLES="9w,78w"
 
 # The label that names the adapter tree and the output PDFs. tile_ratio_map.R
 # builds both from SNP_LABEL, so this one string keeps the new run beside the
-# old one instead of on top of it.
-LABEL=pysam
+# old one instead of on top of it. The counting mode extends the label for the
+# same reason: a dup-inclusive run must not land on top of the deduplicated one.
+case "$COUNT_MODE" in
+  umi)
+    LABEL=pysam;        ROOT_SUF=""
+    AP2_LEVEL=umi;      COUNT_UNIT=molecule;  DUP_ARGS=() ;;
+  reads)
+    LABEL=pysam_reads;  ROOT_SUF="_reads"
+    AP2_LEVEL=reads;    COUNT_UNIT=read;      DUP_ARGS=() ;;
+  dup)
+    LABEL=pysam_dup;    ROOT_SUF="_dup"
+    AP2_LEVEL=reads;    COUNT_UNIT=read;      DUP_ARGS=(--keep-duplicates) ;;
+  *)
+    echo "Unknown counting mode '$COUNT_MODE' (arg 4): expected umi, reads or dup" >&2
+    exit 1 ;;
+esac
+echo "Counting mode: $COUNT_MODE  (label=$LABEL, ap2-level=$AP2_LEVEL, unit=$COUNT_UNIT, dup args='${DUP_ARGS[*]}')"
 
-OUT_ROOT=$SPATIAL/ase_pysam_${TILE_UM}um
+OUT_ROOT=$SPATIAL/ase_pysam${ROOT_SUF}_${TILE_UM}um
 mkdir -p "$OUT_ROOT"
 
 if [ "$SLURM_ARRAY_TASK_ID" -eq 1 ]; then
@@ -151,7 +193,8 @@ else
     --snp-offset -1 \
     --min-mapq 255 \
     --min-baseq 20 \
-    --ap2-level umi \
+    --ap2-level "$AP2_LEVEL" \
+    "${DUP_ARGS[@]}" \
     "${GENE_ARGS[@]}" \
     "${FORCE_ARGS[@]}" \
     --threads "$SLURM_CPUS_PER_TASK"
@@ -189,15 +232,18 @@ Rscript -e 'for (p in c("arrow","png")) if (!requireNamespace(p, quietly=TRUE))
 # that would make the comparison meaningless. Clearing it makes that read a
 # no-op; the script logs how many tables came from each source, so the zero is
 # visible rather than assumed.
-# COUNT_UNIT must match --ap2-level above. At 'umi' one unit in the locus tables
-# is a MOLECULE, not a read, and every panel label has to say so - reads vs
-# molecules is the entire difference between this map and the Allelome.PRO2 one
-# (chrX pooled 0.87 per molecule against 0.68/0.60 per read on the same data).
+# COUNT_UNIT is set alongside --ap2-level in the mode block above, so the two
+# cannot drift. At 'umi' one unit in the locus tables is a MOLECULE, not a read,
+# and every panel label has to say so - reads vs molecules is the entire
+# difference between this map and the Allelome.PRO2 one (chrX pooled 0.87 per
+# molecule against 0.68/0.60 per read on the same data). At 'dup' it is a read
+# AND the duplicates are back in, so the ratio is duplication-weighted twice
+# over; the read-level caption on the coverage panel says so.
 env -u SCRATCH \
   TILE_UM="$TILE_UM" \
   SAMPLES="$SAMPLES" \
   SNP_LABEL="$LABEL" \
-  COUNT_UNIT="molecule" \
+  COUNT_UNIT="$COUNT_UNIT" \
   OUT_PDF="$OUT_ROOT/tile_ratio_map_${TILE_UM}um_${LABEL}.pdf" \
   Rscript "$REPO/spatial/tile_ratio_map.R"
 rc=$?
