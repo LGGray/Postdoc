@@ -39,7 +39,7 @@ suppressPackageStartupMessages({
 
 ##### ---------------------- CONFIG ---------------------- #####
 DIR    <- "."            # directory holding 9w/ and 78w/
-N_TOP  <- 12             # how many genes to plot
+N_TOP  <- 15             # how many genes to plot
 OUT    <- "escape_genes.pdf"
 
 # Pooled informative UMIs per gene per sample before a gene is testable. 30 is
@@ -51,15 +51,34 @@ MIN_TILE_UMI     <- 2    # per-tile UMIs before a tile earns a dot
 MIN_TILES_VIOLIN <- 20   # tiles needed before a violin is drawn at all
 FDR_CUT          <- 0.05
 
-# Full escape IS biallelic, and biallelic is the autosomal ratio: ~0.52 AR, so
-# ~0.48 escape. A gene reading far above that would mean the INACTIVE X supplies
-# most of the transcript, which this genotype does not allow. Five genes do
-# exactly that in both animals - Slc16a2 98%, Aff2 98%, Llph-ps2 89%, Fmr1 88%,
-# Gm53059 85%. Reproducing in both makes them systematic rather than noise: a
-# mapping problem, a B6 structural variant, or a strong cis-eQTL. They are held
-# out and PRINTED, not dropped silently, because they need explaining before any
-# per-gene list goes anywhere.
-MAX_ESCAPE       <- 0.60
+# ABOVE-BIALLELIC GENES. Escape has a ceiling: the Xi allele switching fully on
+# gives EQUAL expression from both alleles, which is 0.5 - or the autosomal ratio
+# 0.48 once B6-ward mapping bias is allowed for. So the entire escape range is
+# ~0.10-0.50, and this threshold sits above it with headroom. It does not filter
+# escape; it catches genes where the INACTIVE X supplies most of the transcript,
+# which requires the ACTIVE (B6) allele to be silent, deleted or unmappable.
+#
+# Seven genes do that here, and they are not scattered - which is why they are
+# worth looking at rather than deleting:
+#   Slc16a2  102.74 Mb  98/98%  |  210-240 kb distal to Xist (102.50-102.53).
+#   Gm53059  102.74 Mb  85/96%  |  The B6 chromosome is the one carrying the
+#                                  Xist deletion, so a cis effect of the
+#                                  deletion allele on its immediate neighbours
+#                                  would look exactly like this.
+#   Llph-ps2  13.08 Mb  89/94%  |  processed pseudogene lying between Usp9x
+#                                  (12.94) and Ddx3x (13.15) - multimapping.
+#   Fmr1      67.72 Mb  88/90%  |  neighbours, 680 kb apart, both extreme:
+#   Aff2      68.40 Mb  98/97%  |  something regional.
+#   Gm14719   48.75 Mb  64/68%  |  predicted gene.
+#   Mid1     168.50 Mb  61/83%  |  PAR, but only 33/35 UMIs - wide interval.
+#
+# One reading would be real: a gene that escapes AND carries a strong cis-eQTL
+# favouring CAST. That cannot be separated from an artefact without a reciprocal
+# cross, so the default is to hold them out - but they are always PRINTED, and
+# KEEP_ABOVE_BIALLELIC brings them into the ranking and the plot if you want to
+# look at them directly. They are marked ! on the axis when kept.
+MAX_ESCAPE           <- 0.60
+KEEP_ABOVE_BIALLELIC <- FALSE
 
 ##### ----------------------- LOAD ----------------------- #####
 read_one <- function(s) {
@@ -111,13 +130,15 @@ g[, c("esc_lo", "esc_hi") := wilson(a2, n)]
 # Testable in BOTH samples, so adult and aged are comparable gene by gene.
 ok <- g[n >= MIN_UMI, .N, by = gene][N == 2L, gene]
 
-artefact <- g[gene %chin% ok][, .(mx = max(escape)), by = gene][mx > MAX_ESCAPE, gene]
-if (length(artefact)) {
-  cat("\n--- HELD OUT: escape above", MAX_ESCAPE, "is not possible in this genotype ---\n")
-  print(g[gene %chin% artefact, .(gene, sample, n, escape = round(escape, 3))][order(gene, sample)])
+above_bi <- g[gene %chin% ok][, .(mx = max(escape)), by = gene][mx > MAX_ESCAPE, gene]
+if (length(above_bi)) {
+  cat("\n--- ABOVE BIALLELIC (escape >", MAX_ESCAPE, "): the INACTIVE X supplies most of",
+      "the transcript,\n    which needs the ACTIVE B6 allele silent, deleted or unmappable.",
+      if (KEEP_ABOVE_BIALLELIC) "KEPT (marked ! below).\n" else "HELD OUT.\n")
+  print(g[gene %chin% above_bi, .(gene, sample, n, escape = round(escape, 3))][order(gene, sample)])
 }
 
-cand <- g[gene %chin% setdiff(ok, artefact)]
+cand <- if (KEEP_ABOVE_BIALLELIC) g[gene %chin% ok] else g[gene %chin% setdiff(ok, above_bi)]
 # Significant in at least one animal. n = 1 per age, so this is a screen for
 # genes worth looking at - NOT an age comparison. Nothing here supports a
 # statement about ageing without replication.
@@ -145,7 +166,11 @@ print(dcast(nt, gene ~ sample, value.var = "n_tiles", fill = 0)[order(match(gene
 # missing from nt entirely and would otherwise slip through unmarked.
 fat_genes <- nt[, .(ok = all(n_tiles >= MIN_TILES_VIOLIN) && uniqueN(sample) == 2L),
                 by = gene][ok == TRUE, gene]
-labs_v <- setNames(paste0(top, ifelse(top %chin% fat_genes, "", " *")), top)
+# * = no violin (too few tiles). ! = above biallelic, so not escape whatever
+# else it is - only ever present when KEEP_ABOVE_BIALLELIC is TRUE.
+labs_v <- setNames(paste0(top,
+                          ifelse(top %chin% fat_genes, "", " *"),
+                          ifelse(top %chin% above_bi, " !", "")), top)
 
 pl[, gene := factor(gene, levels = top)]
 pool <- g[gene %chin% top][, .(gene = factor(gene, levels = top), sample,
