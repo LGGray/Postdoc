@@ -16,8 +16,10 @@
 #   fig8   endothelial subtype markers (only if detectable)
 #   fig9   Mex3a detection check: positive bins on tissue + a rate comparison
 #
-# Run on the cluster from adult_aged_spatial/, e.g.
-#   sbatch ~/Postdoc/slurm/spatial_marker_panels.slurm
+# Run on the cluster from adult_aged_spatial/. The sample is an argument to the
+# wrapper (default 78w), so both sections use the same script:
+#   sbatch ~/Postdoc/slurm/spatial_marker_panels.slurm 78w
+#   sbatch ~/Postdoc/slurm/spatial_marker_panels.slurm 9w 78w
 #
 # Uses spaceranger's own UMAP and graph clustering rather than recomputing, so
 # the panels match what the web summary shows and the script stays cheap.
@@ -32,20 +34,44 @@ library(ggplot2)
 library(Matrix)
 
 ##### ---------------------- CONFIG ---------------------- #####
-BASE      <- "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_spatial"
-SAMPLE    <- "9w"      # adult = baseline; better complexity than 78w
-BIN       <- "square_016um"
-OUT_DIR   <- file.path(BASE, "figures", paste0(SAMPLE, "_", BIN))
+# Sample, bin and output directory come from the environment so one script
+# serves both sections without an edit; the defaults reproduce the original 9w
+# run. SPATIAL_DIR rather than BASE on purpose - the slurm wrapper already uses
+# BASE for the project root, one level up, and picking that up silently would
+# send every path to the wrong place.
+#
+#   SAMPLE=78w Rscript spatial_marker_panels.R
+SPATIAL_DIR <- Sys.getenv("SPATIAL_DIR",
+  "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_spatial")
+BASE      <- SPATIAL_DIR
+SAMPLE    <- Sys.getenv("SAMPLE", "9w")   # 9w = adult baseline, 78w = aged
+BIN       <- Sys.getenv("BIN", "square_016um")
+OUT_DIR   <- Sys.getenv("OUT_DIR", "")
+if (!nzchar(OUT_DIR)) OUT_DIR <- file.path(BASE, "figures", paste0(SAMPLE, "_", BIN))
+
+# Environment variables arrive as strings; "FALSE" is TRUE to as.logical()'s
+# careless cousins and silently NA to some, so parse the flags explicitly.
+env_flag <- function(name, default) {
+  v <- toupper(trimws(Sys.getenv(name, "")))
+  if (!nzchar(v)) return(default)
+  if (v %in% c("1", "TRUE", "T", "YES")) return(TRUE)
+  if (v %in% c("0", "FALSE", "F", "NO"))  return(FALSE)
+  stop("Cannot read ", name, " = '", Sys.getenv(name), "' as a logical")
+}
 
 # Point size for the spatial plots. Tune if bins look too sparse or too merged:
 # smaller bins (008um) need a smaller value, 032um a larger one.
-POINT_SIZE <- 0.35
+POINT_SIZE <- as.numeric(Sys.getenv("POINT_SIZE", "0.35"))
+if (!is.finite(POINT_SIZE) || POINT_SIZE <= 0) stop("POINT_SIZE must be a positive number")
 
 # Section orientation. Visium images are not filed apex-down; flip until the LV
 # free wall sits where an anatomist expects it. y is always reversed on top of
 # this, because image coordinates run downwards from the top-left.
-FLIP_X <- FALSE
-FLIP_Y <- FALSE
+# Leave both FALSE to keep these panels in the same frame as the allelic-ratio
+# tile maps (tile_gene_ar_maps.R), which never flip - a flip here would make the
+# two figures look comparable while being mirrored relative to each other.
+FLIP_X <- env_flag("FLIP_X", FALSE)
+FLIP_Y <- env_flag("FLIP_Y", FALSE)
 
 # Light panels (grey zeros, dark signal) print and project cleanly on the usual
 # white slide template. DARK_MODE swaps to black background + magma, which is
@@ -831,7 +857,7 @@ if (GENE_OF_INTEREST %in% rownames(raw)) {
 
   save_combo(list(p_tissue, p_bar), paste0("fig9_", GENE_OF_INTEREST), ncol = 2,
              w = 12.5, h = 6,
-             title = paste0(GENE_OF_INTEREST, " at baseline - ", CAPTION_BIN),
+             title = paste0(GENE_OF_INTEREST, " detection - ", CAPTION_BIN),
              subtitle = "Raw UMI counts, no normalisation - the question is detection, not level")
   save_panel(p_tissue, paste0("fig9b_", GENE_OF_INTEREST, "_tissue"), w = 6.5)
 } else {
