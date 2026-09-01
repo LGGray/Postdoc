@@ -29,6 +29,32 @@ anticonservative. Reads sharing (CB, UB) are collapsed and the allele is decided
 by majority vote across whatever SNPs that UMI's reads happen to cover; ties are
 discarded.
 
+Two flags move that, independently:
+
+  --keep-duplicates   Stop honouring the duplicate flag. With the default
+                      molecule unit this is not a way of counting duplicates -
+                      they still collapse onto their UB - it is a way of getting
+                      back the MOLECULES that deduplication removes outright,
+                      which on this data is 26-38% of chrX (spaceranger flags
+                      every read of some molecules as a duplicate of another
+                      molecule at the same position). Those molecules are
+                      independent observations and belong in the count.
+
+  --count-unit read   Vote once per read instead of once per molecule, which is
+                      Allelome.PRO2's statistic. Together with
+                      --keep-duplicates it is the pre-deduplication view.
+                      Use it to size tiles against THAT pipeline's read
+                      thresholds, never to gain precision: the reads of one
+                      molecule are one allele call repeated.
+
+Read mode therefore also tracks how many distinct molecules its reads came from
+and reports duplication_factor = informative reads / distinct (bin, UB), in the
+summary and in the provenance sidecar. ase_tile_sweep.R divides by it to get an
+effective n before quoting any SE. It is deliberately not reads per
+non-duplicate read: deduplication still leaves ~2.5 reads per molecule here,
+because the duplicate flag is per alignment position and a 3' molecule spans
+several, so that ratio would under-correct by a factor of 2.5.
+
 Three optional extra outputs, all off by default so the existing output path is
 byte-for-byte unchanged:
 
@@ -528,8 +554,13 @@ def load_barcode_map(path, spatial_dir, pos):
 
 def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                 subsets=(), sub_counts=None, primary=True, regions=None,
-                windows=None, resolve=None, win_k=None, loci=None, seen=None):
-    """UMI-collapsed (2um bin -> [ref, alt]) for one chromosome.
+                windows=None, resolve=None, win_k=None, loci=None, seen=None,
+                mol_seen=None):
+    """One chromosome, collapsed to (2um bin -> [ref, alt]).
+
+    The unit is the molecule by default and the read under --count-unit read.
+    Both go through the same vote-and-decide code below; the only difference is
+    the key votes are held under and when they are flushed.
 
     Side outputs, all optional and all derived from the SAME per-UMI allele
     calls as the return value, so nothing here can disagree with the main table:
@@ -540,6 +571,12 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
       windows     (chrom, window index, tile row, tile col) -> [ref, alt].
       loci        (subset name, locus name) -> [ref, alt].
       seen        {"snps": set, "genes": set} for the provenance sidecar.
+      mol_seen    read mode only: the (bin, UB) of every informative read, so
+                  the duplication factor can be reads per MOLECULE. Reads per
+                  non-duplicate read is not the same number and is not the one
+                  the sweep needs - deduplication leaves ~2.5 reads per molecule
+                  on this data, since the duplicate flag is per alignment
+                  position and a molecule spans several.
 
     primary=False counts nothing into the returned table. That is the mode for a
     chromosome that appears only in a subset bed: its reads exist to fill the
@@ -547,10 +584,18 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
     regions limits the fetch to a list of (start, end), which is what makes such
     a chromosome cheap.
     """
-    votes = {}                                        # (bin, umi) -> [r, a, pos]
-    umi_bin = {}                                      # (bin, umi) -> bin
+    votes = {}                                        # (bin, unit) -> [r, a, pos]
+    umi_bin = {}                                      # (bin, unit) -> bin
     svotes = [{} for _ in subsets]
     n_obs = n_hit = 0
+    # Read level uses the identical machinery with a per-read key, and flushes
+    # the entry the moment the read is done. Nothing accumulates across the
+    # chromosome, which is what makes a duplicate-inclusive pass fit: it has
+    # several times as many reads as there are molecules, and holding a vote
+    # for each of them would not.
+    read_level = args.count_unit == "read"
+    n_units = 0
+    touched = []                                      # subsets this read hit
     snps_seen = seen["snps"] if seen else None
     genes_seen = seen["genes"] if seen else None
 
@@ -565,6 +610,65 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                 for r in bam.fetch(chrom, max(0, s), e):
                     yield r
         it = _iter()
+
+    # Vote -> table. Defined ahead of the loop because read mode calls them per
+    # read; molecule mode still calls them once per UMI after the fetch. One
+    # implementation, so the two units cannot drift apart.
+    def decide(r, a):
+        # Majority vote. A tie means the unit saw both alleles, which is either
+        # a chimera or an alignment artefact - drop it rather than guess.
+        return 0 if r > a else (1 if a > r else None)
+
+    per_bin = collections.defaultdict(lambda: [0, 0])
+    counters = {"ties": 0}
+    tile_of = {}
+
+    def emit_main(key, r, a, pos):
+        if not primary:
+            return
+        b = decide(r, a)
+        if b is None:
+            counters["ties"] += 1
+            return
+        bc = umi_bin[key]
+        per_bin[bc][b] += 1
+        if windows is None:
+            return
+        t = tile_of.get(bc, False)
+        if t is False:
+            coord = resolve(bc)
+            t = None if coord is None else (int(coord[0]) // win_k,
+                                            int(coord[1]) // win_k)
+            tile_of[bc] = t
+        if t is not None:
+            wk = (chrom, pos // args.window_size, t[0], t[1])
+            w = windows.get(wk)
+            if w is None:
+                w = windows[wk] = [0, 0]
+            w[b] += 1
+
+    def emit_sub(si, key, r, a, spos):
+        b = decide(r, a)
+        if b is None:
+            return
+        s = subsets[si]
+        tgt = sub_counts[si] if sub_counts is not None else None
+        if tgt is not None:
+            cell = tgt.get(umi_bin[key])
+            if cell is None:
+                cell = tgt[umi_bin[key]] = [0, 0]
+            cell[b] += 1
+        # Per-locus depth. Meaningless for a complement subset - "not in any of
+        # these intervals" has no interval to attribute to - so those are
+        # skipped rather than filed under a made-up name.
+        if loci is not None and not s.complement:
+            nm = s.iv.name_at(chrom, spos)
+            if nm is not None:
+                lk = (s.name, nm)
+                cell = loci.get(lk)
+                if cell is None:
+                    cell = loci[lk] = [0, 0]
+                cell[b] += 1
 
     for read in it:
         stats["reads_seen"] += 1
@@ -601,7 +705,16 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
         if lo >= len(snp_sorted) or snp_sorted[lo] >= read.reference_end:
             continue
 
-        key = (bin_bc, read.get_tag("UB"))
+        # In read mode the unit is this alignment, so the key must not collide
+        # with the other reads of its molecule - a counter, not the UB tag.
+        # UB is still required above, because a read without one is not a
+        # counted molecule in any mode and would not be in the BAM the rest of
+        # the pipeline sees either.
+        if read_level:
+            n_units += 1
+            key = (bin_bc, n_units)
+        else:
+            key = (bin_bc, read.get_tag("UB"))
         seq = read.query_sequence
         qual = read.query_qualities
         v = None
@@ -637,6 +750,8 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                 sv = svotes[si].get(key)
                 if sv is None:
                     sv = svotes[si][key] = [0, 0, rpos]
+                    if read_level:
+                        touched.append(si)
                 sv[bucket] += 1
                 # The subset's own leftmost informative SNP, which is not
                 # necessarily the UMI's: a molecule can cover a SNP inside an
@@ -646,65 +761,44 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                     sv[2] = rpos
         if v is not None and genes_seen is not None and read.has_tag(args.gene_tag):
             genes_seen.add(read.get_tag(args.gene_tag))
+        if v is not None:
+            # Informative reads, how many survive the duplicate flag, and -
+            # in read mode - which molecules they came from. reads / molecules
+            # is the duplication factor the sweep deflates n by; the
+            # nondup count is only a diagnostic, and is the wrong divisor,
+            # because dedup leaves several reads per molecule.
+            stats["informative_reads"] += 1
+            if not read.is_duplicate:
+                stats["informative_reads_nondup"] += 1
+            if primary:
+                stats["informative_reads_primary"] += 1
+                if mol_seen is not None:
+                    mol_seen.add((bin_bc, read.get_tag("UB")))
+            if read_level:
+                # Subsets first: emit_main deletes the bin this key maps to.
+                for si in touched:
+                    sv = svotes[si].pop(key)
+                    emit_sub(si, key, sv[0], sv[1], sv[2])
+                del touched[:]
+                emit_main(key, v[0], v[1], v[2])
+                del votes[key]
+                del umi_bin[key]
 
-    # Majority vote per UMI; a tie means the UMI saw both alleles, which is
-    # either a chimera or an alignment artefact - drop it rather than guess.
-    def decide(r, a):
-        return 0 if r > a else (1 if a > r else None)
-
-    per_bin = collections.defaultdict(lambda: [0, 0])
-    ties = 0
-    tile_of = {}
+    # Molecule mode flushes here and not earlier: a UMI's reads are scattered
+    # along the chromosome, so its vote is only complete once the fetch is done.
+    # Read mode has already emitted and deleted every entry, so these loops run
+    # over empty dicts.
     for key, (r, a, pos) in votes.items():
-        b = decide(r, a)
-        if primary:
-            if b is None:
-                ties += 1
-            else:
-                per_bin[umi_bin[key]][b] += 1
-        if windows is not None and b is not None and primary:
-            bc = umi_bin[key]
-            t = tile_of.get(bc, False)
-            if t is False:
-                coord = resolve(bc)
-                t = None if coord is None else (int(coord[0]) // win_k,
-                                                int(coord[1]) // win_k)
-                tile_of[bc] = t
-            if t is not None:
-                wk = (chrom, pos // args.window_size, t[0], t[1])
-                w = windows.get(wk)
-                if w is None:
-                    w = windows[wk] = [0, 0]
-                w[b] += 1
-
-    for si, s in enumerate(subsets):
-        if chrom not in s.chroms:
+        emit_main(key, r, a, pos)
+    for si, sub in enumerate(subsets):
+        if chrom not in sub.chroms:
             continue
-        tgt = sub_counts[si] if sub_counts is not None else None
         for key, (r, a, spos) in svotes[si].items():
-            b = decide(r, a)
-            if b is None:
-                continue
-            if tgt is not None:
-                cell = tgt.get(umi_bin[key])
-                if cell is None:
-                    cell = tgt[umi_bin[key]] = [0, 0]
-                cell[b] += 1
-            # Per-locus depth. Meaningless for a complement subset - "not in any
-            # of these intervals" has no interval to attribute to - so those are
-            # skipped rather than filed under a made-up name.
-            if loci is not None and not s.complement:
-                nm = s.iv.name_at(chrom, spos)
-                if nm is not None:
-                    lk = (s.name, nm)
-                    cell = loci.get(lk)
-                    if cell is None:
-                        cell = loci[lk] = [0, 0]
-                    cell[b] += 1
+            emit_sub(si, key, r, a, spos)
 
     stats["snp_observations"] += n_obs
     stats["snp_matching_an_allele"] += n_hit
-    stats["umi_ties"] += ties
+    stats["unit_ties"] += counters["ties"]
     return per_bin
 
 
@@ -825,6 +919,15 @@ def main():
                         "single-threaded; this only speeds up reading.")
     p.add_argument("--drop-duplicates", action="store_true", default=True)
     p.add_argument("--keep-duplicates", dest="drop_duplicates", action="store_false")
+    p.add_argument("--count-unit", choices=("molecule", "read"),
+                   default="molecule",
+                   help="What one count is. 'molecule' (default) collapses "
+                        "reads sharing (bin, UB) and votes once per molecule. "
+                        "'read' votes once per read, which is Allelome.PRO2's "
+                        "statistic; combined with --keep-duplicates it is the "
+                        "pre-deduplication view. Read-level counts are NOT "
+                        "independent observations - see the duplication factor "
+                        "in the summary.")
     p.add_argument("--subset-bed", action="append", default=None,
                    metavar="NAME=PATH[:complement]",
                    help="Extra count columns NAME_ref/NAME_alt holding only the "
@@ -1027,13 +1130,17 @@ def main():
     windows = {} if args.window_out else None
     loci = {} if args.locus_out else None
     seen = {}          # chromosome set -> informative SNP and gene identities
+    # Read mode only. About a million entries on this data - the same order as
+    # the vote dict molecule mode already holds - and it is the only way to say
+    # how many independent molecules the read counts stand for.
+    mol_seen = set() if args.count_unit == "read" else None
     win_k = args.window_tile_um // 2
 
     def kw(c, primary=True, regions=None, label=None):
         lab = label or c
         seen.setdefault(lab, {"snps": set(), "genes": set()})
         return dict(subsets=subsets, sub_counts=sub_counts, primary=primary,
-                    regions=regions,
+                    regions=regions, mol_seen=mol_seen,
                     windows=windows if (win_chroms and c in win_chroms) else None,
                     resolve=resolve, win_k=win_k, loci=loci, seen=seen[lab])
 
@@ -1162,7 +1269,27 @@ def main():
     match_rate = (100.0 * stats["snp_matching_an_allele"] / stats["snp_observations"]
                   if stats["snp_observations"] else 0.0)
 
+    unit_lab = "UMIs" if args.count_unit == "molecule" else "reads"
+    # Counted units per independent molecule - the number every SE downstream
+    # has to be deflated by. In molecule mode the unit already IS the molecule,
+    # so it is 1 by construction. In read mode it is measured, and it is NOT
+    # reads-per-non-duplicate-read: dropping duplicates still leaves ~2.5 reads
+    # per molecule here, because the duplicate flag is per alignment position
+    # and a 3' molecule spans several. Deflating by the wrong one of those two
+    # is what would let a read-level sweep recommend a tile size that cannot
+    # measure what it claims to.
+    n_mol = len(mol_seen) if mol_seen is not None else 0
+    if args.count_unit == "molecule":
+        dup_factor = 1.0
+    elif n_mol:
+        dup_factor = float(stats["informative_reads_primary"]) / n_mol
+    else:
+        dup_factor = float("nan")
+
     sys.stderr.write("\n--- summary ---\n")
+    sys.stderr.write("counting unit              %s%s\n"
+                     % (args.count_unit,
+                        "" if args.drop_duplicates else ", PCR DUPLICATES KEPT"))
     sys.stderr.write("reads seen                 %d\n" % stats["reads_seen"])
     for k, lab in (("drop_not_primary", "not primary"),
                    ("drop_duplicate", "PCR duplicate"),
@@ -1176,12 +1303,27 @@ def main():
     sys.stderr.write("reads passing filters      %d\n" % stats["reads_kept"])
     sys.stderr.write("read bases over a SNP      %d\n" % stats["snp_observations"])
     sys.stderr.write("  matching ref or alt      %.2f%%\n" % match_rate)
-    sys.stderr.write("UMIs dropped as ties       %d\n" % stats["umi_ties"])
-    sys.stderr.write("bins with informative UMIs %d / %d\n" % (n_written, n_bins))
-    sys.stderr.write("chrX informative UMIs      %d   (lambda = %.4f per 2um bin)\n"
-                     % (x_umi, x_umi / n_bins if n_bins else 0.0))
-    sys.stderr.write("autosomal informative UMIs %d   (lambda = %.4f per 2um bin)\n"
-                     % (a_umi, a_umi / n_bins if n_bins else 0.0))
+    sys.stderr.write("%-26s %d\n" % (unit_lab + " dropped as ties",
+                                      stats["unit_ties"]))
+    sys.stderr.write("informative reads          %d, of which %d survive the\n"
+                     "  duplicate flag\n"
+                     % (stats["informative_reads"],
+                        stats["informative_reads_nondup"]))
+    if args.count_unit == "read":
+        sys.stderr.write("distinct (bin, UB) molecules %d -> duplication factor %.3f\n"
+                         % (n_mol, dup_factor))
+        sys.stderr.write(
+            "  *** These counts are NOT %d independent observations. Divide n\n"
+            "  *** by %.3f before quoting any binomial SE; ase_tile_sweep.R does\n"
+            "  *** that from the duplication_factor in the provenance sidecar,\n"
+            "  *** and reports the result as n_eff.\n"
+            % (stats["informative_reads_primary"], dup_factor))
+    sys.stderr.write("bins with informative %-5s %d / %d\n"
+                     % (unit_lab, n_written, n_bins))
+    sys.stderr.write("chrX informative %-10s %d   (lambda = %.4f per 2um bin)\n"
+                     % (unit_lab, x_umi, x_umi / n_bins if n_bins else 0.0))
+    sys.stderr.write("autosomal informative %-5s %d   (lambda = %.4f per 2um bin)\n"
+                     % (unit_lab, a_umi, a_umi / n_bins if n_bins else 0.0))
     if a_umi:
         a_ref_frac = sum(v[0] for v in a_counts.values()) / a_umi
         sys.stderr.write("autosomal ref fraction     %.4f\n" % a_ref_frac)
@@ -1210,8 +1352,9 @@ def main():
     # The written table was never affected; only this line was.
     for i, s in enumerate(subsets):
         r, n = sub_ref[i], sub_umi[i]
-        sys.stderr.write("subset %-12s %d informative UMIs, ref fraction %s\n"
-                         % (s.name, n, "%.4f" % (r / n) if n else "n/a"))
+        sys.stderr.write("subset %-12s %d informative %s, ref fraction %s\n"
+                         % (s.name, n, unit_lab,
+                            "%.4f" % (r / n) if n else "n/a"))
 
     # ------------------------------------------------------------- provenance
     #
@@ -1231,6 +1374,15 @@ def main():
         pf.write("min_mapq\t%d\n" % args.min_mapq)
         pf.write("min_baseq\t%d\n" % args.min_baseq)
         pf.write("drop_duplicates\t%s\n" % args.drop_duplicates)
+        pf.write("count_unit\t%s\n" % args.count_unit)
+        # Counted units per distinct molecule: 1.0 in molecule mode, measured in
+        # read mode. ase_tile_sweep.R reads this key to turn a read-level n into
+        # an effective one, so renaming it breaks the SEs downstream.
+        pf.write("duplication_factor\t%.4f\n" % dup_factor)
+        pf.write("informative_reads\t%d\n" % stats["informative_reads"])
+        pf.write("informative_reads_nondup\t%d\n"
+                 % stats["informative_reads_nondup"])
+        pf.write("informative_molecules\t%d\n" % n_mol)
         pf.write("x_chrom\t%s\n" % args.x_chrom)
         pf.write("autosome_chroms\t%s\n" % ",".join(autosomes))
         for s in subsets:

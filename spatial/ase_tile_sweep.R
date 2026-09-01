@@ -97,14 +97,64 @@ BASE      <- Sys.getenv("BASE",
   "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_spatial")
 # The SLURM array sets SAMPLE; the default is what you get running by hand.
 SAMPLE    <- Sys.getenv("SAMPLE", "9w")
-IN_TSV    <- file.path(BASE, "ase", SAMPLE, "bin_allele_counts.tsv")
+# The counting mode gets its own tree - ase/ (molecules), ase_reads/ (reads,
+# deduplicated) and ase_dup/ (reads, duplicates kept) - set by
+# slurm/spatial_ase_sweep.slurm, so a duplicate-inclusive sweep sits beside the
+# UMI one instead of overwriting it. The default is the UMI path this script has
+# always used.
+ASE_DIR   <- Sys.getenv("ASE_DIR", file.path(BASE, "ase", SAMPLE))
+IN_TSV    <- file.path(ASE_DIR, "bin_allele_counts.tsv")
 # Every in-tissue 2um bin, including the ones with no informative UMI. Needed
 # for the coverage denominator - IN_TSV only holds bins that carry data, and
 # using that as the denominator would report near-perfect coverage at 8um.
 TISSUE_TSV <- paste0(IN_TSV, ".tissue_bins.tsv.gz")
 # Overridable so the sweep can be re-run against archived counts without
 # writing back over them.
-OUT_DIR   <- Sys.getenv("OUT_DIR", file.path(BASE, "ase", SAMPLE))
+OUT_DIR   <- Sys.getenv("OUT_DIR", ASE_DIR)
+
+# ------------------------------------------------------- the counting unit
+#
+# Read from the counter's provenance sidecar rather than from an environment
+# variable, so the sweep cannot be told one thing while the counts are another.
+# Old count tables have no count_unit key and are molecules, which is what the
+# defaults below say.
+#
+# WHY IT MATTERS. Every SE, MDE and coverage threshold in this script is a
+# binomial statement, and a binomial needs independent observations. Reads of
+# one molecule are not independent - they are one allele call photocopied - so a
+# read-level table has n inflated by the reads-per-molecule factor and nothing
+# else. Left uncorrected it would make every tile look sqrt(factor) times more
+# precise than it is and pick a tile size several steps too small. Note that
+# this bites in BOTH read modes: dropping duplicates still leaves ~2.5 reads per
+# molecule on this data, because the duplicate flag is per alignment position
+# and a 3' molecule spans several. So:
+#
+#   * n_eff = counted units / duplication factor is what the SEs use.
+#   * The coverage targets and the depth cutoffs are multiplied UP by the same
+#     factor, so "10" always means ten independent observations and the
+#     frac_ge_* columns of a dup run and a UMI run mean the same thing.
+#
+# What a dup run legitimately tells you that the UMI run cannot: how many READS
+# a tile hands Allelome.PRO2, which is what that pipeline's own thresholds are
+# written in.
+COUNTER_PROV <- paste0(IN_TSV, ".provenance.tsv")
+COUNT_UNIT <- "molecule"; DUPS_KEPT <- FALSE; DUP_FACTOR <- 1
+if (file.exists(COUNTER_PROV)) {
+  .cp <- data.table::fread(COUNTER_PROV, colClasses = "character")
+  .gv <- function(k, d) { v <- .cp[key == k, value]; if (length(v)) v[1] else d }
+  COUNT_UNIT <- .gv("count_unit", "molecule")
+  DUPS_KEPT  <- tolower(.gv("drop_duplicates", "True")) %in% c("false", "0")
+  DUP_FACTOR <- suppressWarnings(as.numeric(.gv("duplication_factor", "1")))
+  if (!is.finite(DUP_FACTOR) || DUP_FACTOR < 1) DUP_FACTOR <- 1
+}
+# Any read-level count needs deflating, duplicates kept or not. A molecule
+# count never does: the unit is already the independent one, which is why the
+# counter writes duplication_factor = 1 for it.
+EFF_DIVISOR <- if (identical(COUNT_UNIT, "read")) DUP_FACTOR else 1
+UNIT_LAB <- if (identical(COUNT_UNIT, "read")) "reads" else "UMIs"
+RUN_LAB  <- if (!identical(COUNT_UNIT, "read")) {
+  if (DUPS_KEPT) "umi_dup" else "umi"
+} else if (DUPS_KEPT) "dup" else "reads"
 
 # Candidate tile sizes, in microns. Every one is a whole number of 2um bins per
 # side, so the tilings nest exactly and the sweep is strict aggregation with no
@@ -217,9 +267,19 @@ if (nrow(bins) == 0L) {
        "pre-flight line\n  (CB tags resolving to bins) and the allele-match ",
        "rate, then re-run with FORCE=1.")
 }
-message("Bins with any informative UMI: ", nrow(bins))
-message("chrX informative UMIs: ", sum(bins$x_n),
+message("Bins with any informative ", UNIT_LAB, ": ", nrow(bins))
+message("chrX informative ", UNIT_LAB, ": ", sum(bins$x_n),
         "   autosomal: ", sum(bins$a_n))
+message("Counting unit: ", COUNT_UNIT,
+        if (DUPS_KEPT) " with PCR duplicates KEPT" else "",
+        "  (run label '", RUN_LAB, "')")
+if (EFF_DIVISOR > 1) {
+  message(sprintf("Duplication factor %.3f: %s counted here are worth %.0f%% as",
+                  EFF_DIVISOR, UNIT_LAB, 100 / EFF_DIVISOR))
+  message("  many independent observations. Depth cutoffs are multiplied up by")
+  message("  it and every SE divides by it, so the numbers below stay")
+  message("  comparable with the UMI run.")
+}
 
 if (!file.exists(TISSUE_TSV)) stop("No tissue bin list: ", TISSUE_TSV)
 tissue <- fread_any(TISSUE_TSV)
@@ -296,10 +356,14 @@ sweep_one <- function(size_um, ref_col, alt_col, label) {
   tile <- tile[n > 0]
   n_tissue <- n_tissue_tiles[[as.character(size_um)]]
 
-  cov <- sapply(COVERAGE_TARGETS, function(t) sum(tile$n >= t) / n_tissue)
+  # Targets are in EFFECTIVE observations, so they are scaled up to counted
+  # units here while the column names stay in effective ones. frac_ge_10 means
+  # "reaches 10 independent allele calls" in every mode.
+  cov <- sapply(COVERAGE_TARGETS * EFF_DIVISOR,
+                function(t) sum(tile$n >= t) / n_tissue)
   names(cov) <- paste0("frac_ge_", COVERAGE_TARGETS)
 
-  use <- tile[n >= MIN_UMI]
+  use <- tile[n >= MIN_UMI * EFF_DIVISOR]
   rm_ <- if (nrow(use) >= 20) rho_moment(use$x, use$n) else NA_real_
   rb_ <- if (nrow(use) >= 20) rho_betabinom(use$x, use$n) else NA_real_
 
@@ -468,6 +532,13 @@ short <- cd[sector == -1L][order(chrom_set, dist_um)][
 message("\nShort-range pair correlation, every set (realised separations, not nominal).")
 message("C0 is the permutation null - the same anchors paired with a random bin.")
 message("resid = C - C0 is the ONLY spatial part; resid_sd is it in units of its own SE.")
+if (EFF_DIVISOR > 1) {
+  message("CAUTION: at read level with duplicates kept, two 'observations' in the same")
+  message("  bin are often two copies of ONE molecule, which agree by construction.")
+  message("  That pushes C at the shortest separations toward 1 and shrinks the")
+  message("  implied per-unit error rate for a purely technical reason. The C(d)")
+  message("  numbers to quote are the UMI run's; this run is for depth only.")
+}
 msg_table(short)
 fwrite(short, file.path(OUT_DIR, "pair_correlation_short_range.csv"))
 
@@ -662,7 +733,9 @@ pdf(file.path(OUT_DIR, "tile_size_sweep.pdf"), width = 7.5, height = 5.5)
 # SAMPLE goes in every title. Both samples write a file of this name into their
 # own directory, and the two PDFs were previously distinguishable only by parent
 # directory - which has already caused one mix-up.
-titled <- function(s) paste0(SAMPLE, " - ", s)
+# ...and the counting mode, since ase/ ase_reads/ and ase_dup/ each write a
+# tile_size_sweep.pdf and only the parent directory told them apart.
+titled <- function(s) paste0(SAMPLE, " [", RUN_LAB, "] - ", s)
 
 cov_long <- melt(sweep, id.vars = c("chrom_set", "size_um"),
                  measure.vars = paste0("frac_ge_", COVERAGE_TARGETS),
@@ -807,7 +880,7 @@ if (nrow(cd)) {
 for (s in intersect(c(16, 32, 64, 128, 256), SIZES_UM)) {
   k <- s / 2
   tl <- bins[, .(x = sum(x_ref), n = sum(x_ref) + sum(x_alt)),
-             by = .(array_row %/% k, array_col %/% k)][n >= MIN_UMI]
+             by = .(array_row %/% k, array_col %/% k)][n >= MIN_UMI * EFF_DIVISOR]
   if (nrow(tl) < 50) next
   print(
     ggplot(tl, aes(x / n)) +
@@ -815,8 +888,8 @@ for (s in intersect(c(16, 32, 64, 128, 256), SIZES_UM)) {
       labs(title = titled(paste0("chrX escape per tile, ", s, " um")),
            subtitle = paste0(nrow(tl), " of ",
                              n_tissue_tiles[[as.character(s)]],
-                             " tissue tiles clear ", MIN_UMI,
-                             " UMIs; median ", median(tl$n), " UMIs among those"),
+                             " tissue tiles clear ", MIN_UMI * EFF_DIVISOR, " ",
+                             UNIT_LAB, "; median ", median(tl$n), " among those"),
            x = "B6 (active X) fraction; escape is 1 minus this", y = "tiles") +
       theme_bw()
   )
@@ -841,9 +914,14 @@ escape_global <- 1 - x[size_um == max(SIZES_UM), p_bar]
 # what one tile can and cannot see.
 prec <- x[, .(size_um, n_tissue_tiles, median_umi, frac_ge_10, frac_ge_20,
               escape = round(1 - p_bar, 4))]
+# median_umi is in counted units; n_eff is in independent ones. They are the
+# same column in molecule mode and differ by the duplication factor in dup mode.
+# Read median_umi to ask "does a tile give Allelome.PRO2 enough reads", and
+# n_eff for anything with a standard error attached to it.
+prec[, n_eff := round(median_umi / EFF_DIVISOR, 1)]
 prec[, se_escape := sqrt(escape_global * (1 - escape_global) /
-                           pmax(median_umi, 1))]
-prec[median_umi < 1, se_escape := NA_real_]
+                           pmax(n_eff, 1))]
+prec[n_eff < 1, se_escape := NA_real_]
 prec[, mde := 2.8 * se_escape]
 # An MDE above 1 is not a number, it is "this tile can detect nothing".
 prec[mde > 1, `:=`(mde = NA_real_, se_escape = NA_real_)]
@@ -857,22 +935,32 @@ message(sprintf("Autosomal control ref fraction: %.4f -> B6-ward mapping bias %.
 message("  That bias suppresses CAST reads, so the true escape is HIGHER than")
 message("  the figure above, not lower.")
 msg_table(prec)
-message("se_escape is the sampling SE on one tile's escape fraction at the median")
-message("depth; mde is the smallest difference from the global level that one tile")
+message("median_umi is the median count per tissue tile in ", UNIT_LAB,
+        "; n_eff is that in independent observations")
+message("  (divided by the duplication factor ", round(EFF_DIVISOR, 3), ").")
+message("se_escape is the sampling SE on one tile's escape fraction at n_eff;")
+message("mde is the smallest difference from the global level that one tile")
 message("could call at 80% power. Both are floors - they ignore overdispersion.")
 
 if (nrow(usable)) {
-  best <- prec[median_umi >= 20][which.min(size_um)]
+  best <- prec[n_eff >= 20][which.min(size_um)]
   if (nrow(best)) {
-    message(sprintf("\nSmallest tile with a median of 20+ chrX UMIs: %d um (SE %.3f, MDE %.3f).",
+    message(sprintf("\nSmallest tile with a median of 20+ independent chrX calls: %d um (SE %.3f, MDE %.3f).",
                     best$size_um, best$se_escape, best$mde))
+    if (EFF_DIVISOR > 1) {
+      message(sprintf("  That is %.0f %s per tile at this duplication factor - the depth",
+                      best$median_umi, UNIT_LAB))
+      message("  Allelome.PRO2 would see. The tile size itself is a property of the")
+      message("  molecules, so it should agree with the UMI run; if it does not, the")
+      message("  duplication factor is not uniform across the section.")
+    }
     message(sprintf("  At that size a tile separates escape of %.0f%% from %.0f%%, and nothing finer.",
                     100 * escape_global, 100 * (escape_global + best$mde)))
   }
-  message(sprintf("Smallest tile where >=50%% of tiles clear 10 UMIs: %d um.",
-                  min(usable$size_um)))
+  message(sprintf("Smallest tile where >=50%% of tiles clear 10 independent calls (%.0f %s): %d um.",
+                  10 * EFF_DIVISOR, UNIT_LAB, min(usable$size_um)))
 } else {
-  message("\nNo tile size gets 50% of tiles to 10 chrX UMIs. Per-tile escape is")
+  message("\nNo tile size gets 50% of tiles to 10 independent chrX calls. Per-tile escape is")
   message("  not estimable at this depth - use a regional or per-domain pseudobulk,")
   message("  or restrict to cardiomyocyte bins via DOMAIN_TSV and re-run.")
 }
@@ -905,6 +993,11 @@ if (length(rho_x) && length(rho_a)) {
                   rho_x, rho_a))
   message("  This is between-tile variance in the escape fraction beyond sampling")
   message("  noise. It is NOT mosaicism - there is none under this genotype.")
+  if (EFF_DIVISOR > 1) {
+    message("  CAUTION: rho is fitted on the raw duplication-weighted counts, so it")
+    message("  reads duplicate clustering as between-tile variance and is biased")
+    message("  UPWARD here. Take rho from the UMI run; this run is for depth.")
+  }
 }
 message("\nNOTE: n = 1 animal per age. Nothing here is an age effect.")
 message("Set TILE_UM_FOR_SINTO once you have looked at ",
@@ -922,7 +1015,9 @@ if (!is.null(TILE_UM_FOR_SINTO)) {
   # Depth comes from `bins`, which only holds bins carrying an informative UMI.
   bins[, tile := tile_id(array_row, array_col)]
   depth <- bins[, .(n_chrX = sum(x_n), n_auto = sum(a_n)), by = tile]
-  keep  <- depth[n_chrX >= SINTO_MIN_UMI, tile]
+  # Scaled the same way as everything else, so a dup run selects the same tiles
+  # the UMI run would rather than a laxer set.
+  keep  <- depth[n_chrX >= SINTO_MIN_UMI * EFF_DIVISOR, tile]
 
   # ...but the MAP must come from every tissue bin. Four fifths of tissue bins
   # carry no informative UMI, and their reads still belong in the tile: they
@@ -937,7 +1032,8 @@ if (!is.null(TILE_UM_FOR_SINTO)) {
                   100 * nrow(map) / nrow(tissue)))
   message(sprintf("  bins per tile: %.0f of a possible %d",
                   nrow(map) / max(1L, length(keep)), as.integer(k)^2))
-  message(sprintf("  informative UMIs per tile, median: chrX %d, autosomal %d",
+  message(sprintf(paste0("  informative ", UNIT_LAB,
+                         " per tile, median: chrX %d, autosomal %d"),
                   as.integer(median(depth[tile %in% keep, n_chrX])),
                   as.integer(median(depth[tile %in% keep, n_auto]))))
   if (length(keep) > 5000) {
@@ -963,13 +1059,16 @@ if (!is.null(TILE_UM_FOR_SINTO)) {
 # NOT data.table(key = ..., value = ...): `key` is data.table()'s own argument,
 # so that form sets a key instead of making a column, and errors.
 prov <- data.table(
-  k = c("script", "sample", "run_at", "counts_tsv", "counts_tsv_md5",
+  k = c("script", "sample", "run_at", "ase_dir", "count_unit", "dups_kept",
+          "duplication_factor", "eff_divisor",
+          "counts_tsv", "counts_tsv_md5",
           "tissue_tsv", "min_umi", "coverage_targets", "sizes_um",
           "cd_max_um", "cd_n_strata", "cd_per_stratum", "cd_sets",
           "cd_n_sectors", "domain_tsv", "tile_um_for_sinto", "sinto_min_umi",
           "sets", "r_version"),
   v = c("spatial/ase_tile_sweep.R", SAMPLE,
             format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+            ASE_DIR, COUNT_UNIT, DUPS_KEPT, DUP_FACTOR, EFF_DIVISOR,
             IN_TSV, unname(tools::md5sum(IN_TSV)), TISSUE_TSV,
             MIN_UMI, paste(COVERAGE_TARGETS, collapse = ","),
             paste(SIZES_UM, collapse = ","), CD_MAX_UM, CD_N_STRATA,

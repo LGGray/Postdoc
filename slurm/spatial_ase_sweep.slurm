@@ -30,7 +30,55 @@
 # 'force' to redo it. "Complete" now includes the window table and every
 # requested subset column, so the first run after those were added recounts.
 #
-# Outputs, in adult_aged_spatial/ase/<sample>/:
+# COUNTING MODE (arg 4) - what one count in the sweep is. The three modes of
+# slurm/spatial_tile_locus_map.slurm, by the same names, plus one more:
+#   umi     (default) one molecule, PCR duplicates dropped. Unchanged behaviour.
+#   umi_dup one molecule, duplicates KEPT but still collapsed on (bin, UB).
+#   reads   one read, duplicates still dropped. Allelome.PRO2's unit.
+#   dup     one read, PCR DUPLICATES KEPT. The pre-deduplication view.
+#
+#   sbatch spatial_ase_sweep.slurm "" "" 64 dup
+#
+# Each mode writes its own tree - ase/, ase_umidup/, ase_reads/, ase_dup/ - so a
+# duplicate-inclusive sweep sits beside the UMI one and the two can be compared
+# rather than one overwriting the other. Multimapper handling does not move:
+# --min-mapq 255 and the secondary/supplementary drop apply in all four.
+#
+# WHICH ONE ACTUALLY ANSWERS "what tile size, now that we keep the reads":
+# umi_dup, not dup. Dropping duplicates does not only drop copies, it drops
+# whole MOLECULES: in the 64um tile maps already on disk the duplicate-inclusive
+# chrX molecule count is 160,901 against 116,354 in 9w (+38%) and 88,024 against
+# 70,110 in 78w (+26%), because spaceranger flags every read of some molecules
+# as a duplicate of another molecule at the same position. umi_dup recovers
+# those molecules, and molecules are independent observations, so the tile size
+# it recommends can be taken at face value.
+#
+# dup keeps the copies too - 1.89 M chrX reads over 160,901 molecules in 9w, so
+# ~11.8 counts per molecule - and those copies are one allele call repeated.
+# They cannot make a tile more precise, and the counter measures the factor
+# (reads per distinct (bin, UB), NOT reads per non-duplicate read: dedup still
+# leaves ~2.5 reads per molecule here) so the sweep can divide it back out.
+# Run dup to see the read depth Allelome.PRO2 gets per tile, and read the n_eff
+# column, never median_umi, when sizing on it.
+#
+# COST. Keeping duplicates puts ~6x more reads through the per-read SNP work
+# (54% of this BAM is duplicate-flagged, and the duplicates are concentrated on
+# exactly the well-covered positions that carry SNPs), so the counting pass is
+# the slow part of a dup or umi_dup run - watch the 24h wall clock and raise
+# --time if a first attempt is killed. Memory does not grow with it: read mode
+# flushes each read's vote as it goes and holds nothing across the chromosome.
+#
+# HOW THE CORRECTION WORKS, in one place. ase_tile_sweep.R reads count_unit and
+# duplication_factor out of the counter's provenance sidecar, so it cannot be
+# told one thing while the counts are another. In a read mode it then reports
+# n_eff = counted reads / duplication factor beside median_umi, computes every
+# SE and MDE from n_eff, and scales the coverage cutoffs up by the same factor,
+# so frac_ge_10 means "10 independent allele calls" in every mode and the tables
+# stay comparable. Without that a dup sweep would look sqrt(11.8) ~ 3.4 times
+# more precise than it is. The rho and C(d) sections are NOT corrected and are
+# biased by duplicates - take those from the umi run.
+#
+# Outputs, in adult_aged_spatial/ase<mode suffix>/<sample>/:
 #   bin_allele_counts.tsv                per-2um-bin counts, plus one column
 #                                        pair per --subset-bed
 #   bin_allele_counts.tsv.provenance.tsv SNP bed path and md5, informative SNP
@@ -47,6 +95,12 @@
 #                                        error rate - tasks 3 and 4 in one table
 #   provenance_tile_sweep.tsv            what produced all of the above
 #
+# Only the sweep is mode-aware. spatial_sinto_tiles.slurm and
+# spatial_window_profile.slurm still read adult_aged_spatial/ase/<sample>, i.e.
+# the UMI tree, on purpose: the other trees exist to CHOOSE a tile size, not to
+# feed the pipeline. If you decide a non-UMI run should drive sinto, copy its
+# sinto_tiles_<n>um.tsv into ase/<sample>/ deliberately rather than by accident.
+#
 # Then, once both array tasks are done:
 #   sbatch ~/Postdoc/slurm/spatial_window_profile.slurm 64
 
@@ -60,6 +114,8 @@ module load slurm_setup
 #   sbatch spatial_ase_sweep.slurm 64         # also write the 64um sinto map
 #   sbatch spatial_ase_sweep.slurm 64 force   # ...and redo the counting pass
 #   sbatch spatial_ase_sweep.slurm 64 force 32   # ...window table on 32um tiles
+#   sbatch spatial_ase_sweep.slurm "" "" 64 umi_dup  # molecules, duplicates kept
+#   sbatch spatial_ase_sweep.slurm "" "" 64 dup      # reads, duplicates kept
 #
 # The environment forms still work if you submit with --export=ALL.
 TILE_UM="${1:-${TILE_UM:-}}"
@@ -68,6 +124,9 @@ FORCE="${2:-${FORCE:-}}"
 # ase_chrX_window_profile.R is run at, or the join there finds nothing - it
 # checks and says so rather than plotting an empty panel.
 WINDOW_TILE_UM="${3:-64}"
+# umi | umi_dup | reads | dup - see COUNTING MODE above. Positional so it survives
+# --export=NONE, and last so the existing three-argument calls keep working.
+COUNT_MODE="${4:-${COUNT_MODE:-umi}}"
 
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 SPATIAL=$BASE/adult_aged_spatial
@@ -81,7 +140,25 @@ else
   echo "Unexpected SLURM_ARRAY_TASK_ID=$SLURM_ARRAY_TASK_ID" >&2; exit 1
 fi
 
-OUT_DIR=$SPATIAL/ase/$SAMPLE
+# The counting unit, and the separate tree that keeps its results apart. The
+# suffix has to reach the R script too, which is what ASE_DIR does: it defaults
+# to ase/<sample> there, so the UMI path is unchanged when nothing is passed.
+case "$COUNT_MODE" in
+  umi)
+    ASE_SUF="";        COUNT_ARGS=() ;;
+  umi_dup)
+    ASE_SUF="_umidup"; COUNT_ARGS=(--keep-duplicates) ;;
+  reads)
+    ASE_SUF="_reads"; COUNT_ARGS=(--count-unit read) ;;
+  dup)
+    ASE_SUF="_dup";   COUNT_ARGS=(--count-unit read --keep-duplicates) ;;
+  *)
+    echo "Unknown counting mode '$COUNT_MODE' (arg 4): expected umi, umi_dup, reads or dup" >&2
+    exit 1 ;;
+esac
+echo "Counting mode: $COUNT_MODE  (tree=ase${ASE_SUF}, counter args '${COUNT_ARGS[*]}')"
+
+OUT_DIR=$SPATIAL/ase${ASE_SUF}/$SAMPLE
 COUNTS=$OUT_DIR/bin_allele_counts.tsv
 mkdir -p "$OUT_DIR"
 
@@ -224,6 +301,7 @@ else
     --window-size 100000 \
     --window-tile-um "$WINDOW_TILE_UM" \
     --locus-out "$OUT_DIR/subset_locus_counts.tsv" \
+    "${COUNT_ARGS[@]}" \
     "${SUBSET_ARGS[@]}" \
     --threads "$SLURM_CPUS_PER_TASK"
   rc=$?
@@ -245,4 +323,8 @@ else
   echo "No tile size given - sweeping only, no sinto map will be written."
   echo "Re-run as: sbatch \$0 <tile_um>   (e.g. 64) once you have chosen one."
 fi
-SAMPLE="$SAMPLE" TILE_UM="$TILE_UM" Rscript "$REPO/spatial/ase_tile_sweep.R"
+# ASE_DIR, not just OUT_DIR: the R script reads the count table, the tissue bin
+# list and the counter's provenance sidecar from it, and the sidecar is where it
+# learns the counting unit and the duplication factor.
+SAMPLE="$SAMPLE" TILE_UM="$TILE_UM" ASE_DIR="$OUT_DIR" OUT_DIR="$OUT_DIR" \
+  Rscript "$REPO/spatial/ase_tile_sweep.R"
