@@ -90,9 +90,20 @@ GENES   <- Sys.getenv("GENES", "")
 # otherwise, exactly as tile_ratio_map.R does it.
 USE_HE  <- !identical(tolower(Sys.getenv("USE_HE", "TRUE")), "false")
 
-# Below this many coloured tiles a gene gets a page anyway, but the title says
-# so - a map of nine tiles is a location, not a pattern.
-MIN_TILES_MAP <- 25L
+# When a gene gets a page but the page cannot be read as a map. Tested PER
+# SAMPLE, never on the two summed: a gene can be readable at 9w and three tiles
+# at 78w, and summing hides exactly the case the flag exists for (Ftx, 44 tiles
+# at 9w and 35 at 78w, cleared a summed threshold of 25 while covering 1.1% and
+# 0.8% of the tissue). The fraction is the operative test - a count means
+# nothing without knowing how many tiles the section has - and the count is a
+# floor under it.
+MIN_TILES_MAP <- 50L
+MIN_FRAC_MAP  <- 0.05
+
+# Above this many molecules in the best tile, the coverage row is worth drawing.
+# At or below it the "ramp" spans one or two values, which is a legend and no
+# information, so the row is dropped and the ratio maps get the whole page.
+MAX_COV_UMI_SKIP <- 2L
 
 # The capture array can sit rotated relative to the image. Flip these if the map
 # comes out mirrored against the H&E. Same meaning as in tile_ratio_map.R.
@@ -114,6 +125,10 @@ OCM_LABELS <- c("0.00-0.10", "0.10-0.20", "0.20-0.30", "0.30-0.40", "0.40-0.50",
                 "0.90-0.95", "0.95-1.00")
 names(OCM_COLORS) <- OCM_LABELS
 COL_FOOT <- "#e6e5e1"   # in-tissue, but this gene has no informative molecule
+# The footprint covers the whole tissue, so drawn opaque it hides the H&E
+# completely and USE_HE buys nothing but a pink halo outside the tile grid.
+# Semi-transparent over the raster, solid without it.
+FOOT_ALPHA <- if (USE_HE) 0.55 else 1
 ##### ------------------------------------------------------ #####
 
 msg <- function(...) message(sprintf(...))
@@ -290,39 +305,55 @@ base_map <- function(d, he = USE_HE) {
   g <- ggplot(d, aes(x, y))
   if (he) { l <- he_layer(d); if (!is.null(l)) g <- g + l }
   g +
-    geom_tile(width = d$side[1], height = d$side[1], fill = COL_FOOT, colour = NA) +
+    geom_tile(width = d$side[1], height = d$side[1], fill = COL_FOOT,
+              colour = NA, alpha = FOOT_ALPHA) +
     coord_fixed() + scale_y_reverse() + theme_slide
 }
 
-panel_ar <- function(d, g_, smp) {
+# Titles and subtitles are kept SHORT on purpose. Each panel is about 4 in wide
+# once the legend is taken out, which is roughly 85 characters at 7.5 pt, and
+# the old strings ran to 130 - so the left panel's subtitle overprinted the
+# right panel's title on every page. What they used to say now lives in the page
+# caption, which spans the full width and has the room for it.
+panel_ar <- function(d, g_, smp, thin = FALSE) {
   hit <- d[!is.na(ar)]
   base_map(d) +
     geom_tile(data = hit, aes(fill = ar_bin),
               width = d$side[1], height = d$side[1], colour = NA) +
     scale_fill_manual(values = OCM_COLORS, limits = OCM_LABELS, drop = FALSE,
                       na.value = COL_FOOT, name = "AR\n(B6 / total)") +
-    labs(title = sprintf("%s - %s", SLAB[[smp]], g_),
-         subtitle = sprintf("%d of %d in-tissue tiles carry it (%.1f%%); %.0f%% of those hold one molecule, so their colour is one allele call",
+    labs(title = paste0(SLAB[[smp]], if (thin) "  - TOO SPARSE TO READ AS A MAP" else ""),
+         subtitle = sprintf("%d of %d tiles (%.1f%%), %.0f%% of them one molecule",
                             nrow(hit), nrow(d), 100 * nrow(hit) / nrow(d),
                             100 * mean(hit$mono)))
 }
 
-panel_cov <- function(d, g_, smp) {
+# `lim` is the SAME for both ages, computed over the gene rather than the panel.
+# Left free, ggplot scaled each panel to its own maximum - 25/50/75 at 9w
+# against 20/40/60 at 78w - so equal blue meant unequal depth and the
+# side-by-side comparison, the entire point of the layout, was invalid.
+panel_cov <- function(d, g_, smp, lim) {
   hit <- d[!is.na(ar)]
   base_map(d) +
     geom_tile(data = hit, aes(fill = n_umi),
               width = d$side[1], height = d$side[1], colour = NA) +
     scale_fill_gradient(low = "#cde2fb", high = "#0d366b", trans = "sqrt",
-                        na.value = COL_FOOT, name = "molecules") +
-    labs(title = sprintf("%s - %s coverage", SLAB[[smp]], g_),
-         subtitle = sprintf("informative MOLECULES per tile (never reads: duplicates would draw a PCR pile-up map). median %g, max %d",
+                        limits = lim, na.value = COL_FOOT, name = "molecules") +
+    labs(title = paste(SLAB[[smp]], "- coverage"),
+         subtitle = sprintf("molecules per tile: median %g, max %d",
                             median(hit$n_umi), as.integer(max(hit$n_umi))))
 }
 
-# One gene, one page: AR across the top, coverage underneath, ages left to right.
+# One gene, one page: allelic ratio across the top, ages left to right, and the
+# coverage row underneath WHEN there is anything to put in it.
+#
+# Two passes over the samples, not one, because both the coverage scale and the
+# decision to draw a coverage row at all are properties of the GENE and cannot
+# be known while the first sample is still being built.
 one_gene <- function(g_) {
   a1 <- paste0("a1_", LEVEL); nn <- paste0("n_", LEVEL)
-  panes <- list(); cov <- list(); n_hit <- 0L
+  D <- list(); thin <- character(0); cov_max <- 0L; n_hit <- 0L
+
   for (s in SAMPLES) {
     g <- geo[sample == s]
     c1 <- cnt[sample == s & gene == g_,
@@ -331,18 +362,31 @@ one_gene <- function(g_) {
     d <- merge(g, c1, by = "tile", all.x = TRUE)
     d[, ar_bin := cut(ar, breaks = OCM_BREAKS, include.lowest = TRUE,
                       right = TRUE, labels = OCM_LABELS)]
-    n_hit <- n_hit + sum(!is.na(d$ar))
-    if (!sum(!is.na(d$ar))) {   # no data for this gene in this section
-      panes[[s]] <- base_map(d) +
-        labs(title = sprintf("%s - %s", SLAB[[s]], g_),
-             subtitle = "no informative molecule in this section")
-      cov[[s]] <- panes[[s]]
+    D[[s]] <- d
+    nh <- sum(!is.na(d$ar)); n_hit <- n_hit + nh
+    if (nh) {
+      if (nh < MIN_TILES_MAP || nh / nrow(d) < MIN_FRAC_MAP) thin <- c(thin, s)
+      cov_max <- max(cov_max, max(d$n_umi, na.rm = TRUE))
+    }
+  }
+
+  draw_cov <- cov_max > MAX_COV_UMI_SKIP
+  ar_p <- list(); cov_p <- list()
+  for (s in SAMPLES) {
+    d <- D[[s]]
+    if (!sum(!is.na(d$ar))) {          # no data for this gene in this section
+      ar_p[[s]] <- base_map(d) +
+        labs(title = SLAB[[s]], subtitle = "no informative molecule in this section")
+      if (draw_cov) cov_p[[s]] <- ar_p[[s]]
       next
     }
-    panes[[s]] <- panel_ar(d, g_, s)
-    cov[[s]]   <- panel_cov(d, g_, s)
+    ar_p[[s]] <- panel_ar(d, g_, s, thin = s %chin% thin)
+    # Lower bound 0, not 1: a tile whose molecule was dropped for an even
+    # allele split still has n_umi 0 while carrying reads, and outside the
+    # limits it would silently render as footprint rather than as a real tile.
+    if (draw_cov) cov_p[[s]] <- panel_cov(d, g_, s, lim = c(0, cov_max))
   }
-  list(panes = unname(c(panes, cov)), n_hit = n_hit)
+  list(panes = unname(c(ar_p, cov_p)), n_hit = n_hit, thin = thin, cov = draw_cov)
 }
 
 msg("Drawing %d genes -> %s", length(unique(cnt$gene)), OUT_PDF)
@@ -355,15 +399,29 @@ for (g_ in PANEL_GENES(have = cnt[, unique(gene)])) {
   tag <- if (length(ex) && !is.na(ex[1]))
            sprintf("  |  imprinted control, expected AR = %g (%s)", ex[1],
                    if (ex[1] == 1) "maternal = B6" else "paternal = CAST") else ""
-  thin <- if (r$n_hit < MIN_TILES_MAP)
-            sprintf("  |  ONLY %d COLOURED TILES IN TOTAL - a location, not a pattern",
-                    r$n_hit) else ""
+  # Named per sample. "too sparse in aged (78w)" tells you which half of the
+  # page not to read; a summed count told you neither.
+  thin <- if (length(r$thin))
+            paste0("  |  too sparse to read as a map in ",
+                   paste(SLAB[r$thin], collapse = " and ")) else ""
   cap <- paste0(g_, tag, thin)
+  # The explanation the panel subtitles used to carry, moved here where there is
+  # width for it. The coverage sentence only appears when that row was drawn.
+  foot <- paste0(
+    "Allelic ratio per ", TILE_UM, " um tile, dark red = B6 (active X), dark blue = CAST (inactive X). ",
+    "Pale tiles are in-tissue but carry no informative molecule of this gene.\n",
+    if (r$cov)
+      "Lower row: informative MOLECULES behind each tile - never reads, which would draw a PCR pile-up map. Both ages share one coverage scale, so equal blue is equal depth.\n"
+    else
+      "No coverage row: the deepest tile of this gene holds at most two molecules, so a coverage ramp would carry no information.\n",
+    "Outside Smpx a tile holds about one molecule, so its colour is which allele that molecule came from, not a ratio. Only the density of blue over a region means anything. n = 1 animal per age.")
   if (COMPOSE == "patchwork") {
-    print(patchwork::wrap_plots(r$panes, ncol = length(SAMPLES)) +
+    # guides = "collect" merges the four identical legends into one set. The
+    # scales are shared now (fixed AR bins, gene-wide coverage limits), which is
+    # what makes them mergeable at all.
+    print(patchwork::wrap_plots(r$panes, ncol = length(SAMPLES), guides = "collect") +
           patchwork::plot_annotation(
-            title = cap,
-            caption = "Top row: allelic ratio, dark red = B6 (active X), dark blue = CAST (inactive X). Bottom row: how many informative molecules were behind it.\nPale tiles are in-tissue but carry no informative molecule of this gene. n = 1 animal per age.",
+            title = cap, caption = foot,
             theme = theme(plot.title = element_text(face = "bold", size = 12),
                           plot.caption = element_text(size = 7, colour = "#52514e", hjust = 0))))
   } else if (COMPOSE == "gridExtra") {
