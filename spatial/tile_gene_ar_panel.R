@@ -108,37 +108,19 @@ MIN_TILE_MEDIAN_UMI <- 2
 
 msg <- function(...) message(sprintf(...))
 
-# The panel. `expect` is the allelic ratio the locus SHOULD sit at on prior
-# grounds: 1 = maternal = B6, 0 = paternal = CAST, NA = no prior (chrX escape is
-# the thing being measured). Imprinting direction is the canonical one; Grb10 is
-# maternal in peripheral tissue and paternal in CNS, which is heart = maternal.
-PANEL <- rbindlist(list(
-  data.table(gene = "chrX (all genes pooled)", group = "Skew", expect = NA_real_),
-
-  data.table(group = "Imprinted (control)", expect = 0, gene = c(
-    "Mcts2", "Sgce", "Peg3", "Snhg14", "Snurf", "Snrpn", "Igf2",
-    "Kcnq1ot1", "Plagl1", "Zrsr1", "Peg13", "Slc38a4", "Airn")),
-  data.table(group = "Imprinted (control)", expect = 1, gene = c(
-    "Zim1", "H19", "Cdkn1c", "Grb10", "Meg3", "Rian", "Igf2r")),
-
-  data.table(group = "chrX escape (heart, age)", expect = NA_real_, gene = c(
-    "Shroom4", "Tspan7", "Sh3kbp1", "Med14", "Kctd12b", "2210013O21Rik",
-    "Plp1", "4930578C19Rik", "Smpx", "Slc16a2", "Ftx", "Utp14a", "Pbdc1",
-    "Ddx3x", "Kdm5c", "Kdm6a"))
-), use.names = TRUE)
-PANEL[, group := factor(group, levels = c("Skew", "Imprinted (control)",
-                                          "chrX escape (heart, age)"))]
-
-# Stand-ins for panel members the annotation does not carry. Plotted next to the
-# gene they replace and labelled, never silently swapped in for it.
-SUBS <- data.table(
-  gene = c("Kcnq1", "Zrsr2"),
-  for_gene = c("Kcnq1ot1", "Zrsr1"),
-  group = "Imprinted (control)",
-  # Kcnq1 is the maternally expressed sense gene of the Kcnq1ot1 locus. Zrsr2 is
-  # the chrX paralogue of Zrsr1 and is NOT imprinted - it is subject to XCI, so
-  # its expectation is the chrX one, not an imprinted one.
-  expect = c(1, NA_real_))
+# The gene panel lives in one file, shared with tile_gene_ar_maps.R, so the
+# distributions and the maps cannot end up showing different gene sets. Resolved
+# from this script's own directory first, so a checkout anywhere works.
+source_panel <- function() {
+  fa <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+  here <- if (length(fa)) dirname(normalizePath(sub("^--file=", "", fa[1]))) else NULL
+  for (d in c(here, "spatial", "~/Postdoc/spatial", ".")) {
+    f <- file.path(d, "tile_gene_panel.R")
+    if (file.exists(f)) { source(f, local = FALSE); return(invisible(f)) }
+  }
+  stop("Cannot find tile_gene_panel.R next to this script")
+}
+msg("panel from %s", source_panel())
 
 ##### ----------------------- LOAD ----------------------- #####
 want <- PANEL$gene
@@ -239,22 +221,11 @@ pool[, c("lo_umi", "hi_umi")     := wilson(ar_umi, n_umi)]
 pool[n_umi == 0, c("lo_umi", "hi_umi") := NA_real_]
 pool[, c("lo_reads", "hi_reads") := wilson(ar_reads, pmax(n_umi, 1))]  # n_eff = molecules
 
-# Built on character and re-levelled, not rbind-ed factor onto character, so the
-# group levels cannot come out reordered by whichever side happened to be first.
-meta <- rbind(PANEL[,  .(gene, group = as.character(group), expect)],
-              sub_ok[, .(gene, group = as.character(group), expect)])
-meta[, group := factor(group, levels = levels(PANEL$group))]
+meta <- PANEL_META(sub_ok)
 pool <- merge(pool, meta, by = "gene", all.x = TRUE)
 dat  <- merge(dat,  meta, by = "gene", all.x = TRUE)
 
-# Panel order: the order it was asked for, with each substitute directly after
-# the gene it stands in for, so the reader finds it where the missing one was.
-ord <- PANEL$gene
-for (i in seq_len(nrow(sub_ok))) {
-  at <- match(sub_ok$for_gene[i], ord)
-  ord <- append(ord, sub_ok$gene[i], after = if (is.na(at)) length(ord) else at)
-}
-ord <- ord[ord %chin% pool$gene]
+ord <- PANEL_GENES(have = pool$gene, subs = sub_ok)
 
 ##### ---------------------- OUTPUT ---------------------- #####
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
