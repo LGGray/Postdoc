@@ -32,6 +32,26 @@
 #   <IN_ROOT>/<sample>/tile_gene_counts.tsv.gz
 #   <sample>/outs/binned_outputs/square_002um/spatial/tissue_positions.parquet
 #
+# WHICH TREE, AND WHAT "reads" MEANS IN IT. spatial_tile_locus_map.slurm has
+# three counting modes and each writes its own OUT_ROOT:
+#   ase_pysam_64um       umi    duplicates DROPPED. a1_reads = DEDUPLICATED reads
+#                               (Allelome.PRO2's statistic), a1_umi = molecules.
+#   ase_pysam_dup_64um   dup    duplicates KEPT. a1_reads = duplicate-INCLUSIVE
+#                               reads, a1_umi = molecules.   <- the default here
+#   ase_pysam_reads_64um reads  deduplicated reads only. NEVER RUN - no such tree.
+# So LEVELS=reads against the default IN_ROOT is PCR-duplicate-inclusive, not
+# deduplicated. For deduplicated reads point IN_ROOT at ase_pysam_64um; its
+# read columns are exactly that, and no recount is needed.
+#
+# AND THE MOLECULE COLUMNS DIFFER BETWEEN THE TWO TREES - they are not the same
+# number counted twice. chrX at 9w: 116,354 informative molecules at AR 0.8728
+# in the umi tree, 160,901 at AR 0.8980 in the dup tree. Keeping duplicates
+# finds 38% more MOLECULES (26% at 78w), because a (bin, UB) whose unmarked
+# representative read misses a SNP is lost outright when duplicates are dropped
+# while its marked duplicates would have covered one. That moves the answer:
+# 10.2% escape here against the 12.7% the umi tree gives. Neither is wrong, but
+# a number quoted from one tree cannot be compared with one from the other.
+#
 # LEVEL. The default is the duplicate-inclusive read level, because that is what
 # the dup tree exists to show - but on THIS figure the two levels are nearly
 # identical, and for a reason worth stating: a tile's colour is set by which
@@ -112,9 +132,15 @@ msg("panel from %s", source_panel())
 # Side-by-side needs a composer. patchwork comes with Seurat, so seurat_env has
 # it; gridExtra is the fallback, and one-panel-per-page the fallback to that -
 # a degraded layout beats a script that will not run.
-COMPOSE <- if (requireNamespace("patchwork", quietly = TRUE)) "patchwork"
-           else if (requireNamespace("gridExtra", quietly = TRUE)) "gridExtra"
-           else "pages"
+# Braced deliberately. At TOP LEVEL R finishes the assignment at the end of the
+# first line and then meets a bare `else`, which is a parse error - the same
+# idiom reads fine inside a function body, which is why tile_ratio_map.R gets
+# away with it and this did not.
+COMPOSE <- {
+  if (requireNamespace("patchwork", quietly = TRUE)) "patchwork"
+  else if (requireNamespace("gridExtra", quietly = TRUE)) "gridExtra"
+  else "pages"
+}
 if (COMPOSE == "pages")
   msg("neither patchwork nor gridExtra - drawing one panel per page")
 
@@ -290,7 +316,7 @@ panel_cov <- function(d, g_, smp) {
                         na.value = COL_FOOT, name = "molecules") +
     labs(title = sprintf("%s - %s coverage", SLAB[[smp]], g_),
          subtitle = sprintf("informative MOLECULES per tile (never reads: duplicates would draw a PCR pile-up map). median %g, max %d",
-                            median(hit$n_umi), max(hit$n_umi)))
+                            median(hit$n_umi), as.integer(max(hit$n_umi))))
 }
 
 # One gene, one page: AR across the top, coverage underneath, ages left to right.

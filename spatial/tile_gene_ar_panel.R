@@ -17,6 +17,26 @@
 # tree (ase_pysam_dup_64um), where a1_reads/a2_reads keep PCR duplicates and
 # a1_umi/a2_umi do not - the same molecules, counted twice over.
 #
+# WHICH TREE, AND WHAT "reads" MEANS IN IT. spatial_tile_locus_map.slurm has
+# three counting modes and each writes its own OUT_ROOT:
+#   ase_pysam_64um       umi    duplicates DROPPED. a1_reads = DEDUPLICATED reads
+#                               (Allelome.PRO2's statistic), a1_umi = molecules.
+#   ase_pysam_dup_64um   dup    duplicates KEPT. a1_reads = duplicate-INCLUSIVE
+#                               reads, a1_umi = molecules.   <- the default here
+#   ase_pysam_reads_64um reads  deduplicated reads only. NEVER RUN - no such tree.
+# So LEVELS=reads against the default IN_ROOT is PCR-duplicate-inclusive, not
+# deduplicated. For deduplicated reads point IN_ROOT at ase_pysam_64um; its
+# read columns are exactly that, and no recount is needed.
+#
+# AND THE MOLECULE COLUMNS DIFFER BETWEEN THE TWO TREES - they are not the same
+# number counted twice. chrX at 9w: 116,354 informative molecules at AR 0.8728
+# in the umi tree, 160,901 at AR 0.8980 in the dup tree. Keeping duplicates
+# finds 38% more MOLECULES (26% at 78w), because a (bin, UB) whose unmarked
+# representative read misses a SNP is lost outright when duplicates are dropped
+# while its marked duplicates would have covered one. That moves the answer:
+# 10.2% escape here against the 12.7% the umi tree gives. Neither is wrong, but
+# a number quoted from one tree cannot be compared with one from the other.
+#
 # GENOTYPE, which sets the direction of every number here (same as
 # escape_genes.R and tile_ratio_map.R): B6 mother x CAST father, and B6 carries
 # the Xist deletion, so the CAST X is the inactive X in EVERY cell.
@@ -297,20 +317,25 @@ draw <- function(level, grp) {
     annotate("text", x = 0.5, y = mean(base[[paste0("auto_ar_", level)]]),
              label = "autosomal ratio (= biallelic)", hjust = 0, vjust = -0.6,
              size = 2.4, colour = "#184f95") +
+    # ymin == ymax, so this is one horizontal rule at the expected ratio.
+    # geom_crossbar would need fatten = 0 to suppress its middle segment, and
+    # fatten is deprecated in ggplot2 4.0.
     { if (nrow(exp_dt))
-        geom_crossbar(data = exp_dt, aes(x = gene, y = expect, ymin = expect, ymax = expect),
+        geom_errorbar(data = exp_dt, aes(x = gene, ymin = expect, ymax = expect),
                       inherit.aes = FALSE, width = 0.8, colour = "#c97314",
-                      linewidth = 0.4, fatten = 0) } +
+                      linewidth = 0.4) } +
     { if (nrow(fat)) geom_violin(data = fat, position = position_dodge(width = 0.8),
                                  width = 0.8, colour = NA, alpha = 0.4,
                                  scale = "width", trim = TRUE) } +
     geom_point(aes(size = N),
                position = position_jitterdodge(jitter.width = 0.18, dodge.width = 0.8),
                alpha = 0.35, shape = 16, stroke = 0) +
+    # size = the diamond, linewidth = the interval. Not `fatten`, which was a
+    # multiplier on size and is deprecated as of ggplot2 4.0.
     geom_pointrange(data = pl, aes(gene, AR, ymin = lo, ymax = hi, group = sample),
                     inherit.aes = FALSE, position = position_dodge(width = 0.8),
-                    shape = 23, size = 0.35, fill = "white", colour = "#0b0b0b",
-                    stroke = 0.6, fatten = 3) +
+                    shape = 23, size = 1.1, linewidth = 0.45, fill = "white",
+                    colour = "#0b0b0b", stroke = 0.6) +
     scale_fill_manual(values = setNames(c("#2D6E5D", "#b02a2a"), unname(SLAB[SAMPLES])),
                       name = NULL) +
     scale_size_continuous(range = c(0.4, 2.4), name = paste(unit_s, "in tile"),
