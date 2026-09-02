@@ -28,6 +28,15 @@
 #   sbatch ~/Postdoc/slurm/spatial_escape_panel_map.slurm ase_pysam_64um   # umi tree
 #   sbatch ~/Postdoc/slurm/spatial_escape_panel_map.slurm ase_pysam_32um 32
 #   sbatch ~/Postdoc/slurm/spatial_escape_panel_map.slurm "" 64 full       # skip the noXic variant
+#   sbatch ~/Postdoc/slurm/spatial_escape_panel_map.slurm "" 64 both 1    # no depth cutoff
+#
+# DEPTH CUTOFF (arg 4, default 4) - pooled MOLECULES before a tile is coloured,
+# the same MIN_DEPTH knob tile_gene_ar_maps.R and tile_gene_ar_panel.R take.
+# Be ready for what 4 does to this panel: it leaves 9 of 1069 tiles at 9w and 5
+# of 797 at 78w, and no tile whose molecules were all CAST survives it, so the
+# maps come out nearly empty. That is the depth, not a broken figure - the whole
+# panel pools to a median of one molecule per tile. Pass 1 for the ungated map,
+# which is the one to read alongside it.
 #
 # WHY THIS IS A JOB AND NOT JUST AN Rscript. The figure itself is small, but
 # tile_geometry() reads the 2 um tissue_positions for both sections - millions
@@ -70,6 +79,11 @@ module load slurm_setup
 TREE="${1:-ase_pysam_dup_64um}"
 TILE_UM="${2:-64}"
 WHICH="${3:-both}"                            # both | full | noXic
+MIN_DEPTH="${4:-4}"                           # pooled molecules to colour a tile
+
+case "$MIN_DEPTH" in
+  ''|*[!0-9]*) echo "MIN_DEPTH (arg 4) must be a non-negative integer, got '$MIN_DEPTH'" >&2; exit 1 ;;
+esac
 
 case "$WHICH" in
   both|full|noXic) ;;
@@ -81,7 +95,7 @@ SPATIAL=$BASE/adult_aged_spatial
 REPO=$BASE/Postdoc
 IN_ROOT=$SPATIAL/$TREE
 
-echo "tree=$TREE  tile=${TILE_UM}um  variants=$WHICH"
+echo "tree=$TREE  tile=${TILE_UM}um  variants=$WHICH  MIN_DEPTH=$MIN_DEPTH molecules"
 
 # -s is not enough on its own for the uncompressed form: check both spellings,
 # because spatial_tile_locus_map.slurm writes .gz and an interrupted gunzip
@@ -110,6 +124,7 @@ if [ "$WHICH" = "both" ] || [ "$WHICH" = "full" ]; then
   echo
   echo "=== all 11 genes (new_core_escape_genes as written) ==="
   IN_ROOT="$IN_ROOT" TILE_UM="$TILE_UM" SAMPLES="9w,78w" LEVEL=umi DROP_XIC=FALSE \
+    MIN_DEPTH="$MIN_DEPTH" \
     Rscript "$REPO/spatial/tile_escape_panel_map.R" || rc=$?
 fi
 
@@ -117,6 +132,7 @@ if [ "$WHICH" = "both" ] || [ "$WHICH" = "noXic" ]; then
   echo
   echo "=== 8 conventional escapees (Ftx, Jpx, 5530601H04Rik dropped) ==="
   IN_ROOT="$IN_ROOT" TILE_UM="$TILE_UM" SAMPLES="9w,78w" LEVEL=umi DROP_XIC=TRUE \
+    MIN_DEPTH="$MIN_DEPTH" \
     Rscript "$REPO/spatial/tile_escape_panel_map.R" || rc=$?
 fi
 

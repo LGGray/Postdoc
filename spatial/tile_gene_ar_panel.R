@@ -112,6 +112,15 @@ LEVELS <- strsplit(Sys.getenv("LEVELS", "reads,umi"), ",")[[1]]
 # roughly the same amount of evidence, and one threshold for both would make the
 # read page look twelve times better informed than it is.
 MIN_TILE_N <- c(reads = 24L, umi = 2L)
+
+# A floor under both of them, so one knob can tighten every figure in this set
+# at once (tile_gene_ar_maps.R and tile_escape_panel_map.R read the same
+# variable). Applied as a MAXIMUM against MIN_TILE_N, never as a replacement:
+# MIN_DEPTH=4 on the read page would LOOSEN the gate from 24 to 4, which is the
+# opposite of what a cutoff is asked for, so the stricter of the two wins.
+# The default of 4 therefore moves the umi page (2 -> 4) and leaves the read
+# page at 24 where it already was.
+MIN_DEPTH  <- as.integer(Sys.getenv("MIN_DEPTH", "4"))
 MIN_TILES_VIOLIN <- 20L    # fewer tiles than this: dots only, gene marked *
 
 # A violin also needs the tiles to be able to TAKE intermediate values. Outside
@@ -274,7 +283,7 @@ print(csv[, .(group, gene, sample, tiles, n_umi, ar_umi, n_reads, ar_reads,
 # --- one page per level per group -------------------------------------------
 draw <- function(level, grp) {
   a1 <- paste0("a1_", level); nn <- paste0("n_", level)
-  min_n <- MIN_TILE_N[[level]]
+  min_n <- max(MIN_TILE_N[[level]], MIN_DEPTH)
   unit  <- if (level == "umi") "molecules" else "reads (PCR duplicates kept)"
   unit_s <- if (level == "umi") "molecules" else "dup reads"   # legend title
 

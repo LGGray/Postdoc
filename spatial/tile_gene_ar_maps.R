@@ -16,6 +16,11 @@
 # map of coin flips whose BIAS is the quantity of interest, and only the density
 # of blue across a region means anything, never one blue tile.
 #
+# A DEPTH CUTOFF IS APPLIED TO THE RATIO ROW - MIN_DEPTH, default 4 units of
+# the plotted level. It exists to stop a single molecule from painting a tile
+# dark blue, and on the read page it only half works: see MIN_DEPTH in CONFIG
+# for the numbers and for the setting that does work.
+#
 # Coverage is the other half of it and gets its own row: for most of this panel
 # only 0.3-5% of in-tissue tiles carry the gene at all (Ftx 44 of ~3950 tiles,
 # Ddx3x 28, Shroom4 16), so an apparent pattern in the AR row is very often the
@@ -79,12 +84,37 @@ TILE_UM <- as.integer(Sys.getenv("TILE_UM", "64"))
 BIN     <- "square_002um"
 LEVEL   <- Sys.getenv("LEVEL", "reads")          # reads (dup) | umi
 OUT_DIR <- Sys.getenv("OUT_DIR", IN_ROOT)
+# The cutoff is in the filename. Without it a gated run lands on top of the
+# ungated one and the two cannot be compared, which is the first thing anyone
+# will want to do after changing a threshold.
 OUT_PDF <- Sys.getenv("OUT_PDF",
-                      file.path(OUT_DIR, sprintf("tile_gene_ar_maps_%dum_%s.pdf",
-                                                 TILE_UM, LEVEL)))
+                      file.path(OUT_DIR, sprintf("tile_gene_ar_maps_%dum_%s%s.pdf",
+                                                 TILE_UM, LEVEL,
+                                                 if (MIN_DEPTH > 1)
+                                                   sprintf("_min%d", MIN_DEPTH) else "")))
 
 # Restrict to a few genes, for a quick look: GENES=Kdm6a,Ftx
 GENES   <- Sys.getenv("GENES", "")
+
+# Units of the PLOTTED level a tile needs before it is COLOURED in the ratio
+# row. The coverage row is deliberately not gated, so the two rows stay on the
+# same tile set and the top row can never imply coverage the bottom row denies.
+#
+# READ THIS BEFORE TRUSTING A CUTOFF OF 4 ON THE READ PAGE. In the dup tree a
+# read is a PCR duplicate, and duplicates of one molecule all carry the SAME
+# allele, so a tile holding ONE molecule amplified four times passes n_reads>=4
+# with one molecule of evidence. On this panel 53% of single-molecule tiles at
+# 9w (60% at 78w) already have four or more reads, so MIN_DEPTH=4 at LEVEL=reads
+# keeps 52% of the CAST-only tiles (54% at 78w) - it thins the map without
+# raising the evidence behind what survives. What removes those tiles is a
+# MOLECULE cutoff: at LEVEL=umi, MIN_DEPTH=4 keeps 0.7% of them.
+#
+#   LEVEL=reads MIN_DEPTH=4    the literal read cutoff. Thins, does not qualify.
+#   LEVEL=reads MIN_DEPTH=24   ~2 molecules of evidence at the ~12x duplication
+#                              of this tree - the read-page equivalent of
+#                              MIN_TILE_N in tile_gene_ar_panel.R.
+#   LEVEL=umi   MIN_DEPTH=4    four independent molecules. The real cutoff.
+MIN_DEPTH <- as.integer(Sys.getenv("MIN_DEPTH", "4"))
 
 # Draw the H&E underneath. Needs the png package; skipped with a message
 # otherwise, exactly as tile_ratio_map.R does it.
@@ -316,22 +346,34 @@ base_map <- function(d, he = USE_HE) {
 # right panel's title on every page. What they used to say now lives in the page
 # caption, which spans the full width and has the room for it.
 panel_ar <- function(d, g_, smp, thin = FALSE) {
-  hit <- d[!is.na(ar)]
+  hit  <- d[!is.na(ar_shown)]
+  seen <- d[!is.na(ar)]
+  if (!nrow(hit))
+    return(base_map(d) +
+             labs(title = paste0(SLAB[[smp]], "  - NOTHING CLEARS THE CUTOFF"),
+                  subtitle = sprintf("%d tiles carry this gene, none reach %d %s",
+                                     nrow(seen), MIN_DEPTH,
+                                     if (LEVEL == "umi") "molecules" else "reads")))
   base_map(d) +
     geom_tile(data = hit, aes(fill = ar_bin),
               width = d$side[1], height = d$side[1], colour = NA) +
     scale_fill_manual(values = OCM_COLORS, limits = OCM_LABELS, drop = FALSE,
                       na.value = COL_FOOT, name = "AR\n(B6 / total)") +
     labs(title = paste0(SLAB[[smp]], if (thin) "  - TOO SPARSE TO READ AS A MAP" else ""),
-         subtitle = sprintf("%d of %d tiles (%.1f%%), %.0f%% of them one molecule",
+         # Both numbers, because after a cutoff "how many tiles" is ambiguous:
+         # how many are drawn, and how many the gate silenced. Reporting only
+         # the first makes a hard cutoff look like a sparse gene.
+         subtitle = sprintf("%d of %d tiles drawn (%.1f%%), %d silenced by the cutoff; %.0f%% of drawn are one molecule",
                             nrow(hit), nrow(d), 100 * nrow(hit) / nrow(d),
-                            100 * mean(hit$mono)))
+                            nrow(seen) - nrow(hit), 100 * mean(hit$mono)))
 }
 
 # `lim` is the SAME for both ages, computed over the gene rather than the panel.
 # Left free, ggplot scaled each panel to its own maximum - 25/50/75 at 9w
 # against 20/40/60 at 78w - so equal blue meant unequal depth and the
 # side-by-side comparison, the entire point of the layout, was invalid.
+# NOT gated by MIN_DEPTH: this row is how a reader checks what the cutoff took
+# away, so it has to keep showing the tiles the ratio row dropped.
 panel_cov <- function(d, g_, smp, lim) {
   hit <- d[!is.na(ar)]
   base_map(d) +
@@ -357,17 +399,27 @@ one_gene <- function(g_) {
   for (s in SAMPLES) {
     g <- geo[sample == s]
     c1 <- cnt[sample == s & gene == g_,
-              .(tile, ar = fifelse(get(nn) > 0, get(a1) / get(nn), NA_real_),
+              .(tile, depth = get(nn),
+                ar = fifelse(get(nn) > 0, get(a1) / get(nn), NA_real_),
                 n_umi, mono = n_umi > 0 & (a1_umi == 0 | a2_umi == 0))]
     d <- merge(g, c1, by = "tile", all.x = TRUE)
-    d[, ar_bin := cut(ar, breaks = OCM_BREAKS, include.lowest = TRUE,
+    # `ar` stays the raw ratio and `ar_shown` is what the ratio row draws. A
+    # tile below MIN_DEPTH keeps its coverage - the row underneath still shows
+    # it - and loses only its colour, so the gate cannot make the map look like
+    # the gene was never captured there.
+    d[, ar_shown := fifelse(!is.na(depth) & depth >= MIN_DEPTH, ar, NA_real_)]
+    d[, ar_bin := cut(ar_shown, breaks = OCM_BREAKS, include.lowest = TRUE,
                       right = TRUE, labels = OCM_LABELS)]
     D[[s]] <- d
-    nh <- sum(!is.na(d$ar)); n_hit <- n_hit + nh
-    if (nh) {
-      if (nh < MIN_TILES_MAP || nh / nrow(d) < MIN_FRAC_MAP) thin <- c(thin, s)
-      cov_max <- max(cov_max, max(d$n_umi, na.rm = TRUE))
-    }
+    # The thin/too-sparse test is on what is DRAWN, not on what was counted:
+    # after a cutoff those are different numbers, and the flag is about whether
+    # the page can be read as a map.
+    nh <- sum(!is.na(d$ar_shown)); n_hit <- n_hit + nh
+    if (nh && (nh < MIN_TILES_MAP || nh / nrow(d) < MIN_FRAC_MAP)) thin <- c(thin, s)
+    # Off the UNGATED set: the coverage row is not gated, so a gene the cutoff
+    # empties still has tiles to draw there, and taking cov_max from nh would
+    # leave them on a zero-width scale.
+    if (sum(!is.na(d$ar))) cov_max <- max(cov_max, max(d$n_umi, na.rm = TRUE))
   }
 
   draw_cov <- cov_max > MAX_COV_UMI_SKIP
@@ -407,11 +459,19 @@ for (g_ in PANEL_GENES(have = cnt[, unique(gene)])) {
   cap <- paste0(g_, tag, thin)
   # The explanation the panel subtitles used to carry, moved here where there is
   # width for it. The coverage sentence only appears when that row was drawn.
+  cut_txt <- sprintf(
+    "Cutoff: a tile is coloured only at >= %d %s. %s",
+    MIN_DEPTH, if (LEVEL == "umi") "informative molecules" else "reads (PCR duplicates kept)",
+    if (LEVEL == "umi")
+      "Independent molecules, so this is evidence."
+    else
+      "NOTE: duplicates of one molecule all carry the same allele, so a tile with one molecule amplified this many times passes - the cutoff thins the map without qualifying what survives. Use LEVEL=umi, or MIN_DEPTH=24 here, for a cutoff that means ~2 molecules.")
   foot <- paste0(
     "Allelic ratio per ", TILE_UM, " um tile, dark red = B6 (active X), dark blue = CAST (inactive X). ",
-    "Pale tiles are in-tissue but carry no informative molecule of this gene.\n",
+    "Pale tiles are in-tissue but carry no informative molecule of this gene, or fewer than the cutoff.\n",
+    cut_txt, "\n",
     if (r$cov)
-      "Lower row: informative MOLECULES behind each tile - never reads, which would draw a PCR pile-up map. Both ages share one coverage scale, so equal blue is equal depth.\n"
+      "Lower row: informative MOLECULES behind each tile - never reads, which would draw a PCR pile-up map - and NOT subject to the cutoff, so it shows what the row above dropped. Both ages share one coverage scale, so equal blue is equal depth.\n"
     else
       "No coverage row: the deepest tile of this gene holds at most two molecules, so a coverage ramp would carry no information.\n",
     "Outside Smpx a tile holds about one molecule, so its colour is which allele that molecule came from, not a ratio. Only the density of blue over a region means anything. n = 1 animal per age.")

@@ -59,7 +59,7 @@
 # Run on the cluster:
 #   conda activate seurat_env
 #   Rscript ~/Postdoc/spatial/tile_escape_panel_map.R
-#   MIN_UMI=2 Rscript ~/Postdoc/spatial/tile_escape_panel_map.R   # drop singletons
+#   MIN_DEPTH=1 Rscript ~/Postdoc/spatial/tile_escape_panel_map.R  # no cutoff at all
 #   DROP_XIC=TRUE Rscript ~/Postdoc/spatial/tile_escape_panel_map.R
 #
 # INPUT (read-only; nothing is recounted - the pysam run already carries every
@@ -100,11 +100,24 @@ ESCAPE_GENES <- c("Kdm5c", "Kdm6a", "Ddx3x", "Eif2s3x", "Ftx",
 XIC_GENES <- c("Ftx", "Jpx", "5530601H04Rik")
 DROP_XIC  <- identical(toupper(Sys.getenv("DROP_XIC", "FALSE")), "TRUE")
 
-# Minimum pooled molecules before a tile is coloured in the AR row. 1 shows
-# every tile that has anything, which is the honest default given that the
-# depth row sits underneath saying how thin that is. 2 or 3 gives a sparser
-# map in which a colour is at least a ratio.
-MIN_UMI <- as.integer(Sys.getenv("MIN_UMI", "1"))
+# Minimum pooled units of the PLOTTED level before a tile is coloured in the AR
+# row. 4 by default, the same knob tile_gene_ar_maps.R and tile_gene_ar_panel.R
+# read, so one setting moves the whole figure set. MIN_UMI is honoured as the
+# earlier name for it.
+#
+# WHAT 4 COSTS HERE, because pooling eleven genes does not make this panel deep:
+# at LEVEL=umi it leaves 9 of 1069 tiles at 9w and 5 of 797 at 78w, and NO tile
+# whose molecules were all CAST survives it - so the umi map at this cutoff is
+# nearly empty by construction, and that emptiness is the result rather than a
+# failure of the figure. At LEVEL=reads (duplicate-inclusive) it leaves 698 of
+# 1069 and 487 of 797, keeping 175 of 272 fully-CAST tiles at 9w - but a read
+# cutoff cannot qualify a tile, because duplicates of one molecule all carry
+# the same allele.
+#
+#   MIN_DEPTH=1              every tile with anything - the map as first drawn
+#   MIN_DEPTH=4 LEVEL=umi    four independent molecules; ~9 tiles survive
+#   MIN_DEPTH=4 LEVEL=reads  the literal read cutoff; thins, does not qualify
+MIN_DEPTH <- as.integer(Sys.getenv("MIN_DEPTH", Sys.getenv("MIN_UMI", "4")))
 
 USE_HE  <- !identical(tolower(Sys.getenv("USE_HE", "TRUE")), "false")
 
@@ -114,7 +127,7 @@ FLIP_X <- FALSE
 FLIP_Y <- FALSE
 
 TAG <- paste0(if (DROP_XIC) "noXic" else "full", "_", LEVEL,
-              if (MIN_UMI > 1) paste0("_min", MIN_UMI) else "")
+              if (MIN_DEPTH > 1) paste0("_min", MIN_DEPTH) else "")
 OUT_PDF <- Sys.getenv("OUT_PDF",
                       file.path(OUT_DIR, sprintf("tile_escape_panel_map_%dum_%s.pdf",
                                                  TILE_UM, TAG)))
@@ -274,10 +287,10 @@ for (s in SAMPLES) {
                            depth = get(nc),
                            ar = fifelse(get(nc) > 0, get(a1c) / get(nc), NA_real_))]
   d <- merge(geo[sample == s], c1, by = "tile", all.x = TRUE)
-  # A tile below MIN_UMI keeps its depth (the lower row still shows it) and
+  # A tile below MIN_DEPTH keeps its depth (the lower row still shows it) and
   # loses only its colour in the AR row, so the two rows are not on different
   # tile sets and the top row cannot imply coverage the bottom row denies.
-  d[, ar_shown := fifelse(!is.na(depth) & depth >= MIN_UMI, ar, NA_real_)]
+  d[, ar_shown := fifelse(!is.na(depth) & depth >= MIN_DEPTH, ar, NA_real_)]
   d[, ar_bin := cut(ar_shown, breaks = OCM_BREAKS, include.lowest = TRUE,
                     right = TRUE, labels = OCM_LABELS)]
   D[[s]] <- d
@@ -345,15 +358,25 @@ SLAB_MAP <- c("9w" = "adult (9w)", "78w" = "aged (78w)")
 SLAB <- function(s) if (s %in% names(SLAB_MAP)) SLAB_MAP[[s]] else s
 
 panel_ar <- function(d, smp) {
-  hit <- d[!is.na(ar_shown)]
+  hit  <- d[!is.na(ar_shown)]
+  seen <- d[!is.na(depth) & depth > 0]
+  # A cutoff that empties a section has to say so. Drawn as a blank footprint it
+  # is indistinguishable from a section that captured nothing.
+  if (!nrow(hit))
+    return(base_map(d) +
+             labs(title = paste0(SLAB(smp), "  - NOTHING CLEARS THE CUTOFF"),
+                  subtitle = sprintf("%d tiles carry a panel molecule, none reach %d %s",
+                                     nrow(seen), MIN_DEPTH,
+                                     if (LEVEL == "umi") "molecules" else "reads")))
   base_map(d) +
     geom_tile(data = hit, aes(fill = ar_bin),
               width = d$side[1], height = d$side[1], colour = NA) +
     scale_fill_manual(values = OCM_COLORS, limits = OCM_LABELS, drop = FALSE,
                       na.value = COL_FOOT, name = "AR\n(B6 / total)") +
     labs(title = SLAB(smp),
-         subtitle = sprintf("%d of %d tiles (%.1f%%)  |  pooled AR %.3f  |  %.0f%% one molecule",
+         subtitle = sprintf("%d of %d drawn (%.1f%%), %d silenced by the cutoff  |  pooled AR %.3f  |  %.0f%% one molecule",
                             nrow(hit), nrow(d), 100 * nrow(hit) / nrow(d),
+                            nrow(seen) - nrow(hit),
                             sum(hit$a1_umi) / sum(hit$n_umi),
                             100 * mean(hit$n_umi == 1)))
 }
@@ -383,7 +406,8 @@ cap <- sprintf("Core escape panel pooled per %d um tile - %d genes%s, %s level",
 foot <- paste0(
   "Top row: allelic ratio of ", paste(genes, collapse = ", "), " pooled within each tile. ",
   "Dark red = B6 (active X), dark blue = CAST (inactive X); pale tiles are in-tissue with no informative panel molecule",
-  if (MIN_UMI > 1) sprintf(" or fewer than %d", MIN_UMI) else "", ".\n",
+  sprintf(" or fewer than the cutoff of %d %s", MIN_DEPTH,
+          if (LEVEL == "umi") "molecules" else "reads"), ".\n",
   "Bottom row: ", if (LEVEL == "umi") "informative molecules" else "reads",
   " behind each tile, same scale for both ages, so equal blue is equal depth. Read it before reading the row above it.\n",
   "MOST TILES HOLD ONE MOLECULE, so their colour is which allele that molecule came from, not a ratio. Only the density of blue over a region means anything.\n",

@@ -32,6 +32,25 @@
 #   sbatch ~/Postdoc/slurm/spatial_tile_gene_ar.slurm ase_pysam_64um     # umi tree
 #   sbatch ~/Postdoc/slurm/spatial_tile_gene_ar.slurm ase_pysam_32um 32  # 32 um
 #
+# DEPTH CUTOFF (arg 3, default 4) - MIN_DEPTH, units of the level being plotted.
+# It stops a single molecule from painting a tile dark blue on the maps, and on
+# the DISTRIBUTIONS it is a floor under MIN_TILE_N rather than a replacement, so
+# it can only tighten: the read page stays at its existing 24, the umi page
+# moves 2 -> 4.
+#
+# ON THE MAPS A READ CUTOFF OF 4 ONLY HALF WORKS, and it is worth knowing which
+# half. A read here is a PCR duplicate and duplicates of one molecule all carry
+# the SAME allele, so a tile with one molecule amplified four times passes. 53%
+# of single-molecule tiles at 9w (60% at 78w) already have four or more reads,
+# so MIN_DEPTH=4 at the read level keeps 52% of the CAST-only tiles. The cutoff
+# that removes them is a MOLECULE cutoff - at the umi level, 4 keeps 0.7% of
+# them - which is what arg 4 is for:
+#   sbatch ~/Postdoc/slurm/spatial_tile_gene_ar.slurm "" 64 4  reads,umi
+#   sbatch ~/Postdoc/slurm/spatial_tile_gene_ar.slurm "" 64 24 reads   # ~2 molecules
+#
+# MAP LEVELS (arg 4, default reads) - which levels get a map PDF. Each is its
+# own file, named with the level and the cutoff, so nothing overwrites anything.
+#
 # Small enough to run interactively instead, which is the faster way to change
 # the gene list:
 #   conda activate seurat_env
@@ -54,6 +73,12 @@ module load slurm_setup
 
 TREE="${1:-ase_pysam_dup_64um}"
 TILE_UM="${2:-64}"
+MIN_DEPTH="${3:-4}"
+MAP_LEVELS="${4:-reads}"
+
+case "$MIN_DEPTH" in
+  ''|*[!0-9]*) echo "MIN_DEPTH (arg 3) must be a non-negative integer, got '$MIN_DEPTH'" >&2; exit 1 ;;
+esac
 
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 SPATIAL=$BASE/adult_aged_spatial
@@ -75,22 +100,33 @@ conda activate seurat_env
 Rscript -e 'for (p in c("arrow","png","patchwork")) if (!requireNamespace(p, quietly=TRUE))
               message("note: R package \"", p, "\" not installed")' 2>&1 | sed 's/^/  /'
 
-echo "=== distributions ==="
-IN_ROOT="$IN_ROOT" TILE_UM="$TILE_UM" SAMPLES="9w,78w" \
+echo "=== distributions (MIN_DEPTH=$MIN_DEPTH, floored against MIN_TILE_N) ==="
+IN_ROOT="$IN_ROOT" TILE_UM="$TILE_UM" SAMPLES="9w,78w" MIN_DEPTH="$MIN_DEPTH" \
   Rscript "$REPO/spatial/tile_gene_ar_panel.R"
 rc=$?
 if [ $rc -ne 0 ]; then conda deactivate; echo "tile_gene_ar_panel.R failed" >&2; exit $rc; fi
 
-echo
-echo "=== slide maps ==="
-# LEVEL=reads is the dup statistic. On the maps the two levels are nearly
-# identical - a tile's colour is which allele its molecules came from, and
-# duplicating a molecule cannot change that - so this is one run, not two.
-IN_ROOT="$IN_ROOT" TILE_UM="$TILE_UM" SAMPLES="9w,78w" LEVEL=reads \
-  Rscript "$REPO/spatial/tile_gene_ar_maps.R"
-rc=$?
+# One PDF per requested level. Before the cutoff existed this was one run at
+# LEVEL=reads, on the grounds that a tile's colour is which allele its molecules
+# came from and duplicating a molecule cannot change that. That reasoning is
+# what BREAKS under a cutoff: the two levels now differ in which tiles are drawn
+# at all, so whichever level the cutoff is meant to apply to has to be asked for.
+IFS=',' read -r -a LEVS <<< "$MAP_LEVELS"
+for lev in "${LEVS[@]}"; do
+  lev="$(echo "$lev" | tr -d '[:space:]')"
+  [ -z "$lev" ] && continue
+  case "$lev" in
+    reads|umi) ;;
+    *) echo "Unknown map level '$lev' (arg 4): expected reads or umi" >&2; rc=1; continue ;;
+  esac
+  echo
+  echo "=== slide maps: LEVEL=$lev MIN_DEPTH=$MIN_DEPTH ==="
+  IN_ROOT="$IN_ROOT" TILE_UM="$TILE_UM" SAMPLES="9w,78w" LEVEL="$lev" \
+    MIN_DEPTH="$MIN_DEPTH" Rscript "$REPO/spatial/tile_gene_ar_maps.R" || rc=$?
+done
+
 conda deactivate
-if [ $rc -ne 0 ]; then echo "tile_gene_ar_maps.R failed" >&2; exit $rc; fi
+if [ $rc -ne 0 ]; then echo "a maps or distributions run failed (rc=$rc)" >&2; exit $rc; fi
 
 echo
 echo "Done. Outputs in $IN_ROOT:"
