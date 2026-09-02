@@ -28,7 +28,7 @@
 #
 #   sbatch ~/Postdoc/slurm/spatial_chrx_shift.slurm                    # dup tree, umi
 #   sbatch ~/Postdoc/slurm/spatial_chrx_shift.slurm ase_pysam_64um     # umi tree
-#   sbatch ~/Postdoc/slurm/spatial_chrx_shift.slurm "" umi 100         # looser depth floor
+#   sbatch ~/Postdoc/slurm/spatial_chrx_shift.slurm "" umi 50          # looser depth floor
 #   sbatch ~/Postdoc/slurm/spatial_chrx_shift.slurm "" umi 200 chr7    # imprinted loci instead
 #
 # READ THE CALIBRATION LINE BEFORE THE HIT LIST. Step 1 runs its own test on
@@ -43,10 +43,22 @@
 # and the duplication is allele-asymmetric, so it biases the ratio toward the
 # more amplified allele - the script warns and runs it anyway, for comparison.
 #
-# DEPTH FLOOR (arg 3, default 200 molecules in BOTH sections). This is what
-# excludes Sh3kbp1, Kctd12b and Plp1, which move on the escape panel but carry
-# 138-157 molecules. Lower it and the inflation correction has to work harder;
-# the calibration line is how you check whether it did.
+# DEPTH FLOOR (arg 3, default 100 molecules in BOTH sections). RAISING THIS
+# MAKES THE RESULT WORSE, which is the opposite of what a floor usually does.
+# The inflation correction is fitted on the autosomal genes, so a higher floor
+# starves it: on the 9w/78w pair the corrected autosomal false-positive rate
+# runs 0.12% at a floor of 25, 0.30% at 100, 0.43% at 200 and 1.52% at 800,
+# where only ~1000 null genes are left and the estimate goes noisy.
+#
+# The floor was 200 in the first version of this pipeline for no better reason
+# than roundness, and it was hiding genes: 100 recovers Sh3kbp1 and Kctd12b,
+# both of which the escape panel already flags with non-overlapping intervals.
+# 100 rather than 25 because below that the escape fraction rests on a handful
+# of minor-allele molecules and the clustering step calls the gene underpowered
+# regardless. The full sweep is in spatial/chrx_allelic_shift.py's docstring.
+#
+# Msn is significant at a floor of 200 and not at 100 - the BH denominator
+# grows from 39 chrX genes to 62. It was the weakest hit either way.
 #
 # ONE SECTION PER AGE. n = 1 animal per group, so every difference here
 # describes two sections and cannot be attributed to age. The scripts label
@@ -57,7 +69,7 @@ module load slurm_setup
 
 TREE="${1:-ase_pysam_dup_64um}"
 LEVEL="${2:-umi}"
-MIN_MOL="${3:-200}"
+MIN_MOL="${3:-100}"
 CHROM="${4:-chrX}"
 EXTRA_ROOT="${5:-}"
 

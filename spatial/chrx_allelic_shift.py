@@ -30,6 +30,33 @@ This is genomic control, borrowed from GWAS. It is conservative for real signal
 and it is the difference between 9 hits and 8 hits here, but more importantly it
 is the difference between quoting q=1e-10 and knowing what q means.
 
+WHERE THE DEPTH FLOOR COMES FROM. --min-molecules was 200 in the first version
+of this script for no reason beyond it being a round number, and that was wrong
+in the direction nobody checks: a higher floor looked "safer" and was not.
+Sweeping it on the 9w/78w pair, the corrected autosomal false-positive rate is
+the calibration and it gets BETTER as the floor drops, because the inflation is
+fitted on the autosomal genes and a lower floor gives it thousands more:
+
+  min_mol   chrX testable   hits   autosomal FP%   inflation range
+      25             112     12           0.12%       1.19-2.59
+      50              81     11           0.18%       1.22-2.59
+     100              62     10           0.30%       1.25-2.59
+     200              39      8           0.43%       1.27-2.59
+     400              23      8           1.04%       1.26-2.59
+     800              12      5           1.52%       1.59-2.59
+
+At 800 only ~1000 null genes are left, the inflation estimate goes noisy, and
+the false-positive rate triples. 200 was also hiding real genes: 100 recovers
+Sh3kbp1 (escape 0.038 -> 0.274) and Kctd12b (0.025 -> 0.181), both of which the
+escape panel independently flags with non-overlapping Wilson intervals, so two
+methods agreed and only the floor kept them out.
+
+100 rather than 25 because below ~100 molecules the escape fraction rests on a
+handful of minor-allele molecules and chrx_escape_clustering.py will report the
+gene as underpowered anyway. Msn, significant at 200, drops out below it - not
+because it changed but because the BH denominator grows from 39 genes to 112;
+it was the weakest hit at q = 0.047 and was never robust.
+
 WHAT IT DOES NOT FIX. Cell-type composition. If the two sections sample
 different proportions of myocyte/fibroblast/endothelium and escape differs by
 cell type, a gene's pooled ratio moves for a reason that is neither age nor
@@ -156,9 +183,11 @@ def main():
     p.add_argument("--level", choices=("umi", "reads"), default="umi",
                    help="umi = molecules (default). reads is duplicate-inclusive "
                         "and allele-asymmetric; it biases the ratio")
-    p.add_argument("--min-molecules", type=int, default=200,
-                   help="required in BOTH samples for a gene to be tested")
-    p.add_argument("--strata", default="200,500,1500,5000",
+    p.add_argument("--min-molecules", type=int, default=100,
+                   help="required in BOTH samples for a gene to be tested. "
+                        "See the sweep in this script's docstring before "
+                        "raising it - a higher floor makes the calibration WORSE")
+    p.add_argument("--strata", default="100,200,500,1500,5000",
                    help="lower edges of the depth strata the inflation factor is "
                         "measured in, on min(n1, n2)")
     p.add_argument("--min-null-genes", type=int, default=30,
@@ -235,7 +264,14 @@ def main():
         raise SystemExit("No autosomal genes passed --min-molecules; cannot calibrate")
 
     # ------------------------------------------------- inflation, per stratum
-    edges = [int(x) for x in args.strata.split(",")] + [10 ** 18]
+    # The strata have to start at or below --min-molecules, or every gene
+    # between the floor and the first edge lands in no stratum at all and gets
+    # a borrowed inflation factor. Prepending the floor makes the default
+    # correct for any --min-molecules rather than only for the one it was
+    # written against.
+    edges = sorted({int(x) for x in args.strata.split(",")
+                    if int(x) > args.min_molecules} | {args.min_molecules})
+    edges += [10 ** 18]
     strata = list(zip(edges[:-1], edges[1:]))
     lam = {}
     msg("")
