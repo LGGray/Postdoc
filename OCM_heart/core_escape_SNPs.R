@@ -154,6 +154,28 @@ annotation_chrX <- annotation[V1 == "chrX", ]
 write_bed(annotation_chrX, "annotation_us_mm39_chrX.bed",
           "all chrX transcripts")
 
+##### --------------------- gene bodies, genome-wide ----------------- #####
+#
+# One interval per gene per strand, every chromosome, gene name in column 4.
+# This is what ase_bin_allele_counts.py --gene-bed consumes to assign each
+# molecule to a gene for the spASE analysis (spatial/spase_scase.R).
+#
+# It has to be GENE level, not transcript level: --gene-bed resolves a position
+# through Intervals.name_at, which takes the first interval by start, so
+# overlapping transcripts of DIFFERENT genes would be split arbitrarily between
+# them. Collapsed per gene that ambiguity is confined to genuinely overlapping
+# genes.
+#
+# It has to be GENE BODIES, not exons: the GX tag spaceranger writes marks
+# exonic assignment only, and this 3' nuclear-heavy data is mostly intronic,
+# so the tag route discards most molecules. Gene bodies are also what
+# Allelome.PRO2 scores against, so the two pipelines count the same thing.
+annotation_gene_level <- gene_level(annotation)
+write_bed(annotation_gene_level, "annotation_us_mm39_gene_level.bed",
+          sprintf("gene bodies, all chromosomes (%d genes, %d chromosomes)",
+                  uniqueN(annotation_gene_level$V4),
+                  uniqueN(annotation_gene_level$V1)))
+
 ##### ------------------------- core escape ------------------------- #####
 
 core_escape_genes <- c("Kdm5c", "Kdm6a", "Ddx3x", "Eif2s3x")

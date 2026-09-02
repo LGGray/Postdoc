@@ -88,6 +88,34 @@ byte-for-byte unchanged:
                                 chrX UMIs" - the main table has already summed
                                 over position and cannot.
 
+  --gene-bin-out PATH           Per-gene, per-pixel allelic counts on a
+                                --gene-bin-um grid: chrom, gene, row, col, ref,
+                                alt. This is the one output that keeps gene
+                                identity AND position, which is what spASE's
+                                scase()/spase() need as matrix1/matrix2
+                                (spatial/spase_scase.R). Pair it with
+                                --gene-bed; molecules that fall in no gene body
+                                are absent here but still counted in the main
+                                table.
+
+  --gene-bed PATH               Gene-body bed (gene name in column 4) that
+                                assigns molecules to genes for --gene-bin-out.
+                                Use it. The alternative is the GX tag, which
+                                spaceranger sets only on exonic assignment,
+                                and this data is mostly intronic - the same
+                                reason spatial_ase_sweep.slurm does not pass
+                                --require-gene. With a bed, the gene is the
+                                interval containing the molecule's leftmost
+                                informative SNP, matching both the locus table
+                                here and Allelome.PRO2's gene-body scoring.
+
+  --gene-bin-um N               Pixel size for --gene-bin-out, in microns.
+                                Default 16, i.e. 8x8 capture bins. Must be even.
+                                spASE fits a beta-binomial per gene over pixels,
+                                so it wants MANY pixels rather than deep ones;
+                                64 would match the tile analysis but leaves only
+                                a few hundred pixels per section.
+
   --locus-out PATH              Per-interval UMI counts for every named interval
                                 in every --subset-bed, pooled over the section:
                                 subset, locus, chrom, start, end, ref, alt.
@@ -555,7 +583,7 @@ def load_barcode_map(path, spatial_dir, pos):
 def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                 subsets=(), sub_counts=None, primary=True, regions=None,
                 windows=None, resolve=None, win_k=None, loci=None, seen=None,
-                mol_seen=None, gene_bins=None, gene_k=None):
+                mol_seen=None, gene_bins=None, gene_k=None, gene_iv=None):
     """One chromosome, collapsed to (2um bin -> [ref, alt]).
 
     The unit is the molecule by default and the read under --count-unit read.
@@ -575,6 +603,14 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                   spASE takes as matrix1/matrix2 (spatial/spase_scase.R); every
                   other output here has already summed over gene identity and
                   cannot be turned back into one.
+      gene_iv     Intervals of gene bodies. When given, a molecule's gene is
+                  the interval containing its leftmost informative SNP, which
+                  is the SAME rule emit_sub uses for the locus table and the
+                  same gene-body definition Allelome.PRO2 scores against -
+                  introns included. Without it the gene comes from the GX tag,
+                  which spaceranger sets on EXONIC assignment only; on this
+                  nuclear-heavy 3' data that is a minority of reads, which is
+                  why spatial_ase_sweep.slurm does not pass --require-gene.
       seen        {"snps": set, "genes": set} for the provenance sidecar.
       mol_seen    read mode only: the (bin, UB) of every informative read, so
                   the duplication factor can be reads per MOLECULE. Reads per
@@ -642,10 +678,15 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
         bc = umi_bin[key]
         per_bin[bc][b] += 1
         if gene_bins is not None:
-            g = umi_gene.get(key)
-            # No gene means the molecule was intergenic or ambiguously tagged.
-            # It stays in the main table - the chromosome-wide aggregate is
-            # deliberately not gene-restricted - and is simply absent here.
+            # pos is the molecule's leftmost informative SNP, already 0-based,
+            # which is the coordinate convention Intervals expects (see its
+            # docstring) - so this needs no offset of its own.
+            g = gene_iv.name_at(chrom, pos) if gene_iv is not None \
+                else umi_gene.get(key)
+            # No gene means the molecule was intergenic, or ambiguously tagged
+            # in the GX fallback. It stays in the main table - the
+            # chromosome-wide aggregate is deliberately not gene-restricted -
+            # and is simply absent here.
             if g is not None:
                 t = gtile_of.get(bc, False)
                 if t is False:
@@ -731,7 +772,8 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
         # none: such a molecule is still counted in the main table and is only
         # left out of the gene table, which is the conservative direction.
         gx = None
-        if gene_bins is not None and read.has_tag(args.gene_tag):
+        if gene_bins is not None and gene_iv is None and \
+                read.has_tag(args.gene_tag):
             gx = read.get_tag(args.gene_tag)
             if ";" in gx:
                 gx = None
@@ -998,6 +1040,16 @@ def main():
                    help="Restrict --window-out to these chromosomes (default: "
                         "the X chromosome only, which is where the question is; "
                         "'all' includes the autosomal control).")
+    p.add_argument("--gene-bin-out", default=None,
+                   help="Per-gene per-pixel allelic counts, the gene x pixel "
+                        "matrix spASE takes. See --gene-bin-um.")
+    p.add_argument("--gene-bin-um", type=int, default=16,
+                   help="Pixel size in microns for --gene-bin-out (default 16).")
+    p.add_argument("--gene-bed", default=None,
+                   help="Gene-body bed (name in column 4) used to assign each "
+                        "molecule to a gene for --gene-bin-out. STRONGLY "
+                        "preferred over the GX tag fallback: GX is exonic-only "
+                        "and this data is mostly intronic.")
     p.add_argument("--locus-out", default=None,
                    help="Per-interval UMI counts for every named interval in "
                         "every --subset-bed, pooled over the section. Check a "
@@ -1011,6 +1063,17 @@ def main():
     if args.window_tile_um % 2 != 0 or args.window_tile_um < 2:
         raise SystemExit("--window-tile-um must be an even number of microns "
                          "(the capture grid is 2um), got %d" % args.window_tile_um)
+    if args.gene_bin_um % 2 != 0 or args.gene_bin_um < 2:
+        raise SystemExit("--gene-bin-um must be an even number of microns "
+                         "(the capture grid is 2um), got %d" % args.gene_bin_um)
+    if args.gene_bed and not args.gene_bin_out:
+        raise SystemExit("--gene-bed does nothing without --gene-bin-out")
+    if args.gene_bin_out and not args.gene_bed:
+        sys.stderr.write(
+            "WARNING: --gene-bin-out without --gene-bed falls back to the %s "
+            "tag, which spaceranger sets on EXONIC assignment only. On this "
+            "nuclear-heavy 3' data that discards most molecules. Pass "
+            "--gene-bed with a gene-body bed instead.\n" % args.gene_tag)
 
     autosomes = [c for c in args.autosome_chroms.split(",") if c]
     chroms = [args.x_chrom] + autosomes
@@ -1178,6 +1241,17 @@ def main():
     # how many independent molecules the read counts stand for.
     mol_seen = set() if args.count_unit == "read" else None
     win_k = args.window_tile_um // 2
+    gene_bins = {} if args.gene_bin_out else None
+    gene_k = args.gene_bin_um // 2
+    gene_iv = None
+    if args.gene_bed:
+        # Same offset convention as the subset beds: real BED, half-open, no
+        # shift, tested against an already-0-based SNP position.
+        gene_iv = Intervals(args.gene_bed, args.subset_bed_offset)
+        sys.stderr.write("Gene bodies: %d chromosomes, %d intervals from %s\n"
+                         % (len(gene_iv.by_chrom),
+                            sum(len(v[0]) for v in gene_iv.by_chrom.values()),
+                            args.gene_bed))
 
     def kw(c, primary=True, regions=None, label=None):
         lab = label or c
@@ -1185,7 +1259,8 @@ def main():
         return dict(subsets=subsets, sub_counts=sub_counts, primary=primary,
                     regions=regions, mol_seen=mol_seen,
                     windows=windows if (win_chroms and c in win_chroms) else None,
-                    resolve=resolve, win_k=win_k, loci=loci, seen=seen[lab])
+                    resolve=resolve, win_k=win_k, loci=loci, seen=seen[lab],
+                    gene_bins=gene_bins, gene_k=gene_k, gene_iv=gene_iv)
 
     x_counts = count_chrom(bam, args.x_chrom, *snps[args.x_chrom], args, stats,
                            **kw(args.x_chrom))
@@ -1291,6 +1366,20 @@ def main():
                          % (len(windows), args.window_out,
                             args.window_size // 1000, args.window_tile_um,
                             ",".join(sorted(win_chroms))))
+
+    if gene_bins is not None:
+        # Only on-tissue pixels, unlike the locus table: this one is a spatial
+        # matrix and an unresolved bin has no pixel to occupy.
+        with gzip.open(args.gene_bin_out, "wt") as gf:
+            gf.write("chrom\tgene\trow\tcol\tref\talt\n")
+            for (c, g, r_, c_), (r, a) in sorted(gene_bins.items()):
+                gf.write("%s\t%s\t%d\t%d\t%d\t%d\n" % (c, g, r_, c_, r, a))
+        n_genes = len(set(k[1] for k in gene_bins))
+        n_px = len(set((k[2], k[3]) for k in gene_bins))
+        sys.stderr.write("Wrote %d gene x pixel rows (%d genes, %d pixels of "
+                         "%dum) to %s\n"
+                         % (len(gene_bins), n_genes, n_px, args.gene_bin_um,
+                            args.gene_bin_out))
 
     if loci is not None:
         # NOTE: unlike the main table, this one counts every barcode the BAM
@@ -1426,6 +1515,16 @@ def main():
         pf.write("informative_reads_nondup\t%d\n"
                  % stats["informative_reads_nondup"])
         pf.write("informative_molecules\t%d\n" % n_mol)
+        # Task 9's rule: every bed that shaped a result is named and hashed
+        # next to it, so a gene table can be attributed to its annotation.
+        if args.gene_bin_out:
+            pf.write("gene_bin_out\t%s\n" % args.gene_bin_out)
+            pf.write("gene_bin_um\t%d\n" % args.gene_bin_um)
+            pf.write("gene_assignment\t%s\n"
+                     % ("gene_bed" if args.gene_bed else args.gene_tag + "_tag"))
+            if args.gene_bed:
+                pf.write("gene_bed\t%s\n" % args.gene_bed)
+                pf.write("gene_bed_md5\t%s\n" % md5_of(args.gene_bed))
         pf.write("x_chrom\t%s\n" % args.x_chrom)
         pf.write("autosome_chroms\t%s\n" % ",".join(autosomes))
         for s in subsets:
