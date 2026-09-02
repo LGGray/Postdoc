@@ -92,17 +92,6 @@ TILE_UM <- as.integer(Sys.getenv("TILE_UM", "64"))
 BIN     <- "square_002um"
 LEVEL   <- Sys.getenv("LEVEL", "reads")          # reads (dup) | umi
 OUT_DIR <- Sys.getenv("OUT_DIR", IN_ROOT)
-# The cutoff is in the filename. Without it a gated run lands on top of the
-# ungated one and the two cannot be compared, which is the first thing anyone
-# will want to do after changing a threshold.
-OUT_PDF <- Sys.getenv("OUT_PDF",
-                      file.path(OUT_DIR, sprintf("tile_gene_ar_maps_%dum_%s%s.pdf",
-                                                 TILE_UM, LEVEL,
-                                                 if (MIN_DEPTH > 1)
-                                                   sprintf("_min%d", MIN_DEPTH) else "")))
-
-# Restrict to a few genes, for a quick look: GENES=Kdm6a,Ftx
-GENES   <- Sys.getenv("GENES", "")
 
 # Units of the PLOTTED level a tile needs before it is COLOURED in the ratio
 # row. The coverage row is deliberately not gated, so the two rows stay on the
@@ -123,6 +112,18 @@ GENES   <- Sys.getenv("GENES", "")
 #                              MIN_TILE_N in tile_gene_ar_panel.R.
 #   LEVEL=umi   MIN_DEPTH=4    four independent molecules. The real cutoff.
 MIN_DEPTH <- as.integer(Sys.getenv("MIN_DEPTH", "4"))
+
+# The cutoff is in the filename. Without it a gated run lands on top of the
+# ungated one and the two cannot be compared, which is the first thing anyone
+# will want to do after changing a threshold.
+OUT_PDF <- Sys.getenv("OUT_PDF",
+                      file.path(OUT_DIR, sprintf("tile_gene_ar_maps_%dum_%s%s.pdf",
+                                                 TILE_UM, LEVEL,
+                                                 if (MIN_DEPTH > 1)
+                                                   sprintf("_min%d", MIN_DEPTH) else "")))
+
+# Restrict to a few genes, for a quick look: GENES=Kdm6a,Ftx
+GENES   <- Sys.getenv("GENES", "")
 
 # Draw the H&E underneath. Needs the png package; skipped with a message
 # otherwise, exactly as tile_ratio_map.R does it.
