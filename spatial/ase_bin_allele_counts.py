@@ -555,7 +555,7 @@ def load_barcode_map(path, spatial_dir, pos):
 def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                 subsets=(), sub_counts=None, primary=True, regions=None,
                 windows=None, resolve=None, win_k=None, loci=None, seen=None,
-                mol_seen=None):
+                mol_seen=None, gene_bins=None, gene_k=None):
     """One chromosome, collapsed to (2um bin -> [ref, alt]).
 
     The unit is the molecule by default and the read under --count-unit read.
@@ -570,6 +570,11 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                   several.
       windows     (chrom, window index, tile row, tile col) -> [ref, alt].
       loci        (subset name, locus name) -> [ref, alt].
+      gene_bins   (chrom, gene, tile row, tile col) -> [ref, alt], on the
+                  --gene-bin-um grid. This is the gene x pixel pair of matrices
+                  spASE takes as matrix1/matrix2 (spatial/spase_scase.R); every
+                  other output here has already summed over gene identity and
+                  cannot be turned back into one.
       seen        {"snps": set, "genes": set} for the provenance sidecar.
       mol_seen    read mode only: the (bin, UB) of every informative read, so
                   the duplication factor can be reads per MOLECULE. Reads per
@@ -622,6 +627,10 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
     per_bin = collections.defaultdict(lambda: [0, 0])
     counters = {"ties": 0}
     tile_of = {}
+    # A second bin -> tile cache, because the gene table's grid is a different
+    # size from the window table's and one cache cannot serve both.
+    gtile_of = {}
+    umi_gene = {}                                     # (bin, unit) -> gene
 
     def emit_main(key, r, a, pos):
         if not primary:
@@ -632,6 +641,24 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
             return
         bc = umi_bin[key]
         per_bin[bc][b] += 1
+        if gene_bins is not None:
+            g = umi_gene.get(key)
+            # No gene means the molecule was intergenic or ambiguously tagged.
+            # It stays in the main table - the chromosome-wide aggregate is
+            # deliberately not gene-restricted - and is simply absent here.
+            if g is not None:
+                t = gtile_of.get(bc, False)
+                if t is False:
+                    coord = resolve(bc)
+                    t = None if coord is None else (int(coord[0]) // gene_k,
+                                                    int(coord[1]) // gene_k)
+                    gtile_of[bc] = t
+                if t is not None:
+                    gk = (chrom, g, t[0], t[1])
+                    cell = gene_bins.get(gk)
+                    if cell is None:
+                        cell = gene_bins[gk] = [0, 0]
+                    cell[b] += 1
         if windows is None:
             return
         t = tile_of.get(bc, False)
@@ -699,6 +726,16 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
             continue
         stats["reads_kept"] += 1
 
+        # The gene for the gene x pixel table, read once per read rather than
+        # once per SNP. A read tagged with several genes is ambiguous and gets
+        # none: such a molecule is still counted in the main table and is only
+        # left out of the gene table, which is the conservative direction.
+        gx = None
+        if gene_bins is not None and read.has_tag(args.gene_tag):
+            gx = read.get_tag(args.gene_tag)
+            if ";" in gx:
+                gx = None
+
         # Most reads in a CAST cross do overlap a SNP, but skipping the ones
         # that cannot still avoids building an aligned-pairs list per read.
         lo = bisect.bisect_left(snp_sorted, read.reference_start)
@@ -740,6 +777,11 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                 if v is None:
                     v = votes[key] = [0, 0, rpos]
                 umi_bin[key] = bin_bc
+                # First informative read wins. Holding a vote per (molecule,
+                # gene) would cost more memory than the ambiguity is worth;
+                # 3' molecules assigned to two genes are rare.
+                if gx is not None:
+                    umi_gene.setdefault(key, gx)
             v[bucket] += 1
             # The UMI's position on the chromosome, for the window table. The
             # leftmost informative SNP, not the read start: it is the SNP that
@@ -783,6 +825,7 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                 emit_main(key, v[0], v[1], v[2])
                 del votes[key]
                 del umi_bin[key]
+                umi_gene.pop(key, None)
 
     # Molecule mode flushes here and not earlier: a UMI's reads are scattered
     # along the chromosome, so its vote is only complete once the fetch is done.
