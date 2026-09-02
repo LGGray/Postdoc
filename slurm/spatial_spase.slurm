@@ -65,24 +65,36 @@
 # ONE-OFF: INSTALLING spASE. Do this before the first run.
 #
 # spASE's DESCRIPTION declares NO Imports, so install_github pulls in nothing
-# and a missing dependency surfaces as "lazy loading failed for package spASE"
-# rather than as a missing-package error. Install the dependencies FIRST. The
-# list below was read off the package source, not guessed:
+# and a missing dependency surfaces as "lazy loading failed for package spASE",
+# naming ONE package at a time, rather than as a missing-package error up
+# front. So install them first.
+#
+# The list is spASE's NAMESPACE - the packages that must resolve for the build
+# to finish. Do NOT use the wider set that a grep of the source produces: that
+# also catches Seurat, caret, Rfast, fields, pals, quadprog and CompQuadForm,
+# which are referenced only inside functions this pipeline never calls (Seurat
+# in a 10x .h5 reader and in a class() string test) or are spacexr's
+# dependencies rather than spASE's. They are also by far the slowest to build,
+# and installing them as one batch is what makes the install fail.
 #
 #   conda activate RNAseq
 #   R
-#   .libPaths(c("~/R/matrix-dev", .libPaths()))
-#   install.packages(c("CompQuadForm","Matrix","RColorBrewer","Rfast","Seurat",
-#                      "aod","caret","data.table","doParallel","doSNOW","dplyr",
-#                      "fields","foreach","ggExtra","ggplot2","ggrepel",
-#                      "latex2exp","mgcv","pals","quadprog","readr","reshape2",
-#                      "stringr","tibble","viridis"))
-#   devtools::install_github("dmcable/spacexr", upgrade="never")
+#   options(repos = c(CRAN = "https://cloud.r-project.org"))   # else a Tk
+#   #   mirror-chooser window opens and the terminal appears to hang
+#   need <- c("Matrix","aod","doParallel","doSNOW","dplyr","foreach","ggplot2",
+#             "latex2exp","viridis","RColorBrewer","ggExtra","ggrepel","mgcv",
+#             "reshape2")
+#   install.packages(need[!need %in% rownames(installed.packages())])
 #   devtools::install_github("lulizou/spASE", upgrade="never")
 #
-# fields/Rfast/spam/dotCall64 need a Fortran compiler. If the cluster's R has
-# no gfortran, install those four from binary or from the module system first;
-# on a machine without one, options(pkgType="binary") is what unblocks it.
+# spacexr is a separate install (devtools::install_github("dmcable/spacexr"),
+# or conda, which is what worked here). It is loaded before spASE because the
+# README says spASE overrides several of its functions - that matters for
+# RCTD/C-SIDE, which this pipeline does not use.
+#
+# spacexr's own dependencies fields/Rfast/spam/dotCall64 DO need a Fortran
+# compiler. Where there is no gfortran, install them from binary
+# (options(pkgType="binary")) or from conda-forge as r-fields, r-rfast.
 # ---------------------------------------------------------------------------
 
 module load slurm_setup
