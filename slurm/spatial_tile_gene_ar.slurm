@@ -51,6 +51,16 @@
 # MAP LEVELS (arg 4, default reads) - which levels get a map PDF. Each is its
 # own file, named with the level and the cutoff, so nothing overwrites anything.
 #
+# EXTRA_ROOT (arg 5) - a second counts tree merged over the first BY GENE, so a
+# gene recounted against a corrected bed replaces its rows rather than adding to
+# them. Kcnq1ot1 needs it: it sits inside Kcnq1, and the counter gives each SNP
+# to the containing interval with the smallest start, so the main tree has 905
+# molecules of "Kcnq1" - the maternal sense gene and its paternal antisense
+# summed - and none of Kcnq1ot1.
+#   sbatch ~/Postdoc/slurm/spatial_tile_nested_loci.slurm      # once, ~1 h
+#   sbatch ~/Postdoc/slurm/spatial_tile_gene_ar.slurm "" 64 4 reads,umi \
+#     /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_spatial/ase_pysam_dup_64um_nested
+#
 # Small enough to run interactively instead, which is the faster way to change
 # the gene list:
 #   conda activate seurat_env
@@ -75,6 +85,10 @@ TREE="${1:-ase_pysam_dup_64um}"
 TILE_UM="${2:-64}"
 MIN_DEPTH="${3:-4}"
 MAP_LEVELS="${4:-reads}"
+# Optional second counts tree merged over the first, by gene. Built by
+# spatial_tile_nested_loci.slurm for Kcnq1ot1, whose SNPs the main tree
+# attributes to Kcnq1 (see tile_gene_panel.R). Empty = main tree only.
+EXTRA_ROOT="${5:-}"
 
 case "$MIN_DEPTH" in
   ''|*[!0-9]*) echo "MIN_DEPTH (arg 3) must be a non-negative integer, got '$MIN_DEPTH'" >&2; exit 1 ;;
@@ -100,9 +114,20 @@ conda activate seurat_env
 Rscript -e 'for (p in c("arrow","png","patchwork")) if (!requireNamespace(p, quietly=TRUE))
               message("note: R package \"", p, "\" not installed")' 2>&1 | sed 's/^/  /'
 
+if [ -n "$EXTRA_ROOT" ]; then
+  for s in 9w 78w; do
+    f=$EXTRA_ROOT/$s/tile_gene_counts.tsv.gz
+    if [ ! -s "$f" ] && [ ! -s "${f%.gz}" ]; then
+      echo "EXTRA_ROOT given but $f is missing - run spatial_tile_nested_loci.slurm first." >&2
+      exit 1
+    fi
+  done
+  echo "merging extra counts from $EXTRA_ROOT"
+fi
+
 echo "=== distributions (MIN_DEPTH=$MIN_DEPTH, floored against MIN_TILE_N) ==="
 IN_ROOT="$IN_ROOT" TILE_UM="$TILE_UM" SAMPLES="9w,78w" MIN_DEPTH="$MIN_DEPTH" \
-  Rscript "$REPO/spatial/tile_gene_ar_panel.R"
+  EXTRA_ROOT="$EXTRA_ROOT" Rscript "$REPO/spatial/tile_gene_ar_panel.R"
 rc=$?
 if [ $rc -ne 0 ]; then conda deactivate; echo "tile_gene_ar_panel.R failed" >&2; exit $rc; fi
 
@@ -122,7 +147,8 @@ for lev in "${LEVS[@]}"; do
   echo
   echo "=== slide maps: LEVEL=$lev MIN_DEPTH=$MIN_DEPTH ==="
   IN_ROOT="$IN_ROOT" TILE_UM="$TILE_UM" SAMPLES="9w,78w" LEVEL="$lev" \
-    MIN_DEPTH="$MIN_DEPTH" Rscript "$REPO/spatial/tile_gene_ar_maps.R" || rc=$?
+    MIN_DEPTH="$MIN_DEPTH" EXTRA_ROOT="$EXTRA_ROOT" \
+    Rscript "$REPO/spatial/tile_gene_ar_maps.R" || rc=$?
 done
 
 conda deactivate

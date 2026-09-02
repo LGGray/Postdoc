@@ -96,6 +96,11 @@ suppressPackageStartupMessages({
 ##### ---------------------- CONFIG ---------------------- #####
 BASE    <- "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_spatial"
 IN_ROOT <- Sys.getenv("IN_ROOT", file.path(BASE, "ase_pysam_dup_64um"))
+
+# Optional second counts tree, merged over the first by gene. Same contract as
+# tile_gene_ar_maps.R: rows here REPLACE same-named rows rather than adding to
+# them. Built for Kcnq1ot1, whose SNPs the main tree gives to Kcnq1.
+EXTRA_ROOT <- Sys.getenv("EXTRA_ROOT", "")
 SAMPLES <- strsplit(Sys.getenv("SAMPLES", "9w,78w"), ",")[[1]]
 TILE_UM <- as.integer(Sys.getenv("TILE_UM", "64"))
 OUT_PREFIX <- Sys.getenv("OUT_PREFIX", "tile_gene_ar_panel")
@@ -169,6 +174,27 @@ read_chrom <- function(s) {
 
 msg("Reading %s", IN_ROOT)
 all_g <- rbindlist(lapply(SAMPLES, read_genes))
+
+if (nzchar(EXTRA_ROOT)) {
+  msg("Merging extra counts from %s", EXTRA_ROOT)
+  ex <- rbindlist(lapply(SAMPLES, function(s) {
+    f <- file.path(EXTRA_ROOT, s, "tile_gene_counts.tsv")
+    if (!file.exists(f) && file.exists(paste0(f, ".gz"))) f <- paste0(f, ".gz")
+    if (!file.exists(f)) stop("EXTRA_ROOT has no tile_gene_counts.tsv[.gz] for ", s)
+    fread(f, select = c("tile", "trow", "tcol", "chrom", "gene",
+                        "a1_umi", "a2_umi", "n_umi",
+                        "a1_reads", "a2_reads", "n_reads"),
+          showProgress = FALSE)[, sample := s][]
+  }), use.names = TRUE)
+  ex <- ex[gene %chin% PANEL$gene]
+  if (nrow(ex)) {
+    hits <- ex[, unique(gene)]
+    all_g <- rbind(all_g[!gene %chin% hits], ex, use.names = TRUE)
+    msg("  merged %s (%d rows)", paste(hits, collapse = ", "), nrow(ex))
+  } else {
+    msg("  nothing in EXTRA_ROOT matches the panel - ignored")
+  }
+}
 all_c <- rbindlist(lapply(SAMPLES, read_chrom))
 
 SLAB <- c("9w" = "adult (9w)", "78w" = "aged (78w)")
@@ -363,7 +389,7 @@ draw <- function(level, grp) {
          x = NULL, y = "allelic ratio (B6 / total)",
          caption = paste(
            "Dotted lines = the two monoallelic poles. Dashed = the autosomal ratio, which is what a fully biallelic locus reads once B6-ward mapping bias is allowed for.",
-           if (nrow(exp_dt)) "\nOrange bar = the allele this locus is expected on from its imprinting status; distance from it is the false-call floor, measured rather than assumed." else "",
+           if (nrow(exp_dt)) "\nOrange bar = the ratio this locus is expected at - its imprinted allele, or 0.5 where both alleles are expressed; distance from it is the false-call floor, measured rather than assumed." else "",
            if (level == "reads") "\nDuplicate-inclusive reads are not independent observations - the dots inherit that, the interval does not." else "")) +
     theme_bw(base_size = 10) +
     theme(panel.grid.major.x = element_blank(),

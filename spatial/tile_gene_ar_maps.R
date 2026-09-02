@@ -79,6 +79,14 @@ suppressPackageStartupMessages({
 ##### ---------------------- CONFIG ---------------------- #####
 BASE    <- "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/adult_aged_spatial"
 IN_ROOT <- Sys.getenv("IN_ROOT", file.path(BASE, "ase_pysam_dup_64um"))
+
+# An OPTIONAL second counts tree, appended to the first. It exists for genes the
+# main tree cannot report because another interval took their SNPs - Kcnq1ot1
+# inside Kcnq1 is the case it was built for; see tile_gene_panel.R. Rows here
+# REPLACE same-named rows from IN_ROOT rather than adding to them, so a gene
+# recounted against a corrected bed does not end up double-counted.
+#   EXTRA_ROOT=$SPATIAL/ase_pysam_dup_64um_nested Rscript ...
+EXTRA_ROOT <- Sys.getenv("EXTRA_ROOT", "")
 SAMPLES <- strsplit(Sys.getenv("SAMPLES", "9w,78w"), ",")[[1]]
 TILE_UM <- as.integer(Sys.getenv("TILE_UM", "64"))
 BIN     <- "square_002um"
@@ -294,6 +302,32 @@ msg("Reading %s", IN_ROOT)
 cnt <- rbindlist(c(lapply(SAMPLES, read_genes, keep = want),
                    if ("chrX (all genes pooled)" %chin% want) lapply(SAMPLES, read_chrom)),
                  use.names = TRUE)
+
+if (nzchar(EXTRA_ROOT)) {
+  msg("Merging extra counts from %s", EXTRA_ROOT)
+  ex <- rbindlist(lapply(SAMPLES, function(s) {
+    f <- file.path(EXTRA_ROOT, s, "tile_gene_counts.tsv")
+    if (!file.exists(f) && file.exists(paste0(f, ".gz"))) f <- paste0(f, ".gz")
+    if (!file.exists(f)) stop("EXTRA_ROOT has no tile_gene_counts.tsv[.gz] for ", s)
+    d <- fread(f, select = c("tile", "chrom", "gene", "a1_umi", "a2_umi", "n_umi",
+                             "a1_reads", "a2_reads", "n_reads"), showProgress = FALSE)
+    d[gene %chin% want][, sample := s][]
+  }), use.names = TRUE)
+  if (nrow(ex)) {
+    # Drop, then bind. Keeping both copies of a gene present in each tree would
+    # silently double its molecules, and the whole reason for a side tree is
+    # that its numbers for that gene are the RIGHT ones.
+    hits <- ex[, unique(gene)]
+    # Counted BEFORE the rebind: after it, cnt no longer holds the rows that
+    # were dropped, so the same expression measures nothing.
+    n_dropped <- nrow(cnt[gene %chin% hits])
+    cnt <- rbind(cnt[!gene %chin% hits], ex, use.names = TRUE)
+    msg("  %s: %d rows in, %d rows from the main tree replaced",
+        paste(hits, collapse = ", "), nrow(ex), n_dropped)
+  } else {
+    msg("  nothing in EXTRA_ROOT matches the panel - ignored")
+  }
+}
 if (!nrow(cnt)) stop("None of the requested genes are in the counts: ",
                      paste(want, collapse = ", "))
 
@@ -448,9 +482,16 @@ pages <- 0L
 for (g_ in PANEL_GENES(have = cnt[, unique(gene)])) {
   r <- one_gene(g_)
   ex <- meta[gene == g_, expect]
-  tag <- if (length(ex) && !is.na(ex[1]))
-           sprintf("  |  imprinted control, expected AR = %g (%s)", ex[1],
-                   if (ex[1] == 1) "maternal = B6" else "paternal = CAST") else ""
+  # 0.5 is a BIALLELIC expectation, not an imprinting direction. Sent through
+  # the old two-branch text it came out labelled "paternal = CAST", which is the
+  # one thing a biallelic control must not claim.
+  tag <- if (!length(ex) || is.na(ex[1])) "" else
+           sprintf("  |  %s, expected AR = %g%s",
+                   if (ex[1] == 0.5) "biallelic control" else "imprinted control",
+                   ex[1],
+                   if (ex[1] == 1) " (maternal = B6)"
+                   else if (ex[1] == 0) " (paternal = CAST)"
+                   else " (both alleles; the autosomal ratio is ~0.515, and the gap is mapping bias)")
   # Named per sample. "too sparse in aged (78w)" tells you which half of the
   # page not to read; a summed count told you neither.
   thin <- if (length(r$thin))
