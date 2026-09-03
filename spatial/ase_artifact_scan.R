@@ -74,8 +74,16 @@ WIN_SIZE  <- as.integer(Sys.getenv("WINDOW_SIZE", "100000"))
 # fraction is worth looking at. Both are deliberately low: the point is to
 # catch artefacts, and the autosomal arm reports what that costs in false
 # positives at exactly these depths.
+#
+# MIN_SNP_OBS is 10 rather than something more comfortable because the SNPs are
+# not deep. The 9w counting pass found 6027 informative chrX SNPs carrying
+# 116354 molecules - about 19 molecules per SNP on average - and the window
+# this scan exists to explain, chrX:11.5-11.6Mb, holds 616 SNPs for 6206
+# molecules, so ~10 each. A threshold of 20 would bind hardest exactly where
+# the answer is. The distribution and what the threshold costs are printed
+# below, so if it is doing real damage that is visible rather than implicit.
 MIN_WIN_UMI <- as.integer(Sys.getenv("MIN_WIN_UMI", "50"))
-MIN_SNP_OBS <- as.integer(Sys.getenv("MIN_SNP_OBS", "20"))
+MIN_SNP_OBS <- as.integer(Sys.getenv("MIN_SNP_OBS", "10"))
 
 # The alt fraction above which a SNP is called flipped. Not tuned: 0.90 is far
 # outside anything an autosomal SNP can reach honestly, and the autosomal false
@@ -239,7 +247,33 @@ if (!file.exists(SNP_LEDGER)) {
   cat(sprintf("\n=== PASS 2: %d informative SNPs (%d on %s, %d autosomal) ===\n",
               nrow(snp), sum(snp$is_x), X_CHROM, sum(!snp$is_x)))
 
+  # What the depth threshold costs, before it is applied to anything. A
+  # threshold that removes most of the chromosome would make the flip counts
+  # below meaningless, and that has to be visible rather than inferred.
+  cat(sprintf(paste0(
+    "Observations per SNP: median %.0f, quartiles %.0f-%.0f, max %.0f.\n",
+    "  At MIN_SNP_OBS = %d: %d of %d %s SNPs pass (%.0f%%), carrying %.0f%% of ",
+    "the\n  %s observations; %d of %d autosomal pass (%.0f%%).\n"),
+    median(snp$obs), quantile(snp$obs, 0.25), quantile(snp$obs, 0.75),
+    max(snp$obs), MIN_SNP_OBS,
+    snp[is_x == TRUE, sum(obs >= MIN_SNP_OBS)], snp[is_x == TRUE, .N], X_CHROM,
+    100 * snp[is_x == TRUE, mean(obs >= MIN_SNP_OBS)],
+    100 * snp[is_x == TRUE, sum(obs[obs >= MIN_SNP_OBS]) / sum(obs)], X_CHROM,
+    snp[is_x == FALSE, sum(obs >= MIN_SNP_OBS)], snp[is_x == FALSE, .N],
+    100 * snp[is_x == FALSE, mean(obs >= MIN_SNP_OBS)]))
+
   ok <- snp[obs >= MIN_SNP_OBS]
+  if (!nrow(ok) || !ok[is_x == FALSE, .N] || !ok[is_x == TRUE, .N]) {
+    # Without both arms there is no calibration, and a flip count with nothing
+    # to compare it against is not a result. Say so rather than printing NaN.
+    stop("Only ", nrow(ok), " SNP(s) reach MIN_SNP_OBS = ", MIN_SNP_OBS,
+         " (", ok[is_x == TRUE, .N], " on ", X_CHROM, ", ",
+         ok[is_x == FALSE, .N], " autosomal).\n",
+         "  Both arms are needed: the autosomal SNPs ARE the calibration.\n",
+         "  Lower it with MIN_SNP_OBS=<n>, or check the ledger covers the ",
+         "autosomes\n  (--snp-out-chroms all).", call. = FALSE)
+  }
+
   # THE CALIBRATION. On an autosome the truth is 0.5, so every autosomal SNP
   # over the threshold is a false positive by definition. That rate is what the
   # chrX count has to be read against.

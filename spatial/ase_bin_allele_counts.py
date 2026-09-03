@@ -1115,8 +1115,17 @@ def main():
     if args.gene_bin_um % 2 != 0 or args.gene_bin_um < 2:
         raise SystemExit("--gene-bin-um must be an even number of microns "
                          "(the capture grid is 2um), got %d" % args.gene_bin_um)
-    if args.gene_bed and not args.gene_bin_out:
-        raise SystemExit("--gene-bed does nothing without --gene-bin-out")
+    # --gene-bed feeds two outputs now: it assigns molecules to genes for
+    # --gene-bin-out, and it names the containing gene for each row of
+    # --snp-out. Either one is reason enough to load it.
+    if args.gene_bed and not (args.gene_bin_out or args.snp_out):
+        raise SystemExit("--gene-bed does nothing without --gene-bin-out "
+                         "or --snp-out")
+    if args.snp_out and not args.gene_bed:
+        sys.stderr.write(
+            "WARNING: --snp-out without --gene-bed leaves the ledger's `gene` "
+            "column empty. The scan still works on position alone, but it "
+            "cannot tell you which gene a flipped SNP sits in.\n")
     if args.gene_bin_out and not args.gene_bed:
         sys.stderr.write(
             "WARNING: --gene-bin-out without --gene-bed falls back to the %s "
@@ -1448,12 +1457,15 @@ def main():
                      "\tmol_ref\tmol_alt\tgene\n")
             for c in sorted(snp_counts):
                 smap = snps[c][1]
-                for pos in sorted(snp_counts[c]):
-                    o_r, o_a, m_r, m_a = snp_counts[c][pos]
-                    al = smap.get(pos)
-                    g = gene_iv.name_at(c, pos) if gene_iv is not None else None
+                # NOT `pos`: that name holds the barcode -> coordinate dict for
+                # the whole of main(), and rebinding it here silently breaks
+                # every use of it below.
+                for sp in sorted(snp_counts[c]):
+                    o_r, o_a, m_r, m_a = snp_counts[c][sp]
+                    al = smap.get(sp)
+                    g = gene_iv.name_at(c, sp) if gene_iv is not None else None
                     sf.write("%s\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%s\n"
-                             % (c, pos,
+                             % (c, sp,
                                 al[0] if al else ".", al[1] if al else ".",
                                 o_r, o_a, m_r, m_a, g if g else ""))
                     n_snp += 1
