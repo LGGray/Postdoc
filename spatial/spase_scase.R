@@ -51,15 +51,25 @@
 # Zero-CAST genes are now kept, with p = 0 and a one-sided Clopper-Pearson
 # upper bound, and are marked fit_status = "zero_alt".
 #
-# WHY THE MODEL'S OWN SEs ARE NOT USED ON THEIR OWN. In the first run
-# SE(logit.p) divided by the plain binomial SE was 1.00-1.05 for every gene,
-# and did not move with phi: 1.000 at phi = 0, 1.010 at phi = 1. The fitted
-# overdispersion was not reaching the reported standard error, so the CIs were
-# binomial CIs and the q-values (down to 1e-240) were the exact overstatement
-# this script was written to avoid. spase_se_diagnostic.R tests that directly.
-# Until it is resolved, the tests below are ALSO run against an empirical null
-# whose width is the autosomal logit MAD - gene-to-gene scatter measured on
-# genes whose true value is known - and the .emp columns are the ones to quote.
+# PHI IS MEANINGLESS AT THIS PIXEL SIZE, BUT THE CIs ARE FINE. SE(logit.p)
+# divided by the plain binomial SE is 1.00-1.05 for every gene and does not
+# move with phi (1.000 at phi = 0, 1.010 at phi = 1), and half the fitted phis
+# sit exactly on 0 or 1. That looks like the overdispersion failing to reach
+# the standard error, but spase_se_diagnostic.R shows it is something else: at
+# 16um, 90% of occupied (gene, pixel) cells hold ONE molecule, and
+# BetaBinom(1, a, b) is Bernoulli(p) for every phi, so phi is not identified at
+# all. A parametric bootstrap puts the true SE at 1.03x the reported one.
+#
+# So the CIs and q-values here are correct and can be quoted - but do NOT
+# describe this analysis as accounting for overdispersion, and do not report
+# phi. To let the model see overdispersion, recount at 32 or 64um.
+#
+# The tests below are ALSO run against an empirical null whose width is the
+# autosomal logit MAD. That is not a patch for the above: it covers
+# gene-to-gene variation in mapping bias, measured on genes whose true value is
+# known to be 0.5, which a correct binomial SE genuinely does not cover and
+# which a single median shift cannot absorb. The .emp columns are the
+# conservative ones and are what to quote for a per-gene claim.
 #
 # WHY SOME GENES ARE FLAGGED IMPOSSIBLE. In this genotype the B6 X is active in
 # every cell, so escape from the CAST Xi cannot exceed 50% - that would mean
@@ -282,8 +292,13 @@ x_pool <- xall[, sum(alt) / sum(ref + alt)]
 cat(sprintf(paste0(
   "\nPooled %s escape (bias-corrected):\n",
   "  every gene                      %.4f\n",
-  "  excluding the %2d impossible     %.4f   <- the one to quote\n",
-  "  excluding everything over %.0f%%   %.4f\n"),
+  "  excluding the %2d impossible     %.4f\n",
+  "  excluding everything over %.0f%%   %.4f\n",
+  "  The middle row is the defensible one - its criterion is a hard bound with\n",
+  "  the whole CI clear of it. The bottom row also drops genes sitting just\n",
+  "  BELOW the ceiling, which are suspicious for the same reason but cannot be\n",
+  "  called on this evidence. Read the two as a bracket; the SNP mask from\n",
+  "  ase_artifact_scan.R is what collapses it to one number.\n"),
   X_CHROM, x_pool_all, nrow(imp), x_pool_poss,
   100 * 0.9 * MAX_ESCAPE, x_pool_clean))
 
@@ -517,8 +532,10 @@ print(res[is_x == TRUE & fit_status %in% c("fitted", "zero_alt")][
        impossible = impossible %in% TRUE)])
 
 cat("\nWHAT TO QUOTE FROM THIS RUN:\n")
-cat(sprintf("  pooled %s escape        %.4f  (excluding %d impossible gene(s))\n",
-            X_CHROM, x_pool_adj, nrow(imp)))
+cat(sprintf(paste0("  pooled %s escape        %.4f  (excluding %d impossible ",
+                   "gene(s); %.4f if the\n                          ",
+                   "borderline ones go too - see the bracket above)\n"),
+            X_CHROM, x_pool_adj, nrow(imp), x_pool_clean))
 cat(sprintf("  false-escape floor      %.5f (%s)\n", ESCAPE_FLOOR,
             if (ESCAPE_FLOOR_FIXED) "set by hand" else
             if (identical(ESCAPE_FLOOR, ESCAPE_FLOOR_IMPRINTED)) "imprinted control"
@@ -526,7 +543,9 @@ cat(sprintf("  false-escape floor      %.5f (%s)\n", ESCAPE_FLOOR,
 cat(sprintf("  genes above it          %d of %d %s genes (empirical null)\n",
             sum(res$is_x & res$qval.floor.emp < 0.05, na.rm = TRUE),
             sum(res$is_x), X_CHROM))
-cat("  use the .emp columns, not qval.floor/qval.chrx, until",
-    "spase_se_diagnostic.R\n  shows the model SE responds to phi.\n")
+cat("  quote the .emp columns for a per-gene claim: they add the autosomal MAD,",
+    "\n  which covers gene-to-gene mapping bias that the model SE does not.",
+    "Do not\n  report phi - at this pixel size it is not identified. See",
+    "spase_se_diagnostic.R.\n")
 cat("\nDo not report a difference between sections as an age effect:",
     "n = 1 animal per age.\n")

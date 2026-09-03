@@ -74,6 +74,37 @@ SCASE_TSV <- Sys.getenv("SCASE_TSV",
   file.path(OUT_DIR, sprintf("spase_scase_%s_%dum%s.tsv",
                              SAMPLE, GENE_BIN_UM, SUF)))
 
+##### --------------- CHECK 0: IS PHI IDENTIFIABLE? ------------- #####
+# Run first because it is the likely CAUSE of everything below, and it costs
+# nothing. A beta-binomial estimates overdispersion from variation BETWEEN
+# clusters at a given cluster size. When a cluster holds a single trial,
+# BetaBinom(1, a, b) is exactly Bernoulli(a/(a+b)) for every value of phi - the
+# overdispersion parameter drops out of the likelihood and is not identified.
+# So the question "does the SE respond to phi" only has a meaningful answer if
+# the pixels carry more than one molecule.
+cell_n <- as.numeric(dat$m_alt@x) + as.numeric(dat$m_ref@x)
+nz <- summary(as(dat$m_alt + dat$m_ref, "TsparseMatrix"))$x
+mean_n <- mean(nz); frac1 <- mean(nz <= 1)
+cat(sprintf(paste0(
+  "\n=== CHECK 0: can phi be identified at %dum? ===\n",
+  "Molecules per occupied (gene, pixel) cell: mean %.2f, %.0f%% hold exactly ",
+  "one.\n"), GENE_BIN_UM, mean_n, 100 * frac1))
+if (frac1 > 0.8) {
+  cat(sprintf(paste0(
+    "  With %.0f%% of cells at a single molecule the beta-binomial is very ",
+    "close to\n  degenerate: BetaBinom(1, a, b) is Bernoulli(p) for EVERY ",
+    "phi, so phi is not\n  identified and scase() at this pixel size is an ",
+    "expensive binomial. Expect\n  phi pinned on its boundaries and an SE ",
+    "that does not respond to it - that is\n  the model being unidentifiable, ",
+    "not the SE being wrong.\n",
+    "  This also means the pixel size was chosen on a false premise: ",
+    "identifying\n  overdispersion needs replication WITHIN a pixel, so it ",
+    "wants LARGER pixels,\n  not more of them. Re-run at 32 or 64um to give ",
+    "the model something to fit.\n"), 100 * frac1))
+} else {
+  cat("  Enough within-pixel replication for phi to be identifiable.\n")
+}
+
 ##### ------------------ CHECK 1: RATIO vs PHI ----------------- #####
 if (!file.exists(SCASE_TSV))
   stop("No scase table at ", SCASE_TSV, "\n  Run spase_scase.R first: ",
@@ -240,20 +271,42 @@ cat(sprintf("\nOverall: the bootstrap SD is %.2fx the SE scase reports.\n",
             med_rep))
 
 ##### ------------------------ THE VERDICT ---------------------- #####
-verdict <- if (med_rep < 1.25) {
-  "SEs_ok"
-} else if (median(boot$boot_vs_binom) < 1.25) {
-  "phi_meaningless"
-} else {
+verdict <- if (med_rep >= 1.25 && median(boot$boot_vs_binom) >= 1.25) {
   "SEs_too_narrow"
+} else if (frac1 > 0.8) {
+  "phi_unidentifiable"
+} else if (med_rep < 1.25) {
+  "SEs_ok"
+} else {
+  "phi_meaningless"
 }
 cat("\n=== VERDICT ===\n")
-if (verdict == "SEs_ok") {
+if (verdict == "phi_unidentifiable") {
   cat(sprintf(paste0(
-    "The reported SEs hold up: the bootstrap SD is %.2fx them, within noise.\n",
-    "The flat ratio against phi in check 1 then means these genes really are\n",
-    "near-binomial at the pixel level and phi is unidentified, not that the\n",
-    "SE is wrong. The scase CIs and q-values can be quoted as they stand.\n"),
+    "The SEs are right and phi is meaningless, for the reason check 0 gives:\n",
+    "%.0f%% of occupied cells hold one molecule, so the beta-binomial has no\n",
+    "within-pixel replication to estimate overdispersion from and collapses to\n",
+    "a binomial. The bootstrap SD is %.2fx the reported SE and %.2fx the plain\n",
+    "binomial SE - all three agree because at this pixel size they are the same\n",
+    "model.\n\n",
+    "So the CIs and q-values in the scase table are NOT too narrow and can be\n",
+    "quoted. Two things follow anyway:\n",
+    "  - Do not report phi, or describe this analysis as accounting for\n",
+    "    overdispersion. It does not, at %dum. Half the fitted phis are on a\n",
+    "    boundary because the likelihood is flat in phi.\n",
+    "  - This says nothing about the 15-35x overdispersion measured at the TILE\n",
+    "    level. That is between-tile variance at a much coarser unit and is a\n",
+    "    real, separate phenomenon. To let scase() see it, re-run the counting\n",
+    "    pass at 32 or 64um so pixels hold several molecules each.\n",
+    "The .emp columns in spase_scase.R are still worth using, but for the other\n",
+    "reason: the autosomal MAD covers gene-to-gene mapping bias, which a\n",
+    "binomial SE genuinely does not.\n"),
+    100 * frac1, med_rep, median(boot$boot_vs_binom), GENE_BIN_UM))
+} else if (verdict == "SEs_ok") {
+  cat(sprintf(paste0(
+    "The reported SEs hold up: the bootstrap SD is %.2fx them, within noise,\n",
+    "and check 0 says the pixels carry enough molecules for phi to have been\n",
+    "identifiable. The scase CIs and q-values can be quoted as they stand.\n"),
     med_rep))
 } else if (verdict == "phi_meaningless") {
   cat(sprintf(paste0(
@@ -301,6 +354,8 @@ writeLines(c("key\tvalue",
   paste0("se_seed\t", SEED),
   paste0("se_min_umi\t", MIN_UMI_SE),
   paste0("aod_available\t", have_aod),
+  paste0("mean_molecules_per_cell\t", sprintf("%.4f", mean_n)),
+  paste0("frac_cells_single_molecule\t", sprintf("%.4f", frac1)),
   paste0("median_reported_over_binomial\t",
          sprintf("%.4f", median(fit[umi >= MIN_UMI_SE]$ratio))),
   paste0("spearman_phi_vs_se_ratio\t", sprintf("%.4f", rho)),

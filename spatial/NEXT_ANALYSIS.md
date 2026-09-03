@@ -425,11 +425,24 @@ which predicts intermediate fractions) rather than assuming it.
   evidence in the dataset. It also falsifies the **1.5% false-escape floor**: at
   1.5%, Hsd17b10 expects ~39 CAST molecules and sees none. The floor is now
   re-derived from the observed number of zero-CAST genes across all chrX depths.
-- **The CIs are binomial.** SE(logit.p)/binomial SE was 1.00–1.05 for every
-  gene and did not move with phi (1.000 at phi=0, 1.010 at phi=1), while phi sat
-  on a boundary for ~50% of genes. So the q-values down to 1e-240 are the exact
-  overstatement the script was written to avoid. Tests now also run against an
-  empirical null of the autosomal logit MAD (`.emp` columns — quote those).
+- **The CIs are binomial — and that is correct.** SE(logit.p)/binomial SE was
+  1.00–1.05 for every gene and did not move with phi (1.000 at phi=0, 1.010 at
+  phi=1), while phi sat on a boundary for ~50% of genes. That looked like the
+  overdispersion failing to reach the SE. `spase_se_diagnostic.R` was written to
+  test it and shows the cause is different: **at 16 µm, 90% of occupied (gene,
+  pixel) cells hold exactly one molecule** (mean 1.12), and BetaBinom(1, a, b)
+  is Bernoulli(p) for every phi, so phi is not identified at all. A parametric
+  bootstrap puts the true SE at 1.03× the reported one. The CIs and q-values
+  can be quoted. **But do not report phi, and do not describe this analysis as
+  accounting for overdispersion** — at this pixel size it is an expensive
+  binomial. The rationale for choosing 16 µm ("a beta-binomial needs pixels
+  more than depth per pixel") is backwards: identifying overdispersion needs
+  replication *within* a pixel, so it wants **larger** pixels. Re-run at 32 or
+  64 µm to give the model something to fit. This says nothing about the 15–35×
+  overdispersion at the **tile** level, which is between-tile variance at a
+  coarser unit and remains real and separate. Tests also run against an
+  empirical null of the autosomal logit MAD (`.emp` columns) — worth using, but
+  because it covers gene-to-gene mapping bias, not overdispersion.
 
 What survives all of it, in both sections: Kdm5c 30/26%, Utp14a 28/31%,
 Akap17a 27/21%, Uba1 7/5%. Kdm5c at a canonical magnitude is the assay
@@ -497,9 +510,11 @@ sbatch ~/Postdoc/slurm/spatial_spase.slurm 16 "" "" scase
   60% of the CAST molecules behind it come from non-genic loci that measure
   biallelic. Gene-body-restricted and with the impossible genes removed it is
   2.8–3.0%. See the 2026-09-03 status section.
-- Do not quote `qval.floor` or `qval.chrx` from the scase table while the SE
-  problem is open. Use the `.emp` columns. A q-value of 1e-240 on 1132
-  molecules is a warning sign, not a strong result.
+- Do not report `phi` from the scase table, or say this analysis accounts for
+  overdispersion. At 16 µm the beta-binomial is unidentifiable (one molecule
+  per pixel) and phi is an artefact of which boundary the optimiser stopped on.
+  The CIs themselves are sound. Prefer the `.emp` columns for a per-gene claim:
+  they add the autosomal MAD, which covers gene-to-gene mapping bias.
 - Do not read a chrX gene above 50% CAST as a strong escapee. Escape is bounded
   by the active X's output; above 50% the allele call is wrong, not the gene
   remarkable. `spase_scase.R` now flags these `impossible` and excludes them.

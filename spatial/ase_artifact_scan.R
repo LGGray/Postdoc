@@ -156,8 +156,8 @@ if (!file.exists(WINDOWS)) {
   win[is.na(genes), genes := ""]
 
   tot <- win[is_x == TRUE, .(ref = sum(ref), alt = sum(alt))]
-  cat(sprintf("\n=== PASS 1: %s windows (%d kb) ===\n%s total ref %d alt %d, "
-              "alt fraction %.4f\n",
+  cat(sprintf(paste0("\n=== PASS 1: %s windows (%d kb) ===\n",
+                     "%s total ref %d alt %d, alt fraction %.4f\n"),
               X_CHROM, WIN_SIZE %/% 1000, X_CHROM, tot$ref, tot$alt,
               tot$alt / (tot$ref + tot$alt)))
 
@@ -189,8 +189,8 @@ if (!file.exists(WINDOWS)) {
   xw <- win[is_x == TRUE][order(-alt)]
   n_half <- which(cumsum(xw$alt) >= 0.5 * tot$alt)[1]
   n_90 <- which(cumsum(xw$alt) >= 0.9 * tot$alt)[1]
-  cat(sprintf("\nConcentration: %d window(s) carry half of all %s CAST "
-              "molecules, %d carry 90%%, out of %d windows with any.\n",
+  cat(sprintf(paste0("\nConcentration: %d window(s) carry half of all %s CAST ",
+                     "molecules, %d carry 90%%, out of %d windows with any.\n"),
               n_half, X_CHROM, n_90, nrow(xw[alt > 0])))
 
   fwrite(win[order(chrom, win_start)],
@@ -340,8 +340,8 @@ if (!file.exists(SNP_LEDGER)) {
   for (cc in c(TRUE, FALSE)) {
     a <- snp[is_x == cc, sum(mol_alt)]; r <- snp[is_x == cc, sum(mol_ref)]
     a2 <- cln[is_x == cc, sum(mol_alt)]; r2 <- cln[is_x == cc, sum(mol_ref)]
-    cat(sprintf("%-10s CAST fraction %.4f before mask, %.4f after (%d of %d "
-                "molecules dropped)\n",
+    cat(sprintf(paste0("%-10s CAST fraction %.4f before mask, %.4f after ",
+                       "(%d of %d molecules dropped)\n"),
                 if (cc) X_CHROM else "autosomes",
                 a / (a + r), a2 / (a2 + r2), (a + r) - (a2 + r2), a + r))
   }

@@ -37,9 +37,15 @@ GENE_BINS <- Sys.getenv("GENE_BINS",
 OUT_DIR   <- Sys.getenv("OUT_DIR", ASE_DIR)
 
 # Gene must be seen on at least this many pixels, and carry at least this many
-# informative UMIs in total, to be fitted. A beta-binomial with a free
-# overdispersion needs pixels more than it needs depth per pixel, which is why
-# the pixel grid is 16um and not 64um.
+# informative UMIs in total, to be fitted.
+#
+# NOTE ON THE PIXEL SIZE. This used to say a beta-binomial needs pixels more
+# than it needs depth per pixel, which is why the grid is 16um and not 64um.
+# That is wrong: at 16um, 90% of occupied cells hold one molecule, and with
+# clusters of size 1 the overdispersion parameter drops out of the likelihood
+# and is unidentifiable. The CIs are still correct (a bootstrap puts the true
+# SE at 1.03x the reported one) but phi is meaningless and nothing here is
+# accounting for overdispersion. See spase_se_diagnostic.R, check 0.
 MIN_PIXELS <- as.integer(Sys.getenv("MIN_PIXELS", "100"))
 MIN_UMI    <- as.integer(Sys.getenv("MIN_UMI", "50"))
 CORES      <- as.integer(Sys.getenv("CORES", "1"))

@@ -56,10 +56,29 @@
 # everything, add --gene-bin-out and --gene-bed to spatial_ase_sweep.slurm and
 # force a recount there; this job will then reuse its output.
 #
-# WHY 16um PIXELS. scase() fits a free overdispersion per gene, which needs
-# MANY pixels more than it needs depth per pixel. At 64um there are only a few
-# hundred pixels per section; at 16um there are thousands. The pixel size is
-# not the tile size of the tile analysis and the two are not comparable.
+# WHY 16um PIXELS - AND WHY THAT REASONING WAS WRONG. The original argument was
+# that scase() fits a free overdispersion per gene, which needs MANY pixels
+# more than it needs depth per pixel, so 16um (thousands of pixels) beats 64um
+# (a few hundred).
+#
+# That is backwards, and spase_se_diagnostic.R measures why. At 16um, 90% of
+# occupied (gene, pixel) cells hold exactly ONE molecule (mean 1.12). A
+# beta-binomial estimates overdispersion from variation between clusters at a
+# given cluster size, and BetaBinom(1, a, b) is Bernoulli(p) for EVERY value of
+# phi - so with clusters of size 1 phi drops out of the likelihood entirely. It
+# is not identified. That is why half the fitted phis sit exactly on 0 or 1 and
+# why the reported SE does not move with phi.
+#
+# The consequence is NOT that the CIs are wrong: a parametric bootstrap puts
+# the true SE at 1.03x the reported one, so they are fine. The consequence is
+# that scase() at 16um is an expensive binomial, and this analysis must not be
+# described as accounting for overdispersion. Identifying overdispersion needs
+# replication WITHIN a pixel, i.e. LARGER pixels. Run 32 or 64um to give the
+# model something to fit, and compare.
+#
+# The pixel size is still not the tile size of the tile analysis, and the
+# 15-35x overdispersion measured there is between-tile variance at a much
+# coarser unit - a real, separate phenomenon that this grid cannot see.
 
 # ---------------------------------------------------------------------------
 # ONE-OFF: INSTALLING spASE. Do this before the first run.
