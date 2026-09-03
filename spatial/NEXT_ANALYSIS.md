@@ -480,17 +480,17 @@ biology.
 
 ```bash
 # 1. Cheap and decisive: where the chrX CAST signal sits. No BAM pass.
-sbatch ~/Postdoc/slurm/spatial_artifact_scan.slurm
+sbatch slurm/spatial_artifact_scan.slurm
 
 # 2. The SNP ledger and the mask bed. A full BAM pass, hours.
-sbatch ~/Postdoc/slurm/spatial_artifact_scan.slurm count
+sbatch slurm/spatial_artifact_scan.slurm count
 
 # 3. Are the scase SEs real? Reads the existing scase table.
-sbatch ~/Postdoc/slurm/spatial_spase.slurm 16 "" "" sediag
+sbatch slurm/spatial_spase.slurm 16 "" "" sediag
 
 # 4. Re-run scase with the zero-CAST genes kept and the floor re-derived.
 #    No recount needed - the gene x pixel table is reused.
-sbatch ~/Postdoc/slurm/spatial_spase.slurm 16 "" "" scase
+sbatch slurm/spatial_spase.slurm 16 "" "" scase
 
 # 5. Only after step 2: build a masked SNP bed from artifact_snps_<sample>.bed,
 #    give it its own SNP_LABEL, and re-run BOTH so the two can be compared

@@ -45,8 +45,8 @@
 # The script states which of those two the answer is, and prints the inflation
 # factor to apply if it is the second.
 #
-# Run on the cluster:  sbatch ~/Postdoc/slurm/spatial_spase.slurm 16 "" "" sediag
-#              or:     SAMPLE=9w Rscript ~/Postdoc/spatial/spase_se_diagnostic.R
+# Run on the cluster:  sbatch slurm/spatial_spase.slurm 16 "" "" sediag
+#              or:     SAMPLE=9w Rscript spatial/spase_se_diagnostic.R
 
 SPASE_DIR <- Sys.getenv("SPASE_HOME", "")
 if (!nzchar(SPASE_DIR)) {

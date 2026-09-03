@@ -48,8 +48,8 @@
 # and enrichment in multicopy families instead. The script reports which
 # pattern each region matches rather than assuming one.
 #
-# Run on the cluster:  sbatch ~/Postdoc/slurm/spatial_artifact_scan.slurm
-#              or:     SAMPLE=9w Rscript ~/Postdoc/spatial/ase_artifact_scan.R
+# Run on the cluster:  sbatch slurm/spatial_artifact_scan.slurm
+#              or:     SAMPLE=9w Rscript spatial/ase_artifact_scan.R
 
 SPASE_DIR <- Sys.getenv("SPASE_HOME", "")
 if (!nzchar(SPASE_DIR)) {
@@ -221,7 +221,7 @@ snp <- NULL
 if (!file.exists(SNP_LEDGER)) {
   cat("\n=== PASS 2 skipped: no SNP ledger at", SNP_LEDGER, "===\n",
       " It needs a counting pass with --snp-out:\n",
-      "   sbatch ~/Postdoc/slurm/spatial_artifact_scan.slurm count\n",
+      "   sbatch slurm/spatial_artifact_scan.slurm count\n",
       " Pass 1 above already names the regions; pass 2 names the SNPs inside\n",
       " them and writes the mask.\n")
 } else {
