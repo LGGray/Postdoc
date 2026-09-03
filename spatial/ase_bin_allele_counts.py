@@ -583,7 +583,8 @@ def load_barcode_map(path, spatial_dir, pos):
 def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                 subsets=(), sub_counts=None, primary=True, regions=None,
                 windows=None, resolve=None, win_k=None, loci=None, seen=None,
-                mol_seen=None, gene_bins=None, gene_k=None, gene_iv=None):
+                mol_seen=None, gene_bins=None, gene_k=None, gene_iv=None,
+                snp_counts=None):
     """One chromosome, collapsed to (2um bin -> [ref, alt]).
 
     The unit is the molecule by default and the read under --count-unit read.
@@ -603,6 +604,21 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
                   spASE takes as matrix1/matrix2 (spatial/spase_scase.R); every
                   other output here has already summed over gene identity and
                   cannot be turned back into one.
+      snp_counts  (chrom, 0-based pos) -> [obs_ref, obs_alt, mol_ref, mol_alt].
+                  The allele ledger, one row per SNP that was ever informative.
+                  obs_* count BASE OBSERVATIONS, one per read that put a
+                  declared allele over the SNP; mol_* count MOLECULES whose
+                  leftmost informative SNP was this one, which is the same
+                  attribution rule the window and gene tables use. Both are
+                  kept because they answer different questions: obs_* is the
+                  direct evidence that a SNP's two alleles are declared the
+                  right way round, and needs no attribution at all, while
+                  mol_* says how much of a gene's or window's signal that SNP
+                  is responsible for. A SNP whose obs_alt/obs is ~1.0 on an
+                  AUTOSOME cannot be biology - autosomes are biallelic here -
+                  so the autosomal arm of this table is the calibration for
+                  reading the chrX arm.
+
       gene_iv     Intervals of gene bodies. When given, a molecule's gene is
                   the interval containing its leftmost informative SNP, which
                   is the SAME rule emit_sub uses for the locus table and the
@@ -677,6 +693,15 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
             return
         bc = umi_bin[key]
         per_bin[bc][b] += 1
+        if snp_counts is not None:
+            # Molecule level, attributed to the leftmost informative SNP -
+            # the same `pos` the window and gene tables key on, so the three
+            # tables partition the same molecules the same way and a SNP's
+            # mol_* can be summed back to its window's or gene's totals.
+            sc = snp_counts.get(pos)
+            if sc is None:
+                sc = snp_counts[pos] = [0, 0, 0, 0]
+            sc[2 + b] += 1
         if gene_bins is not None:
             # pos is the molecule's leftmost informative SNP, already 0-based,
             # which is the coordinate convention Intervals expects (see its
@@ -814,6 +839,15 @@ def count_chrom(bam, chrom, snp_sorted, snp_map, args, stats,
             n_hit += 1
             if snps_seen is not None:
                 snps_seen.add(rpos)
+            if snp_counts is not None:
+                # Observation level, before any voting. A molecule with three
+                # reads over this SNP contributes three, which is what makes
+                # this the raw evidence for how the SNP itself behaves rather
+                # than for how the molecules carrying it were resolved.
+                sc = snp_counts.get(rpos)
+                if sc is None:
+                    sc = snp_counts[rpos] = [0, 0, 0, 0]
+                sc[bucket] += 1
             if v is None:
                 v = votes.get(key)
                 if v is None:
@@ -1050,6 +1084,21 @@ def main():
                         "molecule to a gene for --gene-bin-out. STRONGLY "
                         "preferred over the GX tag fallback: GX is exonic-only "
                         "and this data is mostly intronic.")
+    p.add_argument("--snp-out", default=None,
+                   help="Per-SNP allele ledger (gzipped tsv): chrom, pos, the "
+                        "two declared alleles, base observations per allele, "
+                        "molecules attributed to this SNP per allele, and the "
+                        "gene body containing it when --gene-bed is given. "
+                        "This is the table that says WHICH SNPs a skewed "
+                        "region's signal comes from; every other output has "
+                        "already summed over SNP identity.")
+    p.add_argument("--snp-out-chroms", default="all",
+                   help="Which chromosomes the --snp-out ledger covers: 'all' "
+                        "(default, every chromosome in --x-chrom and "
+                        "--autosome-chroms) or a comma list. Keep the "
+                        "autosomes in: they are biallelic by construction, so "
+                        "they are the only calibration for what an "
+                        "artefactual per-SNP skew looks like on this data.")
     p.add_argument("--locus-out", default=None,
                    help="Per-interval UMI counts for every named interval in "
                         "every --subset-bed, pooled over the section. Check a "
@@ -1106,6 +1155,18 @@ def main():
             sys.stderr.write("  region-limited passes for: %s\n"
                              % ", ".join(sub_only))
 
+    snp_out_chroms = None
+    if args.snp_out:
+        if args.snp_out_chroms in (None, "", "all"):
+            snp_out_chroms = set(chroms)
+        else:
+            snp_out_chroms = {c for c in args.snp_out_chroms.split(",") if c}
+        if not snp_out_chroms & set(autosomes):
+            sys.stderr.write(
+                "WARNING: --snp-out covers no autosome. The ledger's whole "
+                "point is that autosomal SNPs are biallelic by construction "
+                "and so calibrate what a skewed chrX SNP means; without them "
+                "there is nothing to compare a chrX skew against.\n")
     win_chroms = None
     if args.window_out:
         if args.window_chroms in (None, ""):
@@ -1253,6 +1314,12 @@ def main():
                             sum(len(v[0]) for v in gene_iv.by_chrom.values()),
                             args.gene_bed))
 
+    # Keyed by position only, one dict per chromosome, mirroring how snps[c] is
+    # already passed in: count_chrom never sees more than one chromosome, so a
+    # composite key would cost memory on every SNP to store what the caller
+    # already knows.
+    snp_counts = {} if args.snp_out else None
+
     def kw(c, primary=True, regions=None, label=None):
         lab = label or c
         seen.setdefault(lab, {"snps": set(), "genes": set()})
@@ -1260,7 +1327,10 @@ def main():
                     regions=regions, mol_seen=mol_seen,
                     windows=windows if (win_chroms and c in win_chroms) else None,
                     resolve=resolve, win_k=win_k, loci=loci, seen=seen[lab],
-                    gene_bins=gene_bins, gene_k=gene_k, gene_iv=gene_iv)
+                    gene_bins=gene_bins, gene_k=gene_k, gene_iv=gene_iv,
+                    snp_counts=(snp_counts.setdefault(c, {})
+                                if (snp_counts is not None and primary
+                                    and c in snp_out_chroms) else None))
 
     x_counts = count_chrom(bam, args.x_chrom, *snps[args.x_chrom], args, stats,
                            **kw(args.x_chrom))
@@ -1366,6 +1436,32 @@ def main():
                          % (len(windows), args.window_out,
                             args.window_size // 1000, args.window_tile_um,
                             ",".join(sorted(win_chroms))))
+
+    if snp_counts is not None:
+        # Every SNP that was ever informative, with the two alleles it was
+        # declared with. The declared alleles are written out verbatim so a
+        # suspected flip can be read straight off this file against the
+        # reference base, without re-deriving the bed's column layout.
+        n_snp = n_obs_tot = 0
+        with gzip.open(args.snp_out, "wt") as sf:
+            sf.write("chrom\tpos\tref_allele\talt_allele\tobs_ref\tobs_alt"
+                     "\tmol_ref\tmol_alt\tgene\n")
+            for c in sorted(snp_counts):
+                smap = snps[c][1]
+                for pos in sorted(snp_counts[c]):
+                    o_r, o_a, m_r, m_a = snp_counts[c][pos]
+                    al = smap.get(pos)
+                    g = gene_iv.name_at(c, pos) if gene_iv is not None else None
+                    sf.write("%s\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%s\n"
+                             % (c, pos,
+                                al[0] if al else ".", al[1] if al else ".",
+                                o_r, o_a, m_r, m_a, g if g else ""))
+                    n_snp += 1
+                    n_obs_tot += o_r + o_a
+        sys.stderr.write("Wrote %d informative SNPs (%d base observations) on "
+                         "%s to %s\n"
+                         % (n_snp, n_obs_tot, ",".join(sorted(snp_counts)),
+                            args.snp_out))
 
     if gene_bins is not None:
         # Only on-tissue pixels, unlike the locus table: this one is a spatial

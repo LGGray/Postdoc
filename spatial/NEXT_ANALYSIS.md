@@ -378,6 +378,112 @@ comparable.
 
 ---
 
+## Status, 2026-09-03 — the spASE run, and what it says about 12.7%
+
+`spatial_spase.slurm` ran on both sections. It succeeded, its own guardrails
+worked, and it falsifies the headline number above.
+
+**The 12.7% chrX escape figure is mostly two artefacts.** Splitting the same
+molecules by whether they sit inside an annotated gene body:
+
+|                        | 9w     | 78w    |
+|------------------------|--------|--------|
+| chrX, whole            | 0.1272 | 0.1264 |
+| chrX, inside genes     | 0.0612 | 0.0613 |
+| chrX, outside genes    | 0.4750 | 0.4981 |
+| autosomes, whole       | 0.4821 | 0.4841 |
+| autosomes, inside genes| 0.4845 | 0.4821 |
+
+Non-genic chrX molecules are 16% of chrX and carry **60% of its CAST signal**,
+sitting at the autosomal value. The autosomal genic/non-genic split barely
+moves, so this is chrX-specific. A 100 kb scan of the window table localises it
+to a handful of loci — **chrX:11.5–11.6 Mb alone, with no annotated gene, is 5
+ref vs 6201 alt at 9w: 42% of all chrX CAST molecules**. The top 20 windows
+carry 95%. Others: Magea cluster (153.7–154.0), Gm14719/Or11q2 (48.7), Slc16a2
+(102.8), Aff2 (68.6) — multicopy families, pseudogenes and unannotated
+sequence, in both sections.
+
+Within gene bodies, **seven genes come out above 45% CAST** (Slc16a2 0.98, Aff2
+0.98, Llph-ps2 0.89, Fmr1 0.89, Gm53059 0.86, Gm14719 0.64, 2510022D24Rik 0.51).
+Escape cannot exceed 50% — that is the inactive X out-expressing the active one.
+They are 5% of chrX UMIs and carry over half the remaining CAST signal. Pooled
+chrX escape excluding them: **2.84% (9w), 2.99% (78w)**, against 6.7%/6.9% with
+them and 12.7% chromosome-wide.
+
+Leading hypothesis for both: the SNP bed is C57BL/6**NJ** × CAST, the reference
+is GRCm39 = C57BL/6**J**. Where 6NJ is non-reference, a genuine B6 read scores
+as CAST. It predicts clean 1.0s in blocks, which is what these look like.
+`ase_artifact_scan.R` tests it against the alternative (paralogous pile-up,
+which predicts intermediate fractions) rather than assuming it.
+
+**Two further problems in the scase output, both now fixed in the script:**
+
+- Every non-converged chrX gene had **exactly zero CAST molecules** — 71/122
+  (9w), 42/85 (78w), no exceptions. Not depth: Hsd17b10 failed with 2611 UMIs.
+  Dropping them conditioned every count on the gene having ≥1 CAST molecule
+  ("20 of 51" was really 20 of 122) and discarded the strongest silencing
+  evidence in the dataset. It also falsifies the **1.5% false-escape floor**: at
+  1.5%, Hsd17b10 expects ~39 CAST molecules and sees none. The floor is now
+  re-derived from the observed number of zero-CAST genes across all chrX depths.
+- **The CIs are binomial.** SE(logit.p)/binomial SE was 1.00–1.05 for every
+  gene and did not move with phi (1.000 at phi=0, 1.010 at phi=1), while phi sat
+  on a boundary for ~50% of genes. So the q-values down to 1e-240 are the exact
+  overstatement the script was written to avoid. Tests now also run against an
+  empirical null of the autosomal logit MAD (`.emp` columns — quote those).
+
+What survives all of it, in both sections: Kdm5c 30/26%, Utp14a 28/31%,
+Akap17a 27/21%, Uba1 7/5%. Kdm5c at a canonical magnitude is the assay
+validating itself. The canonical escapees are present but below the ≥100 pixel
+/ ≥50 UMI filter and all read high (Kdm6a 21/59, Ftx 15/36, Ddx3x 7/12) — the
+"Ddx3x and Jpx near 50%" bullet above rests on **12 molecules** and should not
+be quoted as it stands.
+
+Spatial stage: the autosomal control calibrated (3.4%/5.0% at p<0.05, KS
+p=0.54), and depth-matched controls exist at every hit's depth. 9w gives 6 chrX
+genes at q<0.05, 78w gives 2; only Ndufb11 and Smpx replicate, and they are the
+two deepest chrX genes. The spline barely moves the overdispersion
+(Ndufb11 0.202→0.179), so get the fitted-surface range before calling it
+biology.
+
+### New scripts
+
+- `spatial/ase_bin_allele_counts.py` gained `--snp-out` / `--snp-out-chroms`:
+  a per-SNP allele ledger, base observations and molecules per allele, gene
+  annotated. Nothing emitted this before — every other output sums over SNP
+  identity. Purely additive; no existing output changes.
+- `spatial/ase_artifact_scan.R` + `slurm/spatial_artifact_scan.slurm`.
+  Two modes: `windows` (minutes, runs off the existing window table, ranks the
+  regions) and `count` (a BAM pass, writes the SNP mask bed). Calibrated
+  throughout on the autosomes, which are biallelic by construction, so their
+  rate at any threshold is that threshold's measured false-positive rate.
+- `spatial/spase_se_diagnostic.R`, stage `sediag` of `spatial_spase.slurm`.
+  Three checks on whether the reported SE is real; the decisive one is a
+  parametric bootstrap from each gene's own fitted (p, phi) over its own pixel
+  depths, which needs no second implementation to be correct. It distinguishes
+  "the SEs are too narrow by factor k" from "the data are binomial and phi is
+  noise" and prints which.
+
+### Run order
+
+```bash
+# 1. Cheap and decisive: where the chrX CAST signal sits. No BAM pass.
+sbatch ~/Postdoc/slurm/spatial_artifact_scan.slurm
+
+# 2. The SNP ledger and the mask bed. A full BAM pass, hours.
+sbatch ~/Postdoc/slurm/spatial_artifact_scan.slurm count
+
+# 3. Are the scase SEs real? Reads the existing scase table.
+sbatch ~/Postdoc/slurm/spatial_spase.slurm 16 "" "" sediag
+
+# 4. Re-run scase with the zero-CAST genes kept and the floor re-derived.
+#    No recount needed - the gene x pixel table is reused.
+sbatch ~/Postdoc/slurm/spatial_spase.slurm 16 "" "" scase
+
+# 5. Only after step 2: build a masked SNP bed from artifact_snps_<sample>.bed,
+#    give it its own SNP_LABEL, and re-run BOTH so the two can be compared
+#    rather than one silently replacing the other.
+```
+
 ## Do not do
 
 - Do not report the tile allelic ratio as an age comparison. It is dominated by
@@ -387,3 +493,13 @@ comparable.
 - Do not treat n = 1 per age as a comparison of ages. Every statement needs
   either replication or explicit framing as a single-animal observation.
   `00_functions.R:41-53` already makes this point about the snRNA-seq.
+- Do not quote 12.7% as the chrX escape fraction. It is chromosome-wide, and
+  60% of the CAST molecules behind it come from non-genic loci that measure
+  biallelic. Gene-body-restricted and with the impossible genes removed it is
+  2.8–3.0%. See the 2026-09-03 status section.
+- Do not quote `qval.floor` or `qval.chrx` from the scase table while the SE
+  problem is open. Use the `.emp` columns. A q-value of 1e-240 on 1132
+  molecules is a warning sign, not a strong result.
+- Do not read a chrX gene above 50% CAST as a strong escapee. Escape is bounded
+  by the active X's output; above 50% the allele call is wrong, not the gene
+  remarkable. `spase_scase.R` now flags these `impossible` and excludes them.

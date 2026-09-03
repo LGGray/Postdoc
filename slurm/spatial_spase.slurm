@@ -109,18 +109,20 @@ module load slurm_setup
 #   sbatch spatial_spase.slurm 16 "" "" scase      # per-gene escape only
 #   sbatch spatial_spase.slurm 16 "" "" spatial    # the 2D test only
 #   sbatch spatial_spase.slurm 16 "" "" both 8     # spatial test at df=8
+#   sbatch spatial_spase.slurm 16 "" "" sediag     # are the SEs right at all?
 GENE_BIN_UM="${1:-${GENE_BIN_UM:-16}}"
 FORCE="${2:-${FORCE:-}}"
 SNP_LABEL="${3:-${SNP_LABEL:-no_Xist}}"
-# scase | spatial | both - which analysis stages to run after the counting pass.
+# scase | spatial | both | sediag - which stages to run after the counting pass.
+# sediag reads the scase table rather than producing one, so run scase first.
 STAGE="${4:-${STAGE:-both}}"
 # Spline degrees of freedom for the spatial stage. spASE's default is 5 and its
 # docs say to try several; each df writes its own output files.
 DF="${5:-${DF:-5}}"
 
 case "$STAGE" in
-  scase|spatial|both) ;;
-  *) echo "Unknown stage '$STAGE' (arg 4): expected scase, spatial or both" >&2
+  scase|spatial|both|sediag) ;;
+  *) echo "Unknown stage '$STAGE' (arg 4): expected scase, spatial, both or sediag" >&2
      exit 1 ;;
 esac
 
@@ -246,12 +248,31 @@ if [ "$STAGE" = "spatial" ] || [ "$STAGE" = "both" ]; then
     conda deactivate; echo "spase_spatial.R failed" >&2; exit $rc
   fi
 fi
+
+# Does the beta-binomial's reported standard error actually respond to the
+# overdispersion it fitted? In the first run it did not - SE / binomial SE was
+# 1.00-1.05 at every value of phi - which would make every CI and q-value in
+# the scase table binomial. Not part of `both`: it reads the scase table rather
+# than producing one, and it is a question about the estimator, asked once.
+if [ "$STAGE" = "sediag" ]; then
+  if [ ! -s "$OUT_DIR/spase_scase_${SAMPLE}_${GENE_BIN_UM}um${SUF}.tsv" ]; then
+    conda deactivate
+    echo "No scase table to diagnose. Run the scase stage first:" >&2
+    echo "  sbatch $0 $GENE_BIN_UM \"\" $SNP_LABEL scase" >&2
+    exit 1
+  fi
+  run_stage spase_se_diagnostic.R || rc=$?
+  if [ $rc -ne 0 ]; then
+    conda deactivate; echo "spase_se_diagnostic.R failed" >&2; exit $rc
+  fi
+fi
 conda deactivate
 
 echo
 echo "Outputs in $OUT_DIR:"
 ls -la "$OUT_DIR"/spase_scase_${SAMPLE}_${GENE_BIN_UM}um${SUF}.* \
        "$OUT_DIR"/spase_spatial_${SAMPLE}_${GENE_BIN_UM}um_df${DF}${SUF}.* \
+       "$OUT_DIR"/spase_se_diagnostic_${SAMPLE}_${GENE_BIN_UM}um${SUF}.* \
        2>/dev/null
 echo
 echo "n = 1 animal per age: do not report a difference between the two"
