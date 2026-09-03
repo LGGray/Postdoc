@@ -30,11 +30,46 @@ X_CHROM  <- Sys.getenv("X_CHROM", "chrX")
 SNP_LABEL <- Sys.getenv("SNP_LABEL", "no_Xist")
 SUF       <- if (SNP_LABEL == "no_Xist") "" else paste0("_", SNP_LABEL)
 
-GENE_BIN_UM <- as.integer(Sys.getenv("GENE_BIN_UM", "16"))
+# The bin size of the table ON DISK. Only used to find the file.
+SRC_BIN_UM <- as.integer(Sys.getenv("GENE_BIN_UM", "16"))
 ASE_DIR   <- Sys.getenv("ASE_DIR", file.path(BASE, "ase", SAMPLE))
 GENE_BINS <- Sys.getenv("GENE_BINS",
-  file.path(ASE_DIR, sprintf("gene_bins_%dum%s.tsv.gz", GENE_BIN_UM, SUF)))
+  file.path(ASE_DIR, sprintf("gene_bins_%dum%s.tsv.gz", SRC_BIN_UM, SUF)))
 OUT_DIR   <- Sys.getenv("OUT_DIR", ASE_DIR)
+
+# COARSER PIXELS WITHOUT RECOUNTING. A pixel index is array_index %/% (um/2),
+# so a table binned at 16um can be re-binned to any MULTIPLE of 16 by integer
+# division of its own row/col - (a %/% 8) %/% 4 is a %/% 32, exactly what a
+# native 64um counting pass would have written. It is lossless and it is not an
+# approximation, so REBIN_UM=64 and a fresh --gene-bin-um 64 pass produce the
+# same grid. That makes a 64um analysis minutes rather than another BAM pass.
+#
+# WHAT IT DOES AND DOES NOT BUY. Escape per gene is sum(alt)/sum(ref+alt),
+# which is invariant to how the pixels are grouped - the point estimates, the
+# floor and the gene ranking are IDENTICAL at every bin size. Only phi, the CI
+# width and the 2D spatial fit depend on the grid. In particular it does not
+# rescue the beta-binomial: measured on this data, cells holding exactly one
+# molecule are 90% at 16um, 79% at 32um, 70% at 64um and still 45% at 256um,
+# by which point genes are being lost (104 chrX vs 122). There is no bin size
+# here where phi becomes identifiable.
+#
+# The reason to use it is comparability: at 64um the spatial stage lines up
+# with the 64um tile analysis and the two can finally be read against each
+# other.
+REBIN_UM <- as.integer(Sys.getenv("REBIN_UM", "0"))
+if (is.na(REBIN_UM)) REBIN_UM <- 0L
+if (REBIN_UM > 0) {
+  if (REBIN_UM < SRC_BIN_UM || REBIN_UM %% SRC_BIN_UM != 0)
+    stop("REBIN_UM (", REBIN_UM, ") must be a multiple of the table's own bin ",
+         "size (", SRC_BIN_UM, "um).\n  Pixels can only be merged, never split: ",
+         "a finer grid needs a fresh counting pass\n  with --gene-bin-um.",
+         call. = FALSE)
+}
+# From here on GENE_BIN_UM is the grid the ANALYSIS runs on, which is what every
+# output filename, figure subtitle and provenance record should carry. A
+# rebinned run therefore writes to _64um and can never overwrite the _16um one.
+GENE_BIN_UM <- if (REBIN_UM > 0) REBIN_UM else SRC_BIN_UM
+REBIN_K     <- GENE_BIN_UM %/% SRC_BIN_UM
 
 # Gene must be seen on at least this many pixels, and carry at least this many
 # informative UMIs in total, to be fitted.
@@ -152,6 +187,25 @@ load_spase_input <- function() {
          "annotation, e.g. ", paste(head(dup$gene, 5), collapse = ", "),
          ". De-duplicate the gene bed.", call. = FALSE)
 
+  # Merge pixels BEFORE anything else looks at the table, so MIN_PIXELS counts
+  # pixels on the grid actually being analysed and every downstream object -
+  # matrices, coords, the spline's covariates - sees one consistent grid.
+  if (REBIN_K > 1) {
+    n_before <- nrow(gb); umi_before <- gb[, sum(ref + alt)]
+    gb <- gb[, .(ref = sum(ref), alt = sum(alt)),
+             by = .(chrom, gene, row = row %/% REBIN_K, col = col %/% REBIN_K)]
+    # Aggregation moves molecules between cells; it must never create or lose
+    # one. Cheap to check and it would be silent if it were ever wrong.
+    if (gb[, sum(ref + alt)] != umi_before)
+      stop("Re-binning changed the molecule total (", umi_before, " -> ",
+           gb[, sum(ref + alt)], "). This is a bug, not a data problem.",
+           call. = FALSE)
+    cat(sprintf(paste0("Re-binned %dum -> %dum (%dx%d pixel blocks): %d cells ",
+                       "-> %d, %d molecules unchanged\n"),
+                SRC_BIN_UM, GENE_BIN_UM, REBIN_K, REBIN_K,
+                n_before, nrow(gb), umi_before))
+  }
+
   gb[, pixel := paste0("r", row, "_c", col)]
   gb[, n := ref + alt]
 
@@ -214,7 +268,13 @@ spase_provenance_common <- function(dat) {
     paste0("counter_provenance\t",
            if (is.na(dat$prov_path)) "" else dat$prov_path),
     paste0("snp_label\t", SNP_LABEL),
+    # gene_bin_um is the grid ANALYSED. When they differ, the table on disk was
+    # binned at source_bin_um and merged in memory - so a reader can tell a
+    # rebinned 64um run from a natively counted one, even though the two grids
+    # are identical by construction.
     paste0("gene_bin_um\t", GENE_BIN_UM),
+    paste0("source_bin_um\t", SRC_BIN_UM),
+    paste0("rebinned\t", REBIN_K > 1),
     paste0("min_pixels\t", MIN_PIXELS),
     paste0("min_umi\t", MIN_UMI),
     paste0("n_pixels\t", length(dat$pixels)),

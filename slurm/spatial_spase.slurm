@@ -129,6 +129,19 @@ module load slurm_setup
 #   sbatch spatial_spase.slurm 16 "" "" spatial    # the 2D test only
 #   sbatch spatial_spase.slurm 16 "" "" both 8     # spatial test at df=8
 #   sbatch spatial_spase.slurm 16 "" "" sediag     # are the SEs right at all?
+#   sbatch spatial_spase.slurm 16 "" "" both 5 64  # merge to 64um, no recount
+#
+# ARGUMENT 6, REBIN. Merges the 16um table into coarser pixels in memory rather
+# than recounting: a pixel index is array %/% (um/2), so (a %/% 8) %/% 4 is
+# a %/% 32 - exactly the grid a native --gene-bin-um 64 pass would write.
+# Lossless, and minutes instead of a BAM pass. Must be a multiple of arg 1.
+#
+# It changes phi, the CI width and the 2D spatial fit. It does NOT change the
+# escape numbers: sum(alt)/sum(ref+alt) per gene is invariant to how pixels are
+# grouped, and this is asserted at load time. Nor does it rescue the
+# beta-binomial - cells holding one molecule are 90% at 16um and still 70% at
+# 64um. Use it to line the spatial stage up with the 64um tile analysis, which
+# is the one thing it genuinely buys.
 GENE_BIN_UM="${1:-${GENE_BIN_UM:-16}}"
 FORCE="${2:-${FORCE:-}}"
 SNP_LABEL="${3:-${SNP_LABEL:-no_Xist}}"
@@ -138,6 +151,16 @@ STAGE="${4:-${STAGE:-both}}"
 # Spline degrees of freedom for the spatial stage. spASE's default is 5 and its
 # docs say to try several; each df writes its own output files.
 DF="${5:-${DF:-5}}"
+# Coarser pixels without recounting. 0 or empty = use the table as counted.
+REBIN="${6:-${REBIN_UM:-0}}"
+
+if [ -n "$REBIN" ] && [ "$REBIN" != "0" ]; then
+  if [ $((REBIN % GENE_BIN_UM)) -ne 0 ] || [ "$REBIN" -lt "$GENE_BIN_UM" ]; then
+    echo "REBIN (arg 6, $REBIN) must be a multiple of the pixel size (arg 1, $GENE_BIN_UM)." >&2
+    echo "      Pixels can only be merged, never split." >&2
+    exit 1
+  fi
+fi
 
 case "$STAGE" in
   scase|spatial|both|sediag) ;;
@@ -173,7 +196,8 @@ SPATIAL_DIR=$SPATIAL/$SAMPLE/outs/binned_outputs/square_002um/spatial
 GENE_BED=$BASE/GRCm39/annotation_us_mm39_gene_level.bed
 
 mkdir -p "$OUT_DIR"
-echo "Sample $SAMPLE | pixels ${GENE_BIN_UM}um | SNP mask $SNP_LABEL"
+if [ -n "$REBIN" ] && [ "$REBIN" != "0" ]; then EFF_UM=$REBIN; else EFF_UM=$GENE_BIN_UM; fi
+echo "Sample $SAMPLE | counted at ${GENE_BIN_UM}um | analysed at ${EFF_UM}um | SNP mask $SNP_LABEL"
 
 for f in "$BAM" "$SNPS" "$GENE_BED"; do
   if [ ! -s "$f" ]; then
@@ -249,7 +273,7 @@ run_stage () {
   echo "=== $script ==="
   env SAMPLE="$SAMPLE" BASE="$SPATIAL" ASE_DIR="$OUT_DIR" OUT_DIR="$OUT_DIR" \
     GENE_BINS="$GENE_BINS" GENE_BIN_UM="$GENE_BIN_UM" SNP_LABEL="$SNP_LABEL" \
-    CORES="$SLURM_CPUS_PER_TASK" DF="$DF" "$@" \
+    CORES="$SLURM_CPUS_PER_TASK" DF="$DF" REBIN_UM="$REBIN" "$@" \
     Rscript "$REPO/spatial/$script"
 }
 
@@ -274,7 +298,7 @@ fi
 # the scase table binomial. Not part of `both`: it reads the scase table rather
 # than producing one, and it is a question about the estimator, asked once.
 if [ "$STAGE" = "sediag" ]; then
-  if [ ! -s "$OUT_DIR/spase_scase_${SAMPLE}_${GENE_BIN_UM}um${SUF}.tsv" ]; then
+  if [ ! -s "$OUT_DIR/spase_scase_${SAMPLE}_${EFF_UM}um${SUF}.tsv" ]; then
     conda deactivate
     echo "No scase table to diagnose. Run the scase stage first:" >&2
     echo "  sbatch $0 $GENE_BIN_UM \"\" $SNP_LABEL scase" >&2
@@ -289,9 +313,9 @@ conda deactivate
 
 echo
 echo "Outputs in $OUT_DIR:"
-ls -la "$OUT_DIR"/spase_scase_${SAMPLE}_${GENE_BIN_UM}um${SUF}.* \
-       "$OUT_DIR"/spase_spatial_${SAMPLE}_${GENE_BIN_UM}um_df${DF}${SUF}.* \
-       "$OUT_DIR"/spase_se_diagnostic_${SAMPLE}_${GENE_BIN_UM}um${SUF}.* \
+ls -la "$OUT_DIR"/spase_scase_${SAMPLE}_${EFF_UM}um${SUF}.* \
+       "$OUT_DIR"/spase_spatial_${SAMPLE}_${EFF_UM}um_df${DF}${SUF}.* \
+       "$OUT_DIR"/spase_se_diagnostic_${SAMPLE}_${EFF_UM}um${SUF}.* \
        2>/dev/null
 echo
 echo "n = 1 animal per age: do not report a difference between the two"
