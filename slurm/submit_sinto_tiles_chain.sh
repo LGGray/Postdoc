@@ -47,6 +47,21 @@ TIME="${TIME:-}"
 # Array task ids to chain: 1 = 9w, 2 = 78w.
 SAMPLES="${SAMPLES:-1,2}"
 
+# Seed the chain BEHIND a job that is already running, instead of starting a
+# link immediately alongside it. This is not a convenience - two jobs sharing
+# one $WORK is a genuine data race, because each one purges locus tables it
+# judges truncated and the other may be mid-write on exactly those. Pass the
+# running job's id and each per-sample chain waits on that job's MATCHING array
+# task, so 9w queues behind <id>_1 and 78w behind <id>_2:
+#
+#   START_AFTER=209712 ./slurm/submit_sinto_tiles_chain.sh 8 64 no_Xist dup
+START_AFTER="${START_AFTER:-}"
+if [ -n "$START_AFTER" ] && ! [[ "$START_AFTER" =~ ^[0-9]+$ ]]; then
+  echo "ERROR: START_AFTER='$START_AFTER' must be a bare numeric job id" >&2
+  echo "       (the array task is appended per sample, so do not pass 209712_1)" >&2
+  exit 1
+fi
+
 SCRIPT="slurm/spatial_sinto_tiles.slurm"
 if [[ ! -f "$SCRIPT" ]]; then
   echo "ERROR: $SCRIPT not found - run this from the Postdoc repo root." >&2
@@ -79,8 +94,11 @@ echo
 
 IFS=',' read -r -a task_ids <<< "$SAMPLES"
 for task in "${task_ids[@]}"; do
-  prev=""
+  # An already-running array job is depended on per task, not as a whole: 9w
+  # need not wait for 78w to finish.
+  prev="${START_AFTER:+${START_AFTER}_${task}}"
   echo "--- array task $task ---"
+  [ -n "$prev" ] && echo "  first link waits on $prev"
   for (( i=1; i<=N_LINKS; i++ )); do
     dep=()
     [ -n "$prev" ] && dep=(--dependency="afterany:$prev")
