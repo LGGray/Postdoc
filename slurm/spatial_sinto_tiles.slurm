@@ -43,7 +43,7 @@
 #
 # The two reason codes call for opposite responses, and confusing them wastes
 # days. (Resources) means the request does not fit anything free, so shrinking
-# cores/memory/time is the fix - that is what the 18/40G/6h shape below is for.
+# cores/memory/time is the fix - that is what the small shape below is for.
 # (Priority) means it fits fine but other jobs are ahead of it, and no amount of
 # shrinking moves the job up that list. The levers there are different:
 #
@@ -54,8 +54,9 @@
 #      applies once the job is placing immediately, which is why the 24h below
 #      belongs to serial_std and would be wrong back on cm4_tiny.
 #   2. A DIFFERENT QUEUE, i.e. the swap above. cm4_tiny and serial_std are
-#      separate clusters with separate contention, and 18 cores / 100G / 8h is
-#      already proven on serial_std by map_adult_bodymap.slurm and its siblings.
+#      separate clusters with separate contention. NOTE that serial_std caps
+#      cpus-per-task at 16, so the 18-core requests in map_adult_bodymap.slurm
+#      and its siblings are over that limit and would be rejected today.
 #   3. Waiting, if fairshare is the component that is low - nothing in this file
 #      changes that. Check before assuming otherwise:
 #        squeue --start -j <jobid>          # estimated start, the first thing to look at
@@ -115,7 +116,7 @@
 # Seed it behind anything already running with START_AFTER=<jobid>; two jobs on
 # one $WORK race over the locus-table purge.
 #
-# 40G, down from 120G, and that is a fix rather than a trim. The old note here
+# 32G, down from 120G, and that is a fix rather than a trim. The old note here
 # recorded that "the footprint scales with -j, not with the tile size" and that
 # 48G had died on SIGKILL (job 207231), and concluded the request had to be
 # large. The scaling was real; the conclusion was not. The cause was GNU `sort`:
