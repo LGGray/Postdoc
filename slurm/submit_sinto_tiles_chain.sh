@@ -8,9 +8,9 @@ set -euo pipefail
 # that is already complete and validated - so a job killed at the wall clock
 # costs one resubmission and no recomputation. That makes a queue trade
 # available: one 24h job at 32 cores and 120G can sit pending for a long time on
-# a shared partition, whereas a 6h job at 16 cores and 32G starts far sooner,
-# and eight of them back to back deliver more wall clock than the big job that
-# is still waiting. --dependency=afterany links them, so this is fire and
+# a shared partition, whereas the 6h job at 18 cores and 40G that the header now
+# asks for starts far sooner, and eight of them back to back deliver more wall
+# clock than the big job that is still waiting. --dependency=afterany links them, so this is fire and
 # forget - no login session, no polling (unlike submit_sc_allelome_chunks.sh,
 # which has to stay attached).
 #
@@ -27,21 +27,23 @@ set -euo pipefail
 # Then watch it with:
 #   squeue --clusters=cm4 -u $USER -o '%.10i %.12j %.8T %.10M %.10l %.6D %R'
 #
-# Overridable, with the reasoning in spatial_sinto_tiles.slurm:
-#   CPUS=16 MEM=32G TIME=06:00:00 SAMPLES=1 ./slurm/submit_sinto_tiles_chain.sh 8
+# Resources come from the #SBATCH lines at the top of spatial_sinto_tiles.slurm
+# and are NOT restated here - that file is the single source of truth, so
+# editing its header changes the chain too. Override only for a one-off:
+#   CPUS=8 MEM=20G TIME=04:00:00 SAMPLES=1 ./slurm/submit_sinto_tiles_chain.sh 4
 
 N_LINKS="${1:-8}"
 TILE_UM="${2:-64}"
 SNP_LABEL="${3:-no_Xist}"
 FILTER_MODE="${4:-dup}"
 
-# 16 cores / 32G is the shape where neither constraint is wasted: the script
-# reserves 4G and budgets 2G per worker, so 32G allows exactly the 14 workers
-# that 16 cores allow. Asking for more memory than that buys no parallelism,
-# it only makes the job harder to place.
-CPUS="${CPUS:-16}"
-MEM="${MEM:-32G}"
-TIME="${TIME:-06:00:00}"
+# Empty by default, so the job's own #SBATCH lines apply. Set any of these in
+# the environment to override that job for this chain only. Keep cores and
+# memory a matched pair if you do - the job derives -j from both, and the
+# arithmetic is documented in spatial_sinto_tiles.slurm.
+CPUS="${CPUS:-}"
+MEM="${MEM:-}"
+TIME="${TIME:-}"
 # Array task ids to chain: 1 = 9w, 2 = 78w.
 SAMPLES="${SAMPLES:-1,2}"
 
@@ -58,9 +60,21 @@ if ! [[ "$N_LINKS" =~ ^[0-9]+$ ]] || [ "$N_LINKS" -lt 1 ]; then
   echo "ERROR: link count '$N_LINKS' is not a positive integer" >&2; exit 1
 fi
 
-echo "chain: $N_LINKS links x $TIME at $CPUS cores / $MEM"
+# Only the overrides that were actually set, so an unset one leaves the job's
+# own #SBATCH directive in force rather than passing an empty flag.
+res=()
+[ -n "$CPUS" ] && res+=(--cpus-per-task="$CPUS")
+[ -n "$MEM" ]  && res+=(--mem="$MEM")
+[ -n "$TIME" ] && res+=(--time="$TIME")
+
+echo "chain: $N_LINKS links per sample"
 echo "job:   $SCRIPT $TILE_UM 0 $SNP_LABEL $FILTER_MODE"
 echo "tasks: $SAMPLES"
+if [ ${#res[@]} -gt 0 ]; then
+  echo "over:  ${res[*]}"
+else
+  echo "res:   from the #SBATCH header of $SCRIPT"
+fi
 echo
 
 IFS=',' read -r -a task_ids <<< "$SAMPLES"
@@ -76,9 +90,7 @@ for task in "${task_ids[@]}"; do
     # be 4.4+, so do not simplify this back.
     out=$(sbatch --parsable \
             --array="$task" \
-            --cpus-per-task="$CPUS" \
-            --mem="$MEM" \
-            --time="$TIME" \
+            ${res[@]+"${res[@]}"} \
             ${dep[@]+"${dep[@]}"} \
             "$SCRIPT" "$TILE_UM" 0 "$SNP_LABEL" "$FILTER_MODE")
     # --parsable gives "<jobid>" or "<jobid>;<cluster>"; the dependency wants

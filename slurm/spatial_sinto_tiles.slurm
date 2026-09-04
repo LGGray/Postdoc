@@ -12,59 +12,68 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
-#SBATCH --mem=64G
-#SBATCH --time=12:00:00
+#SBATCH --cpus-per-task=18
+#SBATCH --mem=40G
+#SBATCH --time=06:00:00
 #SBATCH --array=1-2
 
-# 12h, sized from measurement rather than guessed. Job 207291 did 701/3738
-# tiles (9w) and 711/3215 (78w) in 2h35 at -j 30, i.e. ~270 tiles/h and 6.6 min
-# of CPU per tile - that cost is the per-invocation genome-wide SNP and
-# annotation parse, so it is fixed per tile and does not fall as the run
-# proceeds. Whole-sample totals are ~414 CPU-h (9w) and ~351 (78w), which is
-# 13.8h and 11.7h of wall clock on one 32-core node. 12h therefore clears what
-# is LEFT after 207291 with margin, but a cold start on 9w needs ~14h - raise
-# this to 16h if the scratch tile BAMs are ever rebuilt from nothing.
+# 18 cores / 40G / 6h: SMALL AND SCHEDULABLE, NOT SIZED TO FINISH IN ONE JOB.
+# This is a deliberate change of strategy from the 32 cores / 120G / 12h that
+# stood here before, so read the next three paragraphs before "fixing" it back.
 #
-# An earlier note here claimed the wall clock was the queue lever and cut this
-# to 4h on that basis. Lachlan's read is that the memory request was the actual
-# blocker, and 207291 does support that: it started promptly at 120G. The 24h
-# cm4_tiny ceiling remains the hard cap if 12h ever proves too short.
+# The per-tile cost is measured, not guessed. Job 207291 did 701/3738 tiles (9w)
+# and 711/3215 (78w) in 2h35 at -j 30: ~6.6 min of CPU per tile, and that cost
+# is the per-invocation genome-wide SNP and annotation parse, so it is fixed per
+# tile and does not fall as the run proceeds. Whole-sample totals are ~414 CPU-h
+# (9w) and ~351 (78w). FILTER_MODE=dup scores ~2.2x the reads, so call it ~8.5
+# min per tile there. At -j 16 that is ~113 tiles/h, so a 6h job clears ~680
+# tiles and a whole sample needs FIVE OR SIX SUCCESSIVE JOBS. That is the
+# intended shape. It is not an under-provisioned 24h job.
 #
-# Nothing is lost by an under-length job in any case - every stage resumes, so a
-# kill costs one resubmission and no recomputation. That guarantee is only as
-# good as the resume check, which is why the locus tables are now validated for
-# completeness rather than mere existence; see MIN_LOCI below.
+# Why prefer that to one long job. Nothing is lost to an under-length job here:
+# every stage resumes, so a kill costs one resubmission and no recomputation.
+# So wall clock spent PENDING is the only wall clock actually lost, and on a
+# shared partition an 18-core/40G/6h job is placed far sooner than a
+# 32-core/120G/12h one. Several small jobs that start now beat one big job that
+# is still queued. That resume guarantee is only as good as the resume check,
+# which is why the locus tables are validated for completeness rather than mere
+# existence; see MIN_LOCI below.
 #
-# 64G, down from 120G, and the reason is a fix rather than a trim. The old
-# note here recorded that "the footprint scales with -j, not with the tile
-# size" and that 48G had died on SIGKILL (job 207231), and concluded that the
-# request had to be large. The scaling was real; the conclusion was not. The
-# cause was GNU `sort`: Allelome.PRO2.sh pipes the 630 MB genome-wide SNP bed
-# through it four times with no -S, and sort with no -S sizes its buffer from
-# the NODE's physical memory (~512G here), not from the SLURM cgroup. Thirty
-# workers each helped themselves to a share of 512G, so no request was reliably
-# "enough" - it was a race against the cgroup, which 120G happened to win.
-#
-# The sort buffer is now capped explicitly (see SORT_MB below), which makes the
-# per-worker footprint a chosen number: 4G for the job shell plus 2G per
-# worker, i.e. 4096 + 30*2048 = 64G for the 30 workers that 32 cores allow.
-# Asking for more than that buys no parallelism, and -j is now derived from
-# BOTH cores and memory, so a smaller --mem reduces concurrency instead of
-# earning a SIGKILL.
-#
-# That is what makes the job schedulable at a small shape, which matters more
-# than the node-hours: see submit_sinto_tiles_chain.sh, which chains 6h jobs at
-# 16 cores / 32G rather than queueing one 24h job at 32 cores / 120G.
-#
-# Any change here still wants a MaxRSS to point at:
-#   sacct -j <jobid> -o JobID,ReqMem,MaxRSS,Elapsed,State,ExitCode
-#
-# If the queue is slow to place even this, do not raise the wall clock - lower
-# the footprint and chain instead. Every stage resumes, so several small jobs
-# that start now beat one large job that is still pending:
+# For an unattended run, do not sit and resubmit - chain it, which is exactly
+# this shape submitted 8 times with --dependency=afterany:
 #
 #   ./slurm/submit_sinto_tiles_chain.sh 8 64 no_Xist dup
+#
+# 40G, down from 120G, and that is a fix rather than a trim. The old note here
+# recorded that "the footprint scales with -j, not with the tile size" and that
+# 48G had died on SIGKILL (job 207231), and concluded the request had to be
+# large. The scaling was real; the conclusion was not. The cause was GNU `sort`:
+# Allelome.PRO2.sh pipes the 630 MB genome-wide SNP bed through it four times
+# with no -S, and sort with no -S sizes its buffer from the NODE's physical
+# memory (~512G here), not from the SLURM cgroup. Thirty workers each helped
+# themselves to a share of 512G, so no request was reliably "enough" - it was a
+# race against the cgroup, which 120G happened to win and 48G lost.
+#
+# The sort buffer is now capped explicitly (see SORT_MB below), which makes the
+# per-worker footprint a chosen number: 4G for the job shell plus 2G per worker.
+# 40G is that arithmetic solved for 18 cores - 4096 + 16*2048 = 36864M, so 40G
+# covers the 16 workers that 18 cores allow with a little slack. The two
+# numbers are a MATCHED PAIR: -j is now derived from BOTH cores and memory, so
+# raising cores without raising memory leaves cores idle, and raising memory
+# without raising cores buys nothing. The job prints which constraint bound it.
+#
+#   18 cores + 40G -> -j 16, core-limited      (this default)
+#   18 cores + 32G -> -j 14, memory-limited, 2 cores idle
+#   32 cores + 64G -> -j 30, core-limited      (the old shape, now placed slower)
+#
+# A smaller --mem is therefore safe - it lowers concurrency instead of earning a
+# SIGKILL - so trimming this to get placed is a legitimate move, unlike before.
+# Any change still wants a MaxRSS to point at:
+#   sacct -j <jobid> -o JobID,ReqMem,MaxRSS,Elapsed,State,ExitCode
+#
+# The 24h cm4_tiny ceiling remains the hard cap if the wall clock is ever
+# raised, but raising it is the wrong lever here: it makes placement slower for
+# no gain the resume logic does not already provide.
 #
 # The tile BAMs are already split and kept in $SCRATCH, so the defaults above
 # are all that is needed from here. If the split ever has to be redone, it
@@ -307,7 +316,7 @@ module load parallel
 #
 # Capping the buffer explicitly breaks the coupling to the node: per-worker
 # memory becomes a number chosen here instead of a fraction of 512G. The point
-# is scheduling - a job asking 16 cores and 32G finds a slot on a shared
+# is scheduling - a job asking 18 cores and 40G finds a slot on a shared
 # partition far sooner than one asking 32 cores and 120G, and since every stage
 # resumes, several small jobs that start now beat one big job that waits.
 #
