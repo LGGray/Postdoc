@@ -63,6 +63,16 @@
 #   sbatch ~/Postdoc/slurm/spatial_sinto_tiles.slurm 64   # this job
 #
 # Array task 1 = 9w, task 2 = 78w.
+#
+# Arg 4 selects the read filter (see FILTER_MODE below). The duplicate-inclusive
+# run wants more wall clock than the 12h above: measured on the 9w tile BAMs,
+# dedup leaves 10.6 GB of the 46.8 GB split, so the MAPQ-only filter leaves
+# roughly 2.2x that - ~23 GB, and ~2.2x the reads to intersect per tile.
+# The dominant per-tile cost is the fixed genome-wide SNP parse, so the total
+# does not scale with 2.2, but the bedtools intersect is not free either;
+# ~14h becomes ~18h on that split. Give it the cm4_tiny ceiling:
+#
+#   sbatch --time=24:00:00 ~/Postdoc/slurm/spatial_sinto_tiles.slurm 64 0 no_Xist dup
 
 module load slurm_setup
 
@@ -88,6 +98,34 @@ MAX_TILES="${2:-0}"
 # Do this only if spatial_mask_comparison.slurm says the Xic carries the effect.
 # It is ~14h per sample; the per-allele rates answer the same question for free.
 SNP_LABEL="${3:-no_Xist}"
+# Optional arg 4: which read filter to apply to the tile BAMs before scoring.
+# Mirrors the counting modes on the pysam side (spatial_tile_locus_map.slurm),
+# and like SNP_LABEL it extends every output path so a second mode lands
+# BESIDE the first rather than on top of it.
+#
+#   dedup  -F 0x400 -q 255   duplicates DROPPED, multimappers dropped. Default,
+#                            and the only mode with unsuffixed paths, so every
+#                            existing 64um result is byte-identical.
+#   dup            -q 255    duplicates KEPT, multimappers dropped. Paths gain
+#                            _dup, matching ase_pysam_dup_64um on the pysam side.
+#   none   no filter at all  duplicates AND multimappers kept. Paths gain _raw.
+#
+#   sbatch $0 64                        # dedup, the original run
+#   sbatch $0 64 0 no_Xist dup          # duplicate-inclusive, alongside it
+#
+# The filter suffix and the mask suffix are indistinguishable to the downstream
+# R side, which builds its directory from SNP_LABEL the same way this builds
+# SUF. So the dup tree is plotted by passing the filter suffix AS the label -
+# no change needed there, and the PDFs come out labelled "dup":
+#
+#   sbatch $0 64 0 no_Xist dup                              # this job
+#   sbatch ~/Postdoc/slurm/spatial_tile_map.slurm 64 9w,78w dup
+#
+# What "dup" is for: it is the read-level counterpart of the deduplicated run,
+# so the two together separate an allelic signal from an amplification one. On
+# its own it is NOT a ratio to interpret - a single over-amplified molecule can
+# carry a whole tile (see the deduplication rationale below). Its use is the comparison.
+FILTER_MODE="${4:-dedup}"
 if [ -z "$TILE_UM" ]; then
   echo "Usage: sbatch $0 <tile_um>    e.g. sbatch $0 64" >&2
   echo "Must match the size the sweep wrote a map for." >&2
@@ -126,7 +164,7 @@ ANNOTATION=$BASE/GRCm39/chr_annotation_mm39.bed
 # behind and which are effectively CAST-only in this design.
 SNPS=$BASE/GRCm39/SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_${SNP_LABEL}.bed
 # Empty for the default mask, so every existing path is byte-identical.
-if [ "$SNP_LABEL" = "no_Xist" ]; then SUF=""; else SUF="_$SNP_LABEL"; fi
+if [ "$SNP_LABEL" = "no_Xist" ]; then MASK_SUF=""; else MASK_SUF="_$SNP_LABEL"; fi
 
 MIN_READ=1
 TOTAL_READ=1
@@ -142,8 +180,25 @@ TOTAL_READ=1
 #
 # -F 0x400 = not a duplicate; -q 255 = STAR-unique. Both match the filters the
 # independent counter used, so the two methods become comparable.
-DEDUP=1
+#
+# FILTER_MODE (arg 4) chooses which half of that is applied. Everything above
+# is the argument for `dedup`; `dup` keeps the duplicates deliberately, to
+# quantify how much of a tile's ratio they were carrying.
 FILTER_MAPQ=255
+case "$FILTER_MODE" in
+  dedup) FILTER_ARGS=(-F 0x400 -q "$FILTER_MAPQ"); FLT_SUF="";     FLT_SUB=bam_flt
+         FILTER_DESC="duplicates, MAPQ < $FILTER_MAPQ" ;;
+  dup)   FILTER_ARGS=(-q "$FILTER_MAPQ");          FLT_SUF="_dup"; FLT_SUB=bam_dup
+         FILTER_DESC="MAPQ < $FILTER_MAPQ only - duplicates KEPT" ;;
+  none)  FILTER_ARGS=();                           FLT_SUF="_raw"; FLT_SUB=""
+         FILTER_DESC="none" ;;
+  *)     echo "Unknown FILTER_MODE '$FILTER_MODE' (arg 4): expected dedup, dup or none" >&2
+         exit 1 ;;
+esac
+# One suffix for every output path, so the mask and the filter mode are both
+# free to vary without either run overwriting the other.
+SUF="${MASK_SUF}${FLT_SUF}"
+echo "Read filter: $FILTER_MODE  (samtools view ${FILTER_ARGS[*]:-<none>})"
 
 FINAL_DIR=$SPATIAL/ase/$SAMPLE/Allelome.PRO2_tiles_${TILE_UM}um${SUF}
 
@@ -220,8 +275,12 @@ nproc=$((SLURM_CPUS_PER_TASK - 2))
 if [ "$nproc" -lt 1 ]; then nproc=1; fi
 
 ##### ---- filter duplicates and multimappers ---- #####
-if [ "$DEDUP" = "1" ]; then
-  FLT_DIR=$WORK/bam_flt
+# Mode-specific scratch directory. bam_flt stays the dedup+MAPQ output so the
+# existing filtered tiles are reused untouched; bam_dup is the MAPQ-only set.
+# ~10.6 GB per sample for bam_flt, so expect ~23 GB for bam_dup - the duplicates
+# are ~54% of the reads and it is those bytes that come back.
+if [ -n "$FLT_SUB" ]; then
+  FLT_DIR=$WORK/$FLT_SUB
   mkdir -p "$FLT_DIR"
 
   # Discard anything the previous pass left half-written before deciding what
@@ -250,24 +309,30 @@ if [ "$DEDUP" = "1" ]; then
     # closed the output, so its presence is a second, independent witness that
     # the pair is complete.
     [ -s "$FLT_DIR/$t" ] && [ -s "$FLT_DIR/$t.bai" ] && continue
-    echo "samtools view -b -F 0x400 -q $FILTER_MAPQ -o '$FLT_DIR/$t' '$bam' && samtools index '$FLT_DIR/$t'"
+    echo "samtools view -b ${FILTER_ARGS[*]} -o '$FLT_DIR/$t' '$bam' && samtools index '$FLT_DIR/$t'"
   done >> "$WORK/filter-list.txt"
   n_flt=$(wc -l < "$WORK/filter-list.txt")
   if [ "$n_flt" -gt 0 ]; then
-    echo "[$(date +%T)] filtering $n_flt tile BAMs (duplicates, MAPQ < $FILTER_MAPQ)"
+    echo "[$(date +%T)] filtering $n_flt tile BAMs (dropping: $FILTER_DESC)"
     parallel -j "$nproc" :::: "$WORK/filter-list.txt"
   else
     echo "[$(date +%T)] filtered tile BAMs already present"
   fi
   SCORE_DIR=$FLT_DIR
-  # Worth eyeballing once: this should be roughly half, and the tile ratios
-  # should stop swinging between 0.1 and 1.0 once it is applied.
+  # Worth eyeballing once. Under dedup this should be roughly a quarter of the
+  # input, and the tile ratios should stop swinging between 0.1 and 1.0 once it
+  # is applied. Under dup only the multimappers go, so expect most reads to
+  # survive - if this drops by half, the dup flags are still being applied.
   ex=$(ls "$BAM_DIR"/*.bam | head -1); exb=$(basename "$ex")
   echo "  example $exb: $(samtools view -c "$ex") reads -> $(samtools view -c "$FLT_DIR/$exb") after filtering"
+  if [ "$FILTER_MODE" = "dup" ]; then
+    echo "  NOTE: duplicates are KEPT in this mode. These per-tile ratios are"
+    echo "        read-level and are only meaningful next to the dedup run."
+  fi
 else
   SCORE_DIR=$BAM_DIR
-  echo "WARNING: DEDUP=0, scoring raw tile BAMs. Per-tile ratios will be driven"
-  echo "         by PCR duplication, not by allele composition."
+  echo "WARNING: FILTER_MODE=none, scoring raw tile BAMs. Per-tile ratios will be"
+  echo "         driven by PCR duplication and multimapping, not by allele composition."
 fi
 
 ##### ---- Allelome.PRO2, one invocation per tile ---- #####
@@ -303,8 +368,10 @@ MIN_LOCI=10
 # How many times a tile carrying no chrX row may be re-run before its table is
 # accepted as-is. A missing chrX row is almost always a tail truncation, but not
 # necessarily: a tile can legitimately end up with no chrX read after
-# -F 0x400 -q 255 even though the sweep counted >= SINTO_MIN_UMI chrX molecules,
-# because that counter works on molecules and does not apply the MAPQ filter.
+# the read filter above even though the sweep counted >= SINTO_MIN_UMI chrX
+# molecules, because that counter works on molecules and does not apply the
+# MAPQ filter. Under FILTER_MODE=dup this should be rarer, not commoner - only
+# the multimapper filter can empty a tile there.
 # Without a budget such a tile would be purged and re-run on every resubmission
 # for the life of the project, at 6.6 min of CPU each time, and the tile count
 # would never reach N_TILES.
