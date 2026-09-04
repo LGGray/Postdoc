@@ -7,10 +7,10 @@ set -euo pipefail
 # resumes - the split, the read filter and the Allelome.PRO2 pass all skip work
 # that is already complete and validated - so a job killed at the wall clock
 # costs one resubmission and no recomputation. That makes a queue trade
-# available: one 24h job at 32 cores and 120G can sit pending for a long time on
-# a shared partition, whereas the 6h job at 18 cores and 40G that the header now
-# asks for starts far sooner, and eight of them back to back deliver more wall
-# clock than the big job that is still waiting. --dependency=afterany links them, so this is fire and
+# available: a job that sits PENDING loses that wall clock outright, whereas a
+# killed one loses nothing. So where placement is slow, the chain trades job
+# length for job count and comes out ahead. Where placement is immediate - as
+# on serial_std - it is simply a way to run unattended past one wall clock. --dependency=afterany links them, so this is fire and
 # forget - no login session, no polling (unlike submit_sc_allelome_chunks.sh,
 # which has to stay attached).
 #
@@ -22,7 +22,7 @@ set -euo pipefail
 # allocations before the chain can advance; a single-task link needs one, and
 # 9w and 78w then make progress independently of each other.
 #
-#   ./slurm/submit_sinto_tiles_chain.sh 8 64 no_Xist dup
+#   ./slurm/submit_sinto_tiles_chain.sh 3 64 no_Xist dup
 #
 # Then watch it with:
 #   squeue --clusters=cm4 -u $USER -o '%.10i %.12j %.8T %.10M %.10l %.6D %R'
@@ -32,7 +32,11 @@ set -euo pipefail
 # editing its header changes the chain too. Override only for a one-off:
 #   CPUS=8 MEM=20G TIME=04:00:00 SAMPLES=1 ./slurm/submit_sinto_tiles_chain.sh 4
 
-N_LINKS="${1:-8}"
+# 3, matching the 24h wall clock in the job header: a sample needs ~1.4 jobs of
+# that length, so three links cover it with margin. Raise this if the header's
+# --time is cut, and see the tables in spatial_sinto_tiles.slurm for the
+# arithmetic - the two numbers have to be chosen together.
+N_LINKS="${1:-3}"
 TILE_UM="${2:-64}"
 SNP_LABEL="${3:-no_Xist}"
 FILTER_MODE="${4:-dup}"

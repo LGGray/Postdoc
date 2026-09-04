@@ -49,8 +49,10 @@
 #
 #   1. A SHORTER wall clock, which is the one shrink that still helps, because
 #      it lets the backfill scheduler drop the job into a gap ahead of a large
-#      reservation. --time=02:00:00 with more chain links is strictly better
-#      placed than --time=06:00:00 with fewer.
+#      reservation. A short --time with more chain links is strictly better
+#      placed than a long one with fewer - the opposite of the trade that
+#      applies once the job is placing immediately, which is why the 24h below
+#      belongs to serial_std and would be wrong back on cm4_tiny.
 #   2. A DIFFERENT QUEUE, i.e. the swap above. cm4_tiny and serial_std are
 #      separate clusters with separate contention, and 18 cores / 100G / 8h is
 #      already proven on serial_std by map_adult_bodymap.slurm and its siblings.
@@ -63,35 +65,49 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
 #SBATCH --mem=40G
-#SBATCH --time=06:00:00
+#SBATCH --time=24:00:00
 #SBATCH --array=1-2
 
-# 18 cores / 40G / 6h: SMALL AND SCHEDULABLE, NOT SIZED TO FINISH IN ONE JOB.
-# This is a deliberate change of strategy from the 32 cores / 120G / 12h that
-# stood here before, so read the next three paragraphs before "fixing" it back.
+# 18 cores / 40G / 24h. The wall clock is set by WHERE THIS RUNS, so change it
+# together with the cluster block above rather than on its own.
 #
 # The per-tile cost is measured, not guessed. Job 207291 did 701/3738 tiles (9w)
 # and 711/3215 (78w) in 2h35 at -j 30: ~6.6 min of CPU per tile, and that cost
 # is the per-invocation genome-wide SNP and annotation parse, so it is fixed per
-# tile and does not fall as the run proceeds. Whole-sample totals are ~414 CPU-h
-# (9w) and ~351 (78w). FILTER_MODE=dup scores ~2.2x the reads, so call it ~8.5
-# min per tile there. At -j 16 that is ~113 tiles/h, so a 6h job clears ~680
-# tiles and a whole sample needs FIVE OR SIX SUCCESSIVE JOBS. That is the
-# intended shape. It is not an under-provisioned 24h job.
+# tile and does not fall as the run proceeds. FILTER_MODE=dup scores ~2.2x the
+# reads, so call it ~8.5 min per tile there. At -j 16 that is ~113 tiles/h:
 #
-# Why prefer that to one long job. Nothing is lost to an under-length job here:
-# every stage resumes, so a kill costs one resubmission and no recomputation.
-# So wall clock spent PENDING is the only wall clock actually lost, and on a
-# shared partition an 18-core/40G/6h job is placed far sooner than a
-# 32-core/120G/12h one. Several small jobs that start now beat one big job that
-# is still queued. That resume guarantee is only as good as the resume check,
-# which is why the locus tables are validated for completeness rather than mere
-# existence; see MIN_LOCI below.
+#    6h -> ~680 tiles   9w needs 5.5 jobs
+#   12h -> ~1355 tiles  9w needs 2.8 jobs
+#   24h -> ~2711 tiles  9w needs 1.4 jobs, 78w needs 1.2
 #
-# For an unattended run, do not sit and resubmit - chain it, which is exactly
-# this shape submitted 8 times with --dependency=afterany:
+# 6h stood here while the job was queued on cm4_tiny, and for THAT queue it was
+# right: pending time is the only wall clock genuinely lost when every stage
+# resumes, so a short job that gets placed beats a long one that does not. On
+# serial_std the job starts immediately, so that argument is gone and the trade
+# inverts - a longer wall clock costs nothing and saves resubmissions. Hence
+# 24h. If the cluster block is ever swapped back to cm4_tiny, cut this to 6h
+# with it.
 #
-#   ./slurm/submit_sinto_tiles_chain.sh 8 64 no_Xist dup
+# 24h is also the cm4_tiny hard ceiling, so it stays valid either way. The
+# serial partition's limit may well be higher, and if it is, 48h would finish
+# either sample in one job. Check before raising it - sbatch rejects an
+# over-limit request outright, which is harmless but confusing:
+#
+#   scontrol --clusters=serial show partition serial_std | tr ' ' '\n' | grep -i maxtime
+#
+# A long job is safe here specifically because of the resume design: a kill at
+# the wall clock leaves finished locus tables in $AP2_DIR on $SCRATCH, and the
+# NEXT job's startup collect_tables call rescues them, so nothing is
+# recomputed. The one real hazard is leaving them there, since $SCRATCH is
+# purged on an access-time policy - so always keep a follow-up link queued
+# rather than ending on a killed job. The chain does that:
+#
+#   ./slurm/submit_sinto_tiles_chain.sh 3 64 no_Xist dup
+#
+# Three links of 24h rather than eight of 6h: same coverage, fewer handoffs.
+# Seed it behind anything already running with START_AFTER=<jobid>; two jobs on
+# one $WORK race over the locus-table purge.
 #
 # 40G, down from 120G, and that is a fix rather than a trim. The old note here
 # recorded that "the footprint scales with -j, not with the tile size" and that
