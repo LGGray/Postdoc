@@ -10,6 +10,31 @@
 #SBATCH --clusters=cm4
 #SBATCH --partition=cm4_tiny
 #SBATCH --qos=cm4_tiny
+# ALTERNATIVE QUEUE. Swap to these three lines - commenting out the cm4 three
+# above, and note serial_std takes no --qos - if squeue reports the job pending
+# on (Priority) rather than (Resources):
+#
+##SBATCH --clusters=serial
+##SBATCH --partition=serial_std
+#
+# The two reason codes call for opposite responses, and confusing them wastes
+# days. (Resources) means the request does not fit anything free, so shrinking
+# cores/memory/time is the fix - that is what the 18/40G/6h shape below is for.
+# (Priority) means it fits fine but other jobs are ahead of it, and no amount of
+# shrinking moves the job up that list. The levers there are different:
+#
+#   1. A SHORTER wall clock, which is the one shrink that still helps, because
+#      it lets the backfill scheduler drop the job into a gap ahead of a large
+#      reservation. --time=02:00:00 with more chain links is strictly better
+#      placed than --time=06:00:00 with fewer.
+#   2. A DIFFERENT QUEUE, i.e. the swap above. cm4_tiny and serial_std are
+#      separate clusters with separate contention, and 18 cores / 100G / 8h is
+#      already proven on serial_std by map_adult_bodymap.slurm and its siblings.
+#   3. Waiting, if fairshare is the component that is low - nothing in this file
+#      changes that. Check before assuming otherwise:
+#        squeue --start -j <jobid>          # estimated start, the first thing to look at
+#        sprio -j <jobid>                   # which priority component is short
+#        sshare -U -u $USER                 # fairshare, i.e. recent usage
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
