@@ -7,15 +7,39 @@
 #SBATCH -e out_error/%x.%A_%a.%N.err
 #SBATCH --get-user-env
 #SBATCH --export=NONE
-#SBATCH --clusters=cm4
-#SBATCH --partition=cm4_tiny
-#SBATCH --qos=cm4_tiny
-# ALTERNATIVE QUEUE. Swap to these three lines - commenting out the cm4 three
-# above, and note serial_std takes no --qos - if squeue reports the job pending
-# on (Priority) rather than (Resources):
+#SBATCH --clusters=serial
+#SBATCH --partition=serial_std
+# ALTERNATIVE QUEUE, and the original one. Swap back to these three lines -
+# commenting out the serial two above - if serial_std turns out to be the more
+# contended of the two. serial_std takes no --qos; cm4_tiny does.
 #
-##SBATCH --clusters=serial
-##SBATCH --partition=serial_std
+##SBATCH --clusters=cm4
+##SBATCH --partition=cm4_tiny
+##SBATCH --qos=cm4_tiny
+#
+# WHY serial, as of 2026-09-04. Job 209687 sat PD (Priority) on cm4_tiny with
+# START_TIME N/A, i.e. the backfill scheduler could not even place it in its
+# lookahead window. sprio explained why, and the explanation is not a shape
+# problem at all:
+#
+#   JOBID  PRIORITY     AGE  FAIRSHARE  JOBSIZE  QOS
+#   209687 23396878  375331   23016146     5402    0
+#
+# FAIRSHARE is 23.0M of the 23.4M total, and sshare put the fairshare FACTOR at
+# 0.011168, so the implied weight is 23016146/0.011168 = ~2.06e9. That means the
+# job was carrying 1.1% of the fairshare priority available, and a user at
+# factor 1.0 would outrank it by ~88x. AGE contributes 375k against a 2.06e9
+# weight - 0.02% - so WAITING CANNOT RESCUE THIS JOB, and neither can a smaller
+# request: 23.4M is a fairshare verdict, not a resource one.
+#
+# The cause is recent usage: sshare gave EffectvUsage 0.000721 against
+# NormShares 0.000172, i.e. 4.2x the normalised share, which is what the
+# earlier tile runs on this very dataset consumed. That decays on the
+# scheduler's half-life, so cm4_tiny recovers on its own with time - but a
+# separate cluster does not have to wait for it. Confirm the weights and the
+# decay before trusting any of the above:
+#
+#   scontrol show config | grep -i -E 'priority|backfill'
 #
 # The two reason codes call for opposite responses, and confusing them wastes
 # days. (Resources) means the request does not fit anything free, so shrinking
