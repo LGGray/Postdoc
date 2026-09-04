@@ -13,7 +13,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
-#SBATCH --mem=120G
+#SBATCH --mem=64G
 #SBATCH --time=12:00:00
 #SBATCH --array=1-2
 
@@ -36,14 +36,35 @@
 # good as the resume check, which is why the locus tables are now validated for
 # completeness rather than mere existence; see MIN_LOCI below.
 #
-# 120G rather than 150G because 32 cores on a cm4 node carry a proportional
-# share of ~145G, and a request above that needs a node with more free memory
-# than free cores - a much smaller target than any node with 32 idle cores.
-# 48G was tried and job 207231 died on SIGKILL: 30 concurrent Allelome.PRO2
-# each parse the genome-wide SNP bed, so the footprint scales with -j, not with
-# the tile size, and the single-invocation 8G in Allelome.PRO.slurm does not
-# bound it. Do not trim this again without a MaxRSS to point at:
+# 64G, down from 120G, and the reason is a fix rather than a trim. The old
+# note here recorded that "the footprint scales with -j, not with the tile
+# size" and that 48G had died on SIGKILL (job 207231), and concluded that the
+# request had to be large. The scaling was real; the conclusion was not. The
+# cause was GNU `sort`: Allelome.PRO2.sh pipes the 630 MB genome-wide SNP bed
+# through it four times with no -S, and sort with no -S sizes its buffer from
+# the NODE's physical memory (~512G here), not from the SLURM cgroup. Thirty
+# workers each helped themselves to a share of 512G, so no request was reliably
+# "enough" - it was a race against the cgroup, which 120G happened to win.
+#
+# The sort buffer is now capped explicitly (see SORT_MB below), which makes the
+# per-worker footprint a chosen number: 4G for the job shell plus 2G per
+# worker, i.e. 4096 + 30*2048 = 64G for the 30 workers that 32 cores allow.
+# Asking for more than that buys no parallelism, and -j is now derived from
+# BOTH cores and memory, so a smaller --mem reduces concurrency instead of
+# earning a SIGKILL.
+#
+# That is what makes the job schedulable at a small shape, which matters more
+# than the node-hours: see submit_sinto_tiles_chain.sh, which chains 6h jobs at
+# 16 cores / 32G rather than queueing one 24h job at 32 cores / 120G.
+#
+# Any change here still wants a MaxRSS to point at:
 #   sacct -j <jobid> -o JobID,ReqMem,MaxRSS,Elapsed,State,ExitCode
+#
+# If the queue is slow to place even this, do not raise the wall clock - lower
+# the footprint and chain instead. Every stage resumes, so several small jobs
+# that start now beat one large job that is still pending:
+#
+#   ./slurm/submit_sinto_tiles_chain.sh 8 64 no_Xist dup
 #
 # The tile BAMs are already split and kept in $SCRATCH, so the defaults above
 # are all that is needed from here. If the split ever has to be redone, it
@@ -271,8 +292,77 @@ fi
 
 conda activate RNAseq
 module load parallel
+
+##### ---- bound the per-worker memory, so the request can be made small ---- #####
+#
+# WHY 120G/32 cores used to be the only workable shape. Allelome.PRO2.sh pipes
+# the 630 MB genome-wide SNP bed through GNU `sort` four times (its lines 214,
+# 217, 219, 238); line 217 is the big one, since a genome-wide annotation means
+# essentially every SNP survives the intersect. GNU sort with no -S sizes its
+# buffer from the NODE's physical memory - ~512G on a cm4 node - and knows
+# nothing about the SLURM cgroup. So 30 concurrent workers each helped
+# themselves to a share of 512G and the cgroup killed the job. That, not the
+# tile size, is what SIGKILLed 207231 at 48G, and it is why the footprint was
+# observed to "scale with -j, not with the tile size".
+#
+# Capping the buffer explicitly breaks the coupling to the node: per-worker
+# memory becomes a number chosen here instead of a fraction of 512G. The point
+# is scheduling - a job asking 16 cores and 32G finds a slot on a shared
+# partition far sooner than one asking 32 cores and 120G, and since every stage
+# resumes, several small jobs that start now beat one big job that waits.
+#
+# Allelome.PRO2.sh is an external toolkit and is not edited. A `sort` shim early
+# on PATH is how the cap reaches it. Any -S the real call already carries would
+# come later on the command line and still win, so this can only lower the
+# ceiling, never override an explicit choice.
+# NOTE: --export=NONE at the top means `SORT_MB=512 sbatch ...` does NOT reach
+# the job, for the same reason TILE_UM had to be made positional. To override at
+# submit time use `sbatch --export=ALL,SORT_MB=512 ...`; otherwise edit here.
+SORT_MB="${SORT_MB:-256}"
+SHIM_DIR=$WORK/bin
+mkdir -p "$SHIM_DIR"
+# Resolve the real sort with the shim dir removed from PATH, so a re-run does
+# not build a shim that execs the previous shim and loops forever.
+REAL_SORT=$(PATH=$(printf '%s' "$PATH" | tr ':' '\n' | grep -vxF "$SHIM_DIR" | paste -sd: -) command -v sort)
+if [ -z "$REAL_SORT" ]; then echo "ERROR: cannot find the real sort binary" >&2; exit 1; fi
+printf '#!/bin/bash\nexec %s -S %sM "$@"\n' "$REAL_SORT" "$SORT_MB" > "$SHIM_DIR/sort"
+chmod +x "$SHIM_DIR/sort"
+export PATH="$SHIM_DIR:$PATH"
+echo "sort shim: $SHIM_DIR/sort -> $REAL_SORT -S ${SORT_MB}M"
+
+# nproc from BOTH cores and memory, whichever is tighter. Previously it came
+# from cores alone, so a small --mem was silently a SIGKILL waiting to happen
+# and the only safe way to shrink the job was not to shrink it. With the cap
+# above a worker needs the sort buffer plus bedtools, awk and mpileup working
+# set; 2G is that with room to spare. Raise MEM_PER_WORKER_MB, not --mem, if a
+# sacct MaxRSS ever says otherwise.
+MEM_PER_WORKER_MB="${MEM_PER_WORKER_MB:-2048}"
 nproc=$((SLURM_CPUS_PER_TASK - 2))
 if [ "$nproc" -lt 1 ]; then nproc=1; fi
+# SLURM_MEM_PER_NODE is MB and is what --mem sets. --mem-per-cpu sets
+# SLURM_MEM_PER_CPU instead, so honour whichever arrived.
+if [ -n "${SLURM_MEM_PER_NODE:-}" ]; then
+  mem_mb=$SLURM_MEM_PER_NODE
+elif [ -n "${SLURM_MEM_PER_CPU:-}" ]; then
+  mem_mb=$((SLURM_MEM_PER_CPU * SLURM_CPUS_PER_TASK))
+else
+  mem_mb=0
+fi
+if [ "$mem_mb" -gt 0 ]; then
+  # 4G held back for the job shell, parallel itself and the filesystem cache.
+  mem_j=$(( (mem_mb - 4096) / MEM_PER_WORKER_MB ))
+  [ "$mem_j" -lt 1 ] && mem_j=1
+  if [ "$mem_j" -lt "$nproc" ]; then
+    echo "nproc: memory-limited to $mem_j (cores would allow $nproc)"
+    echo "  ${mem_mb}M allocated, ${MEM_PER_WORKER_MB}M per worker, 4096M reserved"
+    echo "  raise --mem to $(( 4096 + nproc * MEM_PER_WORKER_MB ))M to use all $nproc cores"
+    nproc=$mem_j
+  else
+    echo "nproc: $nproc (cores), memory allows $mem_j - not limiting"
+  fi
+else
+  echo "nproc: $nproc (cores); no memory allocation visible, not capping"
+fi
 
 ##### ---- filter duplicates and multimappers ---- #####
 # Mode-specific scratch directory. bam_flt stays the dedup+MAPQ output so the
