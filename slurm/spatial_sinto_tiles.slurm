@@ -63,38 +63,42 @@
 #        sshare -U -u $USER                 # fairshare, i.e. recent usage
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=18
-#SBATCH --mem=40G
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=32G
 #SBATCH --time=24:00:00
 #SBATCH --array=1-2
 
-# 18 cores / 40G / 24h. The wall clock is set by WHERE THIS RUNS, so change it
-# together with the cluster block above rather than on its own.
+# 16 cores / 32G / 24h. All three are AT OR BELOW A HARD serial_std LIMIT, not
+# chosen freely: the partition caps cpus-per-task at 16 and --time at 24h, so
+# neither can be raised here, only lowered. sbatch rejects an over-limit
+# request outright rather than trimming it. The wall clock also depends on
+# WHERE this runs, so change it together with the cluster block above.
 #
 # The per-tile cost is measured, not guessed. Job 207291 did 701/3738 tiles (9w)
 # and 711/3215 (78w) in 2h35 at -j 30: ~6.6 min of CPU per tile, and that cost
 # is the per-invocation genome-wide SNP and annotation parse, so it is fixed per
 # tile and does not fall as the run proceeds. FILTER_MODE=dup scores ~2.2x the
-# reads, so call it ~8.5 min per tile there. At -j 16 that is ~113 tiles/h:
+# reads, so call it ~8.5 min per tile there. At -j 14 that is ~99 tiles/h:
 #
-#    6h -> ~680 tiles   9w needs 5.5 jobs
-#   12h -> ~1355 tiles  9w needs 2.8 jobs
-#   24h -> ~2711 tiles  9w needs 1.4 jobs, 78w needs 1.2
+#    6h -> ~593 tiles   9w needs 6.3 jobs
+#   12h -> ~1186 tiles  9w needs 3.2 jobs
+#   24h -> ~2372 tiles  9w needs 1.6 jobs, 78w needs 1.4
 #
 # 6h stood here while the job was queued on cm4_tiny, and for THAT queue it was
 # right: pending time is the only wall clock genuinely lost when every stage
 # resumes, so a short job that gets placed beats a long one that does not. On
 # serial_std the job starts immediately, so that argument is gone and the trade
 # inverts - a longer wall clock costs nothing and saves resubmissions. Hence
-# 24h. If the cluster block is ever swapped back to cm4_tiny, cut this to 6h
-# with it.
+# 24h, which is also the ceiling. If the cluster block is ever swapped back to
+# cm4_tiny, cut this to 6h with it.
 #
-# 24h is also the cm4_tiny hard ceiling, so it stays valid either way. The
-# serial partition's limit may well be higher, and if it is, 48h would finish
-# either sample in one job. Check before raising it - sbatch rejects an
-# over-limit request outright, which is harmless but confusing:
+# 24h happens to be the hard cap on cm4_tiny too, so the value stays valid
+# either way - but 16 cores does NOT: cm4_tiny would allow 32, and the memory
+# and link count below would all want re-deriving. Confirm the limits rather
+# than trusting this comment:
 #
-#   scontrol --clusters=serial show partition serial_std | tr ' ' '\n' | grep -i maxtime
+#   scontrol --clusters=serial show partition serial_std | tr ' ' '\n' \
+#     | grep -i -E 'maxtime|maxcpus|maxnodes|maxmem'
 #
 # A long job is safe here specifically because of the resume design: a kill at
 # the wall clock leaves finished locus tables in $AP2_DIR on $SCRATCH, and the
@@ -106,6 +110,8 @@
 #   ./slurm/submit_sinto_tiles_chain.sh 3 64 no_Xist dup
 #
 # Three links of 24h rather than eight of 6h: same coverage, fewer handoffs.
+# With the wall clock pinned at the 24h ceiling, the link count is now the ONLY
+# lever left for total run time - so if a sample is unfinished, add links.
 # Seed it behind anything already running with START_AFTER=<jobid>; two jobs on
 # one $WORK race over the locus-table purge.
 #
@@ -121,14 +127,14 @@
 #
 # The sort buffer is now capped explicitly (see SORT_MB below), which makes the
 # per-worker footprint a chosen number: 4G for the job shell plus 2G per worker.
-# 40G is that arithmetic solved for 18 cores - 4096 + 16*2048 = 36864M, so 40G
-# covers the 16 workers that 18 cores allow with a little slack. The two
-# numbers are a MATCHED PAIR: -j is now derived from BOTH cores and memory, so
+# 32G is that arithmetic solved for the 16 cores serial_std allows - 4096 +
+# 14*2048 = 32768M exactly, for the 14 workers that 16 cores allow. The two
+# numbers are a MATCHED PAIR: -j is derived from BOTH cores and memory, so
 # raising cores without raising memory leaves cores idle, and raising memory
 # without raising cores buys nothing. The job prints which constraint bound it.
 #
-#   18 cores + 40G -> -j 16, core-limited      (this default)
-#   18 cores + 32G -> -j 14, memory-limited, 2 cores idle
+#   16 cores + 32G -> -j 14, core-limited      (this default, nothing wasted)
+#   16 cores + 24G -> -j  9, memory-limited, 5 cores idle
 #   32 cores + 64G -> -j 30, core-limited      (the old shape, now placed slower)
 #
 # A smaller --mem is therefore safe - it lowers concurrency instead of earning a
@@ -381,7 +387,7 @@ module load parallel
 #
 # Capping the buffer explicitly breaks the coupling to the node: per-worker
 # memory becomes a number chosen here instead of a fraction of 512G. The point
-# is scheduling - a job asking 18 cores and 40G finds a slot on a shared
+# is scheduling - a job asking 16 cores and 32G finds a slot on a shared
 # partition far sooner than one asking 32 cores and 120G, and since every stage
 # resumes, several small jobs that start now beat one big job that waits.
 #

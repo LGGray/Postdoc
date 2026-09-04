@@ -32,10 +32,11 @@ set -euo pipefail
 # editing its header changes the chain too. Override only for a one-off:
 #   CPUS=8 MEM=20G TIME=04:00:00 SAMPLES=1 ./slurm/submit_sinto_tiles_chain.sh 4
 
-# 3, matching the 24h wall clock in the job header: a sample needs ~1.4 jobs of
-# that length, so three links cover it with margin. Raise this if the header's
-# --time is cut, and see the tables in spatial_sinto_tiles.slurm for the
-# arithmetic - the two numbers have to be chosen together.
+# 3, matching the 24h wall clock in the job header: at -j 14 a sample needs
+# ~1.6 jobs of that length, so three links cover it with margin. The header's
+# --time is pinned at the serial_std 24h ceiling and cannot be raised, so this
+# count is the only lever left over total run time - add links if a sample
+# comes up short. See the tables in spatial_sinto_tiles.slurm.
 N_LINKS="${1:-3}"
 TILE_UM="${2:-64}"
 SNP_LABEL="${3:-no_Xist}"
