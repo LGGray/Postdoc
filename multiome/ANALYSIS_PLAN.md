@@ -137,6 +137,58 @@ EffectvUsage decayed back toward NormShares, cm4_tiny becomes much the better
 home; the script has that swap ready in comments.
 
 
+## Preflight QC (job 5471258, 1M-read subsample of 9w)
+
+`Pipestance completed successfully` on cellranger-arc 2.2.0 against GRCm39 -
+not merely past validation but through the whole pipeline including BAMs.
+Recorded here because the run lived on scratch and will be purged; a copy of
+`summary.csv` / `web_summary.html` is in
+`adult_aged_multiome/preflight_outs/`.
+
+**Depth-independent metrics, i.e. the ones that carry over to the full run:**
+
+| metric | value | reading |
+|---|---|---|
+| GEX Q30 in barcode | 0.9719 | resolves the R1 quality worry |
+| GEX Q30 in UMI | 0.9720 | ditto |
+| GEX valid barcodes | 0.9114 | genuine `737K-arc-v1` multiome library |
+| ATAC valid barcodes | 0.9808 | barcode read at the right 8bp offset |
+| ATAC Q30 in barcode | 0.9211 | fine |
+| ATAC TSS enrichment | 12.05 | good chromatin signal (>10 is healthy) |
+| ATAC confidently mapped | 0.8246 | healthy |
+| ATAC non-nuclear (chrM) | 0.0227 | low - nuclei prep worked |
+| GEX mapped to genome | 0.9015 | healthy |
+| GEX mapped to transcriptome | 0.6260 | good for single-nucleus |
+| GEX intronic / exonic | 0.4565 / 0.3923 | intronic > exonic, as nuclei should be |
+| GEX total genes detected | 13346 | good complexity from only 1M reads |
+
+The barcode result is the one that mattered. The sequencing report had R1 at
+only 70-73% bases >= Q30 across its full 101bp, which raised the prospect of
+losing cells at the calling stage. At 97.2% Q30 over positions 1-28, the
+degradation is confined to the poly-T and read-through region exactly as the
+base-composition profile predicted, and the informative part of R1 is clean.
+
+The two valid-barcode figures together close the last chemistry question. A 3'
+library mismatched against the multiome whitelist would score near zero rather
+than 91%; and had cellranger-arc taken ATAC positions 1-16 (spacer plus 8bp of
+barcode) instead of 9-24, its 98% would likewise have been near zero.
+
+One number to keep an eye on: **GEX reads mapped antisense to gene = 0.2203**.
+Typical is nearer 5-15%. Elevated antisense is not unusual for single-nucleus
+data, but if it persists at full depth it is worth understanding before
+interpreting expression, and it interacts with allelic counting because
+antisense reads over a SNP still carry allele information.
+
+**Ignore these from the preflight** - all depth-limited at 1M reads and
+meaningless here: estimated cells (363), feature linkages (3), reads/UMIs/genes
+per cell, number of peaks (1176), fraction of genome in peaks (0.0004),
+fraction of fragments overlapping peaks, and both duplicate rates, which will
+rise steeply at 687-733M reads.
+
+Disk is not a constraint: dssfs03 had 18T free against the ~250G the two runs
+need. Note `df` reports the filesystem rather than the DSS container quota, so
+that is the number to check if writes ever fail.
+
 ## The genetic system
 
 B6 mother x CAST father, female, **Xist deleted on the B6 allele** -
