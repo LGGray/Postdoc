@@ -89,22 +89,33 @@ the offset natively, but anything that parses these barcodes directly - which
 the allelic ATAC work may well need to - must skip the first 8 bases or it
 will read pure garbage.
 
-Depth: roughly 650-700M GEX read pairs and ~330M ATAC read pairs per sample
-(estimated from file sizes; the lims sheets carry no read counts, and
-`Project_17*_SequencingReport.csv` has still not been read). The
-GEX is about 5x the 10x recommendation - deliberate over-sequencing for ASE.
+Depth: order 500-600M GEX read pairs and ~330M ATAC read pairs per sample.
+Treat that as a rough figure - it is back-calculated from compressed file
+sizes, which is sensitive to the assumed bytes-per-record, and an earlier pass
+at it overshot by ~25%. The exact cluster counts are in
+`Project_17*_SequencingReport.csv`, which has still not been read. Either way
+the GEX is several times the 10x recommendation - deliberate over-sequencing
+for ASE.
 
 That depth sets the compute problem. The count job runs on `serial_std`, not
 cm4_tiny, because cm4 was refusing to place jobs on *fairshare* rather than on
 resources - see the rationale in `slurm/spatial_sinto_tiles.slurm`, which
 established that neither waiting nor a smaller shape helps in that situation.
-The cost is 16 cpus / 96G instead of 112 / 256G, roughly a 6x wall-clock
-penalty, which puts one sample past the 24h limit. That is handled rather than
-avoided: cellranger-arc checkpoints per stage, so a timeout is resolved by
-resubmitting the same array, and the sample that already finished exits in
-seconds. Budget two rounds. If `sshare -U -u $USER` later shows EffectvUsage
-decayed back toward NormShares, cm4_tiny becomes much the better home and the
-script has the swap ready in comments.
+The cost is 16 cpus / 96G instead of 112 / 256G. Whether that fits inside the
+24h limit is genuinely uncertain: a generic throughput estimate says it is
+marginal, but the closest local precedent argues it is fine -
+`slurm/cellranger_multi.slurm` counted four OCM snRNA samples on 18 cpus
+within 24h. Local calibration beats the generic estimate, so 24h on
+`serial_std` is the working assumption.
+
+The timeout path therefore exists as insurance, not as an expectation.
+cellranger-arc checkpoints per stage, so if a run is killed, resubmitting the
+same array resumes it and the sample that already finished exits in seconds.
+`serial_long` (168h, `--qos=cm4_serial_long`) is the fallback if 24h turns out
+to be short, at the cost of running the samples sequentially - it caps the
+user at 100G across all running jobs. And if `sshare -U -u $USER` later shows
+EffectvUsage decayed back toward NormShares, cm4_tiny becomes much the better
+home; the script has that swap ready in comments.
 
 
 ## The genetic system

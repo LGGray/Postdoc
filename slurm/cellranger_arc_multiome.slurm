@@ -40,11 +40,12 @@
 # four samples. Verified, not assumed: the top 1000 cell barcodes of iset1
 # overlap isets 2/3/4 at 966/967/964, so all four sample the same nuclei.
 #
-# EXPECT THIS TO NEED MORE THAN ONE SUBMISSION. The GEX libraries are roughly
-# 650-700M read pairs each (~5x the 10x recommendation, deliberate
-# over-sequencing for allele-specific work) plus ~330M ATAC pairs, and
-# serial_std caps us at 16 cpus and 24h. A rough estimate puts one sample at
-# 20-35h, so budget two rounds. That is safe and cheap:
+# 24h on serial_std's 16 cpus is expected to be enough. The nearest local
+# precedent is cellranger_multi.slurm, which counted four OCM snRNA samples on
+# 18 cpus inside 24h; these are order 500-600M GEX pairs plus ~330M ATAC pairs
+# per sample.
+#
+# IF IT DOES TIME OUT, recovery is cheap and needs no edits:
 #
 #   - cellranger-arc checkpoints per stage, so re-running the same --id in the
 #     same directory resumes from the last completed stage.
@@ -52,7 +53,10 @@
 #     finished detects a complete pipestance and exits in seconds; only the
 #     unfinished one does work.
 #
-# So on a TIMEOUT, just `sbatch slurm/cellranger_arc_multiome.slurm` again.
+# So on a timeout, just `sbatch slurm/cellranger_arc_multiome.slurm` again. If
+# it times out twice, switch to serial_long (168h, --qos=cm4_serial_long) with
+# --array=1-2%1, since that partition caps the user at 100G across all running
+# jobs and so cannot run both samples at once.
 
 module load slurm_setup
 
