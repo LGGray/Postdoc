@@ -87,9 +87,16 @@ if [ -f "$ID/_lock" ]; then
   rm -f "$ID/_lock"
 fi
 
+# --create-bam became mandatory in cellranger-arc 2.2.0 (2.0.2 defaulted it).
+# It must be true here: every downstream allelic step reads BAMs, not the
+# matrices -- sinto filterbarcodes (slurm/sinto.slurm), Allelome.PRO2
+# (slurm/sc_Allelome.PRO2.slurm) and the pysam UMI route all need
+# gex_possorted_bam.bam / atac_possorted_bam.bam. Budget the disk: at this
+# depth expect roughly 100-120G of BAM per sample on top of the rest of outs/.
 cellranger-arc count \
   --id="$ID" \
   --reference="$REF" \
   --libraries="$LIB" \
+  --create-bam=true \
   --localcores=16 \
   --localmem=90

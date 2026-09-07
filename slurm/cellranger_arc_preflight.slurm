@@ -77,9 +77,12 @@ done
 cat "$WORK/libraries_preflight.csv"
 
 cd "$WORK" || exit 1
+# Mandatory in 2.2.0. Kept true so this exercises the same code path as the
+# real run, which needs BAMs for the allelic work.
 cellranger-arc count \
   --id=preflight \
   --reference="$REF" \
   --libraries="$WORK/libraries_preflight.csv" \
+  --create-bam=true \
   --localcores=16 \
   --localmem=60
