@@ -89,13 +89,32 @@ the offset natively, but anything that parses these barcodes directly - which
 the allelic ATAC work may well need to - must skip the first 8 bases or it
 will read pure garbage.
 
-Depth: order 500-600M GEX read pairs and ~330M ATAC read pairs per sample.
-Treat that as a rough figure - it is back-calculated from compressed file
-sizes, which is sensitive to the assumed bytes-per-record, and an earlier pass
-at it overshot by ~25%. The exact cluster counts are in
-`Project_17*_SequencingReport.csv`, which has still not been read. Either way
-the GEX is several times the 10x recommendation - deliberate over-sequencing
-for ASE.
+Depth, exact, from `Project_1730_SequencingReport.csv`:
+
+| GEX library | lane 1 | lane 2 | total pairs |
+|---|---|---|---|
+| 9w  `25L008363` | 339,538,551 | 347,544,986 | **687,083,537** |
+| 78w `25L008364` | 364,239,443 | 369,170,677 | **733,410,120** |
+
+ATAC is still estimated at ~330M pairs per sample; `Project_1729`'s report has
+not been read.
+
+The over-sequencing is unambiguously deliberate. On the same flowcell the three
+samples belonging to the submitting group got 77-127M pairs each, while these
+two got 687M and 733M - five to nine times the depth. At ~8k nuclei that is
+roughly 86k read pairs per nucleus against the 20-25k 10x recommends, which is
+the depth ASE needs and not an accident.
+
+**Read 1 quality is much lower than Read 2, and this is expected rather than a
+problem.** The report gives R1 at 70-73% bases >= Q30 (mean Q ~33.6) against
+R2 at 96-97% (mean Q ~39.2). That asymmetry follows directly from the geometry
+above: R1 spends positions 29-58 in a poly-T homopolymer and the rest reading
+through into low-complexity sequence, both of which degrade base calling, and
+it is also why R1 compresses worse than R2 despite equal length. What matters
+for the pipeline is only R1 positions 1-28, which are read before phasing
+degrades. Confirm that rather than assume it: check the "Q30 bases in barcode"
+and "Q30 bases in UMI" metrics in the cellranger-arc summary, since poor
+barcode quality would cost cells at the calling stage.
 
 That depth sets the compute problem. The count job runs on `serial_std`, not
 cm4_tiny, because cm4 was refusing to place jobs on *fairshare* rather than on
