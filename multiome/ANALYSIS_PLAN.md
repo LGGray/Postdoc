@@ -109,7 +109,9 @@ script has the swap ready in comments.
 
 ## The genetic system
 
-B6 mother x CAST father, female, **Xist deleted on the B6 allele**. Because
+B6 mother x CAST father, female, **Xist deleted on the B6 allele** -
+confirmed directly, not carried over from the spatial/snRNA work, because the
+direction of this one fact determines the sign of every result below. Because
 Xist is required in *cis* to inactivate its own chromosome, the B6 X cannot be
 silenced. So the CAST X is the inactive X in **100% of nuclei** - fully
 skewed, non-mosaic, no patch structure. That is what makes the readouts clean:
