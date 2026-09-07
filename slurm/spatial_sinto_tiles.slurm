@@ -75,15 +75,23 @@
 # request outright rather than trimming it. The wall clock also depends on
 # WHERE this runs, so change it together with the cluster block above.
 #
-# The per-tile cost is measured, not guessed. Job 207291 did 701/3738 tiles (9w)
-# and 711/3215 (78w) in 2h35 at -j 30: ~6.6 min of CPU per tile, and that cost
-# is the per-invocation genome-wide SNP and annotation parse, so it is fixed per
-# tile and does not fall as the run proceeds. FILTER_MODE=dup scores ~2.2x the
-# reads, so call it ~8.5 min per tile there. At -j 14 that is ~99 tiles/h:
+# The per-tile cost is measured, not guessed. At FILTER_MODE=dedup, job 207291
+# did 701/3738 tiles (9w) and 711/3215 (78w) in 2h35 at -j 30: ~6.6 min of CPU
+# per tile. That cost is the per-invocation genome-wide SNP and annotation
+# parse, so it is fixed per tile and does not fall as the run proceeds.
 #
-#    6h -> ~593 tiles   9w needs 6.3 jobs
-#   12h -> ~1186 tiles  9w needs 3.2 jobs
-#   24h -> ~2372 tiles  9w needs 1.6 jobs, 78w needs 1.4
+# FILTER_MODE=dup is now measured too, and it is dearer than the ~8.5 min an
+# earlier note here extrapolated from the 2.2x read volume. Job 5461098 ran the
+# full 24h at -j 14 and did 1954/3738 (9w) and 1947/3215 (78w) in 23.9h of
+# scoring - 10.3 min of CPU per tile on BOTH samples, i.e. ~82 tiles/h. Use the
+# measured figure, not the extrapolation:
+#
+#    6h -> ~490 tiles   9w needs 7.6 jobs
+#   12h -> ~980 tiles   9w needs 3.8 jobs
+#   24h -> ~1968 tiles  9w needs 1.9 jobs, 78w needs 1.6
+#
+# So from cold, at the 24h ceiling, TWO links per sample - which is what the
+# chain's default of 3 covers with margin.
 #
 # 6h stood here while the job was queued on cm4_tiny, and for THAT queue it was
 # right: pending time is the only wall clock genuinely lost when every stage
@@ -106,7 +114,9 @@
 # NEXT job's startup collect_tables call rescues them, so nothing is
 # recomputed. The one real hazard is leaving them there, since $SCRATCH is
 # purged on an access-time policy - so always keep a follow-up link queued
-# rather than ending on a killed job. The chain does that:
+# rather than ending on a killed job. This is not hypothetical: 5461098 was the
+# last job in its chain, so its ~3900 locus tables sat in $SCRATCH alone until
+# the next submission's startup collect rescued them. The chain avoids that:
 #
 #   ./slurm/submit_sinto_tiles_chain.sh 3 64 no_Xist dup
 #
