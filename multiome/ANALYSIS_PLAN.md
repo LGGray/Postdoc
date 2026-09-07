@@ -64,8 +64,19 @@ will read pure garbage.
 
 Depth: roughly 650-700M GEX read pairs and ~330M ATAC read pairs per sample
 (estimated from file sizes; the sequencing report has never been read). The
-GEX is about 5x the 10x recommendation - deliberate over-sequencing for ASE,
-and the reason the count job needs a whole node.
+GEX is about 5x the 10x recommendation - deliberate over-sequencing for ASE.
+
+That depth sets the compute problem. The count job runs on `serial_std`, not
+cm4_tiny, because cm4 was refusing to place jobs on *fairshare* rather than on
+resources - see the rationale in `slurm/spatial_sinto_tiles.slurm`, which
+established that neither waiting nor a smaller shape helps in that situation.
+The cost is 16 cpus / 96G instead of 112 / 256G, roughly a 6x wall-clock
+penalty, which puts one sample past the 24h limit. That is handled rather than
+avoided: cellranger-arc checkpoints per stage, so a timeout is resolved by
+resubmitting the same array, and the sample that already finished exits in
+seconds. Budget two rounds. If `sshare -U -u $USER` later shows EffectvUsage
+decayed back toward NormShares, cm4_tiny becomes much the better home and the
+script has the swap ready in comments.
 
 
 ## The genetic system
