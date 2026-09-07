@@ -12,9 +12,29 @@ Two 10x Multiome samples. Raw data lives in the shared lab area, not in
 
 | | 9w (adult) | 78w (aged) |
 |---|---|---|
+| animal | `DAN-4106` | `DAN-0561` |
 | GEX library | `25L008363` (S4) | `25L008364` (S5) |
 | ATAC library | `25L008352` (S13-S16) | `25L008356` (S17-S20) |
 | fastq prefix | `He_9w_multiome_XBxC_XX` | `25L008364` / `25L008356` |
+
+Both pairings are **confirmed from the sample sheets**, not inferred. In
+`Project_1730_lims.csv` and `Project_1729_lims.csv` the GEX and ATAC libraries
+of each animal carry an identical `Sample_NameLIMS`:
+`DAN-4106_He_9w_multiome_XBxC_-plus_XX` and
+`DAN-0561_He_78w_multiome_XBxC_-plus_XX`. Protocol is recorded as
+"Chromium Next GEM Single Cell Multiome ATAC + Gene Expression" for all ten
+libraries. The `-plus` in those names is almost certainly a filesystem-safe
+rendering of `-/+`, i.e. heterozygous for the deletion, matching the `het` in
+the OCM sample names (`He_9w_snRNA_XBxC_het_XX`).
+
+**Three other samples share this submission and are not ours.** The sample
+sheets list five animals per project: `E74_REV_WT`, `E56_DMT_KO` and
+`E68_KMA_KO` alongside the two `DAN-*` ones. Only the two `DAN-*` samples were
+delivered into `andergassen_lab/00_raw_data` - the file counts confirm it (48
+ATAC fastq = 2 libraries x 4 isets x 2 lanes x 3 reads; 8 GEX fastq = 2 x 2 x
+2). The `E*` samples belong to the submitting group, which is why the project
+directory is named for them; `DAN-*` is this lab's. So there is no missing
+data, but do not be surprised by the extra rows in the sheet.
 
 Two things about the directory layout are easy to get wrong:
 
@@ -38,6 +58,13 @@ Two things about the directory layout are easy to get wrong:
 | GEX | 101 | 101 | - |
 
 All reads are uniform length - no trimming was applied.
+
+Note a **documentation discrepancy**: the sample sheets record the intended
+recipe as `50-8-24-49` for ATAC (R1-i7-i5-R2) and `28-10-10-90` for GEX. ATAC
+was delivered exactly as recorded, and the `i7=8` there independently confirms
+that the four isets differ on i7. GEX was **not** - the sheet says 28/90 but
+the flowcell delivered 101/101. The recorded value is the protocol default, not
+what was run, so trust the measurements below over the sheet.
 
 **GEX used a symmetric 101/101 recipe, not the 10x multiome 28/90 recipe.**
 The library itself is nonetheless genuine 10x 3' architecture, confirmed by
@@ -63,7 +90,8 @@ the allelic ATAC work may well need to - must skip the first 8 bases or it
 will read pure garbage.
 
 Depth: roughly 650-700M GEX read pairs and ~330M ATAC read pairs per sample
-(estimated from file sizes; the sequencing report has never been read). The
+(estimated from file sizes; the lims sheets carry no read counts, and
+`Project_17*_SequencingReport.csv` has still not been read). The
 GEX is about 5x the 10x recommendation - deliberate over-sequencing for ASE.
 
 That depth sets the compute problem. The count job runs on `serial_std`, not
