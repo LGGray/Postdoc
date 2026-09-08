@@ -240,20 +240,26 @@ gex/atac) and 26G/26G (78w) under `adult_aged_multiome/<id>/outs/`.
 | ATAC peaks | 52,231 | 71,694 |
 | feature linkages | 8,675 | 40,966 |
 
-**Deduplication dominates everything.** `scAllelome_dedup.slurm` measured 39.4%
-duplicates in the OCM data and expected `total_reads` to "roughly halve". Here
-it is 98.58% - a ~70x reduction. The depth bought amplification, not
-molecules: ~390k reads per nucleus collapsed to ~1,350 UMIs, because library
-complexity was the ceiling rather than sequencing. Consequences:
+**Deduplication is already handled inside Allelome.PRO2, which corrects an
+earlier claim here.** `Allelome.PRO2.sh` line 238 runs `samtools mpileup` with
+no `--ff`, so mpileup's default exclusion mask `UNMAP,SECONDARY,QCFAIL,DUP`
+applies and duplicate-flagged reads never reach the allelic scoring. So
+`total_reads` in `locus_table.txt` has always been a molecule-level count here,
+whatever an upstream filter says, and the OCM thresholds
+(`MIN_TOTAL_READS` in `02_whole_chrX.R`, the sweeps in `06`/`07`, the
+stratification in `08`) were calibrated on duplicate-excluded counts too. They
+transfer in kind; they may still need loosening because this data is shallower
+per nucleus, but not by any factor of 70.
 
-- Read-level Allelome.PRO2 is not a variant worth keeping for this dataset. A
-  single amplified molecule would vote ~70 times, which is exactly the failure
-  `09_dedup_comparison.R` describes ("three real molecules and heavy
-  amplification on one reads as near-monoallelic").
-- **Every threshold calibrated on the read-level tree must be re-derived**:
-  `MIN_TOTAL_READS` in `02_whole_chrX.R`, the sweep grids in `06`/`07`, the
-  exact-count stratification in `08`. They were tuned where dedup halved
-  counts.
+This was established the expensive way - see the `allelome-pro2-drops-duplicates`
+note, where a 24h x 2 dedup comparison produced byte-identical trees.
+
+The `-F 0x400` pre-filter is retained anyway, as a **performance** measure
+rather than a correctness one: at 98.58%/97.79% duplicate it shrinks the BAM
+roughly 70x, which makes the sinto split and the pileup dramatically faster for
+identical output. The filter that actually changes the result is **`-q 255`**,
+since mpileup applies no MAPQ filter by default and a multimapper over a SNP
+would otherwise be assigned an allele outright.
 
 **MAPQ encodings differ between the two modalities.** GEX is STAR (unique =
 255); ATAC is BWA (caps at 60). Reusing `-q 255` on the ATAC BAM returns zero

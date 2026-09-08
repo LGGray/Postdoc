@@ -40,21 +40,24 @@
 # carries no B6 sequence and scores as 100% CAST - a deletion artefact
 # indistinguishable from perfect escape. Masking it is not optional here.
 #
-# WHY -F 0x400 -q 255, and why it matters far more than it did for OCM:
-#   -F 0x400  drop PCR duplicates. Cellranger marks these per (CB, UB, gene),
-#             so what survives is ~one read per molecule. Every read of one UMI
-#             carries the same allele, so duplicates add weight to a ratio
-#             without adding evidence about which allele was there.
-#   -q 255    STAR-unique only. A multimapper overlapping a SNP is not merely
-#             misattributed, it is assigned an allele outright.
-# scAllelome_dedup.slurm measured 39.4% duplicates in the OCM data and expected
-# total_reads to "roughly halve". These libraries are 98.58% (9w) and 97.79%
-# (78w) duplicate - a ~70x reduction, not 2x. Depth here bought amplification
-# rather than molecules: ~390k reads per nucleus collapsed to ~1350 UMIs. So
-# read-level scoring is not a variant worth keeping for this dataset, and every
-# threshold calibrated on the read-level tree (MIN_TOTAL_READS in 02, the
-# sweeps in 06/07, the stratification in 08) has to be re-derived rather than
-# carried over.
+# WHY -F 0x400 -q 255, and what each actually does. These are NOT symmetric:
+#
+#   -q 255  changes the RESULT. STAR-unique only. mpileup applies no MAPQ
+#           filter by default, so without this a multimapper overlapping a SNP
+#           reaches the scoring and is assigned an allele outright.
+#   -F 0x400  changes only the SPEED. Allelome.PRO2.sh line 238 runs
+#           `samtools mpileup` with no --ff, so mpileup's default exclusion
+#           mask UNMAP,SECONDARY,QCFAIL,DUP applies and duplicate-flagged reads
+#           NEVER reach the allelic scoring. Pre-filtering them is therefore a
+#           no-op for correctness. It is kept because these libraries are
+#           98.58%/97.79% duplicate, so dropping them shrinks the BAM ~70x and
+#           makes both the sinto split and the pileup dramatically faster.
+#
+# So Allelome.PRO2 has always been duplicate-excluded here, whatever an
+# upstream filter says. total_reads in locus_table.txt is already a molecule-
+# level count. That was measured the hard way - see the memory note
+# allelome-pro2-drops-duplicates, where a 24h x 2 comparison produced
+# byte-identical trees.
 #
 # NOTE for the ATAC counterpart, when it comes: -q 255 must NOT be reused.
 # cellranger-arc aligns ATAC with BWA, whose MAPQ caps at 60, so -q 255 there

@@ -39,10 +39,28 @@
 # sequence and would score as 100% CAST - a deletion artefact indistinguishable
 # from perfect escape.
 #
-# WHY -F 0x400 -q 255: these libraries are 98.58%/97.79% duplicate, so read-
-# level scoring would let one amplified molecule vote ~70 times. -q 255 is
-# STAR-unique; a multimapper over a SNP is assigned an allele outright. NOTE
-# this is the GEX BAM only - the ATAC BAM is BWA-aligned and would need -q 30.
+# WHY -F 0x400 -q 255, and what each actually does. These are NOT symmetric:
+#
+#   -q 255  changes the RESULT. STAR-unique only. mpileup applies no MAPQ
+#           filter by default, so without this a multimapper overlapping a SNP
+#           reaches the scoring and is assigned an allele outright.
+#   -F 0x400  changes only the SPEED. Allelome.PRO2.sh line 238 runs
+#           `samtools mpileup` with no --ff, so mpileup's default exclusion
+#           mask UNMAP,SECONDARY,QCFAIL,DUP applies and duplicate-flagged reads
+#           NEVER reach the allelic scoring. Pre-filtering them is therefore a
+#           no-op for correctness. It is kept because these libraries are
+#           98.58%/97.79% duplicate, so dropping them shrinks the BAM ~70x and
+#           makes both the sinto split and the pileup dramatically faster.
+#
+# So Allelome.PRO2 has always been duplicate-excluded here, whatever an
+# upstream filter says. total_reads in locus_table.txt is already a molecule-
+# level count. That was measured the hard way - see the memory note
+# allelome-pro2-drops-duplicates, where a 24h x 2 comparison produced
+# byte-identical trees.
+#
+# NOTE the -q 255 caveat: this is the GEX BAM, aligned by STAR. The ATAC BAM is
+# BWA-aligned and caps at MAPQ 60, so -q 255 there returns zero reads without
+# erroring; it needs -q 30.
 #
 # Per-nucleus BAMs and Allelome output live on SCRATCH at a STABLE path (no job
 # id), so the plotting job can consolidate whatever finished even if this job

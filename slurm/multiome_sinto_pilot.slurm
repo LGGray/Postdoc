@@ -31,7 +31,13 @@
 # BAM first and then filtered each per-cell BAM, i.e. one samtools pass per
 # nucleus. Here the whole-BAM filter happens ONCE, before the split. Both
 # filters are per-read and barcode-independent, so the result is identical, but
-# this is one pass over 23G instead of ~1400 passes over small files. The
+# this is one pass over 23G instead of ~1400 passes over small files.
+#
+# Note what that filter is and is not doing. -q 255 changes the result. -F
+# 0x400 does not: Allelome.PRO2.sh line 238 runs mpileup with no --ff, so
+# mpileup's default UNMAP,SECONDARY,QCFAIL,DUP mask already excludes duplicates
+# before scoring. It is kept purely for speed - at ~98% duplicate it shrinks
+# the BAM about 70x. The
 # filtered BAM is shared with multiome_allelome_pseudobulk.slurm, which writes
 # it to the same path, so whichever job runs first pays for it.
 #
