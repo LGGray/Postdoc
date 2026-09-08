@@ -17,7 +17,11 @@
 #
 #   RESULTS_ROOT=Allelic_ratio_results_dedup Rscript allelic_ratio/11_autosomal_control.R
 # ---------------------------------------------------------------------------
-source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
+# POSTDOC_ROOT lets these scripts be parsed and syntax-checked off the cluster;
+# unset, it is the cluster path these have always used, so job scripts need no change.
+source(file.path(Sys.getenv("POSTDOC_ROOT",
+                            "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc"),
+                 "OCM_heart/allelic_ratio/00_functions.R"))
 
 OUT_DIR <- file.path(CUTOFF_DIR, "autosomal_control")
 dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
@@ -69,6 +73,15 @@ expected_ar_dom <- function(n) {
 paired$ar_dom_a_null <- expected_ar_dom(paired$total_reads_a)
 paired$ar_dom_x_null <- expected_ar_dom(paired$total_reads_x)
 
+# The floor is depth-dependent and the two arms are NOT at the same depth - chrX
+# is roughly 7x shallower, so it carries the HIGHER floor, and the raw
+# ar_excess is biased upward in exactly the direction the script is testing for.
+# Subtracting each arm's own null before differencing removes that bias. Both
+# are reported: ar_excess is the raw within-cell difference, ar_excess_adj is
+# the one to quote.
+paired$ar_excess_adj <- (paired$ar_dom_x - paired$ar_dom_x_null) -
+                        (paired$ar_dom_a - paired$ar_dom_a_null)
+
 per_sample <- paired %>%
   group_by(sample) %>%
   summarise(n              = n(),
@@ -77,11 +90,13 @@ per_sample <- paired %>%
             med_ar_x       = median(ar_dom_x),
             med_ar_a       = median(ar_dom_a),
             med_null_a     = median(ar_dom_a_null),
+            med_null_x     = median(ar_dom_x_null),
             med_excess     = median(ar_excess),
+            med_excess_adj = median(ar_excess_adj),
             med_dir_x      = median(ar_a1_x),
             med_dir_a      = median(ar_a1_a),
-            frac_x_mono    = mean(ar_dom_x >= 0.90),
-            frac_a_mono    = mean(ar_dom_a >= 0.90),
+            frac_x_mono    = mean(ar_dom_x >= MONO_AR),
+            frac_a_mono    = mean(ar_dom_a >= MONO_AR),
             .groups = "drop")
 print(as.data.frame(per_sample))
 
@@ -89,9 +104,9 @@ print(as.data.frame(per_sample))
 # monoallelic on autosomes, where no such thing exists. Whatever it is, chrX
 # calls at the same depth carry at least that much of it.
 message(sprintf("\nAutosomal cells at ar_dom >= 0.90 (false monoallelic rate): %.1f%%",
-                100 * mean(paired$ar_dom_a >= 0.90)))
+                100 * mean(paired$ar_dom_a >= MONO_AR)))
 message(sprintf("chrX cells at ar_dom >= 0.90: %.1f%%",
-                100 * mean(paired$ar_dom_x >= 0.90)))
+                100 * mean(paired$ar_dom_x >= MONO_AR)))
 
 # Paired test per sample: is chrX skewed beyond its own cell's autosomes?
 # Wilcoxon signed-rank on the within-cell difference, which needs no assumption
@@ -99,13 +114,21 @@ message(sprintf("chrX cells at ar_dom >= 0.90: %.1f%%",
 tests <- bind_rows(lapply(split(paired, paired$sample), function(d) {
   if (nrow(d) < 10) return(NULL)
   w <- wilcox.test(d$ar_dom_x, d$ar_dom_a, paired = TRUE)
+  # Same test on the depth-adjusted difference. If the raw result survives here
+  # it is not an artefact of the two arms sitting at different depths.
+  w_adj <- wilcox.test(d$ar_dom_x - d$ar_dom_x_null,
+                       d$ar_dom_a - d$ar_dom_a_null, paired = TRUE)
   data.frame(sample = d$sample[1], n = nrow(d),
              median_excess = median(d$ar_excess),
-             p = w$p.value, stringsAsFactors = FALSE)
+             median_excess_adj = median(d$ar_excess_adj),
+             p = w$p.value, p_adj_null = w_adj$p.value,
+             stringsAsFactors = FALSE)
 }))
 if (nrow(tests)) {
   tests$fdr <- p.adjust(tests$p, method = "BH")
   tests$stars <- fdr_to_stars(tests$fdr)
+  tests$fdr_adj_null <- p.adjust(tests$p_adj_null, method = "BH")
+  tests$stars_adj_null <- fdr_to_stars(tests$fdr_adj_null)
   print(tests)
   write.table(tests, file.path(OUT_DIR, "chrX_vs_autosomal_paired_test.txt"),
               sep = "\t", row.names = FALSE, quote = FALSE)

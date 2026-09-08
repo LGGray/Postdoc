@@ -24,7 +24,11 @@
 # Then everything downstream follows the same RESULTS_ROOT:
 #   RESULTS_ROOT=Allelic_ratio_results_dedup Rscript allelic_ratio/02_whole_chrX.R
 # ---------------------------------------------------------------------------
-source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
+# POSTDOC_ROOT lets these scripts be parsed and syntax-checked off the cluster;
+# unset, it is the cluster path these have always used, so job scripts need no change.
+source(file.path(Sys.getenv("POSTDOC_ROOT",
+                            "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc"),
+                 "OCM_heart/allelic_ratio/00_functions.R"))
 
 TREE    <- Sys.getenv("TREE", "Allelome.PRO2")
 SAMPLES <- strsplit(Sys.getenv("SAMPLES", "9w,78w,Sham,TAC"), "[, ]+")[[1]]

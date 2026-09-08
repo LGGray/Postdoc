@@ -9,7 +9,11 @@
 # Run from the OCM_heart/ directory:  Rscript allelic_ratio/05_lox_sensitivity.R
 # Requires: 02_whole_chrX.R and 04_core_escape.R to have been run.
 # ---------------------------------------------------------------------------
-source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
+# POSTDOC_ROOT lets these scripts be parsed and syntax-checked off the cluster;
+# unset, it is the cluster path these have always used, so job scripts need no change.
+source(file.path(Sys.getenv("POSTDOC_ROOT",
+                            "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc"),
+                 "OCM_heart/allelic_ratio/00_functions.R"))
 
 metadata_whole_chr <- read.table(
   file.path(CUTOFF_DIR, 'whole_chr_cell_metadata.txt'),

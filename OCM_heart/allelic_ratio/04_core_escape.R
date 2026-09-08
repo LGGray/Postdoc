@@ -5,7 +5,11 @@
 # Requires: 01_setup.R to have been run.
 # Writes:   <CEB_DIR>/core_escape_block_cell_metadata.txt for 05.
 # ---------------------------------------------------------------------------
-source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
+# POSTDOC_ROOT lets these scripts be parsed and syntax-checked off the cluster;
+# unset, it is the cluster path these have always used, so job scripts need no change.
+source(file.path(Sys.getenv("POSTDOC_ROOT",
+                            "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc"),
+                 "OCM_heart/allelic_ratio/00_functions.R"))
 
 heart <- readRDS('heart_seurat_object_SCT.rds')
 heart$celltype <- Idents(heart)
@@ -142,8 +146,8 @@ write.table(cell_counts_ceb, file.path(CEB_DIR, 'core_escape_block_cell_counts_p
 # would overstate precision the data doesn't support).
 metadata_ceb$LOX_status <- factor(
   case_when(
-    metadata_ceb$ar_a1 <= 0.10 ~ "LOX-like (AR <= 0.10)",
-    metadata_ceb$ar_a1 >= 0.9 ~ "LOX-like (AR >= 0.9)",
+    metadata_ceb$ar_a1 <= 1 - MONO_AR ~ "LOX-like (AR <= 0.10)",
+    metadata_ceb$ar_a1 >= MONO_AR ~ "LOX-like (AR >= 0.9)",
     TRUE ~ "Other"
   ),
   levels = c("LOX-like (AR <= 0.10)", "Other", "LOX-like (AR >= 0.9)")
@@ -160,7 +164,7 @@ metadata_ceb$sample <- factor(metadata_ceb$sample, levels = c("9w", "78w", "Sham
 # that lost A2 and missed every cell at the other end - exactly the ones the
 # LOX_status factor above is careful to include as "LOX-like (AR <= 0.10)". So
 # 05 was excluding half the LOX cells it was written to exclude.
-metadata_ceb$monoallelic <- as.integer(metadata_ceb$ar_dom >= 0.90)
+metadata_ceb$monoallelic <- as.integer(metadata_ceb$ar_dom >= MONO_AR)
 
 write.table(metadata_ceb,
             file.path(CEB_DIR, 'core_escape_block_cell_metadata.txt'),
@@ -463,8 +467,8 @@ write.table(extreme_expected, file.path(CEB_DIR, 'core_escape_block_new_extreme_
 # remove them and a second artefact process (ambient RNA, misassignment,
 # doublets) is implicated.
 depth_extreme <- xist_ar %>%
-  mutate(ar_class = case_when(ar_a1 <= 0.10 ~ "AR <= 0.10",
-                              ar_a1 >= 0.90 ~ "AR >= 0.90",
+  mutate(ar_class = case_when(ar_a1 <= 1 - MONO_AR ~ "AR <= 0.10",
+                              ar_a1 >= MONO_AR ~ "AR >= 0.90",
                               TRUE ~ "Intermediate")) %>%
   group_by(sample, ar_class) %>%
   summarise(n_cells = n(),
@@ -494,8 +498,8 @@ write.table(depth_test, file.path(CEB_DIR, 'core_escape_block_new_extreme_AR_dep
 
 pdf(file.path(CEB_DIR, 'core_escape_block_new_extreme_AR_depth.pdf'), width = 8, height = 4)
 xist_ar %>%
-  mutate(ar_class = case_when(ar_a1 <= 0.10 ~ "AR <= 0.10",
-                              ar_a1 >= 0.90 ~ "AR >= 0.90",
+  mutate(ar_class = case_when(ar_a1 <= 1 - MONO_AR ~ "AR <= 0.10",
+                              ar_a1 >= MONO_AR ~ "AR >= 0.90",
                               TRUE ~ "Intermediate")) %>%
   ggplot(aes(x = ar_class, y = total_reads, fill = ar_class)) +
   geom_violin(scale = "width", trim = TRUE) +
@@ -568,7 +572,7 @@ dev.off()
 # it is a coarsened version of the same two variables as the model above.
 xist_lox <- xist_ar %>%
   mutate(xist_zero = ifelse(Xist == 0, "Xist == 0", "Xist > 0"),
-         LOX_call  = ifelse(ar_a1 >= 0.90, "LOX-like (AR >= 0.90)", "Other"))
+         LOX_call  = ifelse(ar_a1 >= MONO_AR, "LOX-like (AR >= 0.90)", "Other"))
 
 xist_lox_tab <- xist_lox %>%
   count(sample, celltype, xist_zero, LOX_call, name = "n_cells")
@@ -652,7 +656,7 @@ umap_df <- data.frame(
 # above so the figure and the LOX calls agree. Xist is a median split, which is
 # dataset-relative by design - the value is printed into the axis label so the
 # figure stays self-documenting.
-ar_hi_cut   <- 0.90
+ar_hi_cut   <- MONO_AR
 xist_hi_cut <- median(umap_df$Xist, na.rm = TRUE)
 
 umap_df <- umap_df %>%

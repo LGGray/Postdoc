@@ -20,7 +20,11 @@
 # calibrated (see the FPR simulations in 02), and repeating them at seven
 # cutoffs would only multiply that problem.
 # ---------------------------------------------------------------------------
-source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
+# POSTDOC_ROOT lets these scripts be parsed and syntax-checked off the cluster;
+# unset, it is the cluster path these have always used, so job scripts need no change.
+source(file.path(Sys.getenv("POSTDOC_ROOT",
+                            "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc"),
+                 "OCM_heart/allelic_ratio/00_functions.R"))
 
 OUT_DIR <- file.path(RESULTS_ROOT, "cutoff_sweep")
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
@@ -265,8 +269,8 @@ for (cut_i in CUTOFFS) {
               median_total_reads = median(total_reads),
               median_AR        = median(allelic_ratio),
               mean_AR          = mean(allelic_ratio),
-              frac_escaping    = mean(allelic_ratio <= 0.9),
-              frac_monoallelic = mean(allelic_ratio >= 0.9),
+              frac_escaping    = mean(allelic_ratio < MONO_AR),
+              frac_monoallelic = mean(allelic_ratio >= MONO_AR),
               .groups = "drop") %>%
     filter(n_cells > 0)
 }
@@ -284,7 +288,7 @@ sweep_overall <- bind_rows(lapply(CUTOFFS, function(cut_i) {
     summarise(n_cells          = dplyr::n(),
               median_total_reads = median(total_reads),
               median_AR        = median(allelic_ratio),
-              frac_escaping    = mean(allelic_ratio <= 0.9),
+              frac_escaping    = mean(allelic_ratio < MONO_AR),
               .groups = "drop") %>%
     mutate(min_total_reads = cut_i)
 })) %>%

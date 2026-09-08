@@ -19,7 +19,11 @@
 # Run from the OCM_heart/ directory, in seurat_env (NOT RNAseq):
 #   Rscript allelic_ratio/09_dedup_comparison.R
 # ---------------------------------------------------------------------------
-source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
+# POSTDOC_ROOT lets these scripts be parsed and syntax-checked off the cluster;
+# unset, it is the cluster path these have always used, so job scripts need no change.
+source(file.path(Sys.getenv("POSTDOC_ROOT",
+                            "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc"),
+                 "OCM_heart/allelic_ratio/00_functions.R"))
 
 SAMPLES  <- c("9w", "78w", "Sham", "TAC")
 TREE_RAW <- Sys.getenv("TREE_RAW", "Allelome.PRO2")

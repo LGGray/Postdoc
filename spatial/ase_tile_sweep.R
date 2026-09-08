@@ -563,12 +563,19 @@ imp_ref <- rbindlist(lapply(grep("^imp", names(SET_COLS), value = TRUE),
   # Which allele the locus set expresses, read off the data rather than assumed.
   expressed <- if (r > a) "B6 (ref)" else "CAST (alt)"
   wrong <- if (r > a) a else r
+  # n_eff, per the rule at the top of the file: in a dup run r and a are READS,
+  # and reads of one molecule are one allele call photocopied. Both the count
+  # and the error count are deflated, so err is unchanged and only the interval
+  # widens - which is the honest width. err is therefore per independent
+  # MOLECULE, not per read.
+  n_eff     <- (r + a) / EFF_DIVISOR
+  wrong_eff <- wrong / EFF_DIVISOR
   data.table(set = nm, n = r + a, expressed = expressed, wrong_allele = wrong,
              err = wrong / (r + a),
              # One-sided 95% upper bound. With no failures the rule of three
              # gives 3/n, which is the honest way to report 0 out of 194.
-             err_hi = if (wrong == 0) 3 / (r + a) else
-               qbeta(0.95, wrong + 1, r + a - wrong))
+             err_hi = if (wrong == 0) 3 / n_eff else
+               qbeta(0.95, wrong_eff + 1, n_eff - wrong_eff))
 }))
 if (nrow(imp_ref)) {
   message("\n--- imprinted controls, by direction ---")
@@ -615,12 +622,22 @@ esc <- rbindlist(lapply(names(SET_COLS), function(nm) {
   if (r + a == 0) return(NULL)
   data.table(set = nm, umis = r + a, escape = a / (r + a))
 }))
-esc[, escape_se := sqrt(escape * (1 - escape) / umis)]
+# n_eff, not umis: in a dup run `umis` are reads, and the SE has to be a
+# statement about independent molecules or it is optimistic by
+# sqrt(EFF_DIVISOR) (~3.4x at the measured factor of 11.8). `umis` stays in the
+# printed table because it is what Allelome.PRO2 actually sees.
+esc[, n_eff := umis / EFF_DIVISOR]
+esc[, escape_se := sqrt(escape * (1 - escape) / n_eff)]
 message("\n--- escape by SNP set (CAST fraction = escape) ---")
 msg_table(esc[order(-umis), .(set, umis, escape = round(escape, 4),
                               se = round(escape_se, 4))])
 message("Sampling SE only - it ignores overdispersion and the mapping bias, so")
 message("treat it as a floor on the uncertainty.")
+if (EFF_DIVISOR > 1) {
+  message("SEs above, and the imprinted err/err_95_upper, are per independent ")
+  message("MOLECULE: counts were divided by the duplication factor ",
+          round(EFF_DIVISOR, 3), ".")
+}
 if (all(c("chrX", "escape", "nonescape") %in% esc$set)) {
   e_all <- esc[set == "chrX", escape]
   e_esc <- esc[set == "escape", escape]

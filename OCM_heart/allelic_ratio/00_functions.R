@@ -166,6 +166,17 @@ fdr_to_stars <- function(fdr) {
 MIN_TOTAL_READS <- as.integer(Sys.getenv("MIN_TOTAL_READS", "30"))
 stopifnot(!is.na(MIN_TOTAL_READS), MIN_TOTAL_READS >= 1)
 
+# The monoallelic / LOX boundary, defined ONCE. 02, 04, 06 and 08 all cut cells
+# at 0.90, but they used to disagree on which side the boundary itself falls on:
+# 02's frac_escaping took AR <= 0.9 as escaping while its prop_tbl took AR < 0.9
+# as biallelic, and 06 counted AR <= 0.9 as escaping AND AR >= 0.9 as
+# monoallelic in the same summarise - so a cell at exactly 0.90 (9/10, 18/20,
+# 27/30 reads, all common at MIN_TOTAL_READS = 30) was in both columns at once.
+# The convention now: AR <  MONO_AR is escaping / biallelic
+#                     AR >= MONO_AR is monoallelic / LOX-like
+# which matches the right = TRUE binning in spatial/tile_ratio_map.R.
+MONO_AR <- 0.90
+
 # Which Allelome.PRO2 tree the results were built from. Everything below hangs
 # off this, so pointing 02-08 at the deduplicated tree is one variable, not a
 # fork of 982 lines:

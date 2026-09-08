@@ -55,19 +55,37 @@ P=He_9w_multiome_XBxC_XX
 
 # head closes the pipe early, so zcat exits on SIGPIPE; that is fine here but
 # would trip the pipefail we would otherwise want, hence no `set -o pipefail`.
+# The 2>/dev/null above is only there for the SIGPIPE note. It must NOT be
+# allowed to swallow a missing or unreadable input: that produces an empty
+# subsample and cellranger-arc then runs for two hours on nothing. Test the
+# file first.
 for R in R1 R2; do
-  zcat "$RNA_IN/${P}_S4_L001_${R}_001.fastq.gz" 2>/dev/null | head -n "$NLINES" \
+  f="$RNA_IN/${P}_S4_L001_${R}_001.fastq.gz"
+  [ -r "$f" ] || { echo "ERROR: missing or unreadable GEX fastq: $f" >&2; exit 1; }
+  zcat "$f" 2>/dev/null | head -n "$NLINES" \
     | gzip > "$WORK/gex/${P}_S4_L001_${R}_001.fastq.gz"
 done
 for R in R1 R2 R3; do
-  zcat "$ATAC_IN/${P}_S13_L001_${R}_001.fastq.gz" 2>/dev/null | head -n "$NLINES" \
+  f="$ATAC_IN/${P}_S13_L001_${R}_001.fastq.gz"
+  [ -r "$f" ] || { echo "ERROR: missing or unreadable ATAC fastq: $f" >&2; exit 1; }
+  zcat "$f" 2>/dev/null | head -n "$NLINES" \
     | gzip > "$WORK/atac/${P}_S13_L001_${R}_001.fastq.gz"
 done
 
+# And a short subsample is just as fatal as a missing one, so fail on it rather
+# than printing it and carrying on.
 echo "subsampled read counts (should each be $NREADS):"
+short=0
 for f in "$WORK"/gex/*.fastq.gz "$WORK"/atac/*.fastq.gz; do
-  printf "  %-12s %s\n" "$(( $(zcat "$f" | wc -l) / 4 ))" "$(basename "$f")"
+  n=$(( $(zcat "$f" | wc -l) / 4 ))
+  printf "  %-12s %s\n" "$n" "$(basename "$f")"
+  [ "$n" -eq "$NREADS" ] || short=1
 done
+if [ "$short" -ne 0 ]; then
+  echo "ERROR: at least one subsample is not $NREADS reads. The source fastq is" >&2
+  echo "       shorter than that, or was truncated. Not running cellranger-arc." >&2
+  exit 1
+fi
 
 {
   echo "fastqs,sample,library_type"

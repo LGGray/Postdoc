@@ -25,7 +25,7 @@ set -euo pipefail
 #   ./slurm/submit_sinto_tiles_chain.sh 3 64 no_Xist dup
 #
 # Then watch it with:
-#   squeue --clusters=cm4 -u $USER -o '%.10i %.12j %.8T %.10M %.10l %.6D %R'
+#   squeue -M serial,cm4 -u $USER -o '%.10i %.12j %.8T %.10M %.10l %.6D %R'
 #
 # Resources come from the #SBATCH lines at the top of spatial_sinto_tiles.slurm
 # and are NOT restated here - that file is the single source of truth, so

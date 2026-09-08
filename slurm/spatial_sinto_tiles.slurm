@@ -55,8 +55,10 @@
 #      belongs to serial_std and would be wrong back on cm4_tiny.
 #   2. A DIFFERENT QUEUE, i.e. the swap above. cm4_tiny and serial_std are
 #      separate clusters with separate contention. NOTE that serial_std caps
-#      cpus-per-task at 16, so the 18-core requests in map_adult_bodymap.slurm
-#      and its siblings are over that limit and would be rejected today.
+#      cpus-per-task at 16. map_adult_bodymap.slurm and its 12 siblings asked
+#      for 18 and would have been rejected outright; they were set to 16 on
+#      2026-09-08. Do not copy a core count from a neighbouring script - check
+#      the LRZ partition table.
 #   3. Waiting, if fairshare is the component that is low - nothing in this file
 #      changes that. Check before assuming otherwise:
 #        squeue --start -j <jobid>          # estimated start, the first thing to look at
@@ -355,7 +357,30 @@ source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x
 ##### ---- split ---- #####
 N_BAM=$(find "$BAM_DIR" -name '*.bam' | wc -l)
 if [ "$N_BAM" -ge "$N_TILES" ]; then
-  echo "[$(date +%T)] Reusing $N_BAM tile BAMs already in $BAM_DIR"
+  # A COUNT is not a completeness test. sinto has no resume, so if it was killed
+  # while flushing its last files the count is already correct while the tail
+  # files are truncated. Those tiles then fail `samtools view` in the filter
+  # step, the `&&` there means no index is written, and the tile goes back on
+  # the filter list on EVERY subsequent link of the chain without ever scoring.
+  # The filtered set is already quickchecked further down; the raw set was not.
+  # Header-only, so this costs seconds.
+  conda activate RNAseq
+  RAW_BAD=$WORK/raw-truncated.txt
+  : > "$RAW_BAD"
+  samtools quickcheck -v "$BAM_DIR"/*.bam > "$RAW_BAD" 2>/dev/null || true
+  n_raw_bad=$(wc -l < "$RAW_BAD")
+  conda deactivate
+  if [ "$n_raw_bad" -gt 0 ]; then
+    echo "[$(date +%T)] $n_raw_bad of $N_BAM raw tile BAMs are truncated (see $RAW_BAD)."
+    echo "[$(date +%T)] sinto cannot resume, so the whole split must be redone."
+    echo "[$(date +%T)] THIS COSTS A FULL SPLIT - discarding $BAM_DIR and re-splitting."
+    rm -rf "$BAM_DIR"
+    mkdir -p "$BAM_DIR"
+    N_BAM=0
+  fi
+fi
+if [ "$N_BAM" -ge "$N_TILES" ]; then
+  echo "[$(date +%T)] Reusing $N_BAM tile BAMs already in $BAM_DIR (all pass quickcheck)"
 else
   echo "[$(date +%T)] sinto: splitting into $N_TILES tiles"
   conda activate sinto
@@ -570,7 +595,15 @@ mkdir -p "$REDO_DIR"
 # the floor for the opposite case, a table cut down to almost nothing.
 locus_table_state() {
   [ -s "$1" ] || return 1
-  awk -v min="$MIN_LOCI" '
+  # -F'\t' because the table is tab-delimited. awk's default FS collapses runs
+  # of whitespace, so a row with an EMPTY field, or a locus name containing a
+  # space, comes back with a different NF than the header and a COMPLETE table
+  # is classed as truncated, deleted (see the redo path below), and re-scored at
+  # ~10 min CPU on every link of the chain. Checked 2026-09-08 across 40 tables
+  # on the cluster: no empty fields and no spaces in locus names today, so this
+  # is defensive rather than a bug being fixed - but the default FS is simply
+  # the wrong separator for this file.
+  awk -F'\t' -v min="$MIN_LOCI" '
     NR == 1 { nf = NF; if (tolower($0) !~ /total_reads/) { bad = 1; exit } next }
     NF != nf { bad = 1; exit }
     $1 == "chrX" { seen_x = 1 }

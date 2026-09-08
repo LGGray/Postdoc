@@ -28,8 +28,8 @@ forward <- paste0(sample, '/', date, '_', gsub('.+_', '', sample), '_Aligned.sor
 reverse <- paste0(sample, '/', date, '_', gsub('.+_', '', sample), '_Aligned.sortedByCoord.out_rev_', reference, '_r.bed_1/locus_table.txt')
 
 # Merge locus table
-fwd_locus <- fread(forward, header = T)
-rev_locus <- fread(reverse, header = T)
+fwd_locus <- fread(forward, header = TRUE)
+rev_locus <- fread(reverse, header = TRUE)
 merge_locus <- rbind(fwd_locus, rev_locus)
 merge_locus <- merge_locus[order(merge_locus$chr, merge_locus$start), ]
 

@@ -97,10 +97,16 @@ fi
 # (slurm/sc_Allelome.PRO2.slurm) and the pysam UMI route all need
 # gex_possorted_bam.bam / atac_possorted_bam.bam. Budget the disk: at this
 # depth expect roughly 100-120G of BAM per sample on top of the rest of outs/.
+# --localmem is the ceiling cellranger lets its STAGES request at once, NOT a
+# cap on the process tree: martian, the OS page cache and any stage overshoot
+# sit on top of it, while the cgroup kills hard at --mem=96G above. 90 of 96
+# left ~6% of headroom, tighter than the usual 10-15%; an OOM kill 20h into a
+# run costs a day, and nothing here is memory-bound at 90 rather than 84.
+# If --mem is ever raised, raise this with it.
 cellranger-arc count \
   --id="$ID" \
   --reference="$REF" \
   --libraries="$LIB" \
   --create-bam=true \
   --localcores=16 \
-  --localmem=90
+  --localmem=84

@@ -11,9 +11,6 @@ prior_distributions.pdf
 Xist_TPM_cardiac.pdf
 Xist_TPM_Deutsch.pdf
 Xist_TPM.pdf
-Xist_TPM_cardiac.pdf
-Xist_TPM.pdf
-Xist_TPM_cardiac.pdf
 lncRNA_prediction/all_sequences_no_duplicates.fa
 lncRNA_prediction/bedtools.txt
 Pytorch/data/FashionMNIST/raw/t10k-images-idx3-ubyte
@@ -34,6 +31,7 @@ lncRNA_prediction/Homo_sapiens.GRCh38.dna.primary_assembly.fa.fai
 lncRNA_prediction/lncRNA_5kb_flank.bed
 lncRNA_prediction/lncRNA_enhancing_repressive.txt
 lncRNA_prediction/modified_coords.txt
-CLAUDE.md
 .DS_Store
 **/.DS_Store
+
+graphify-out/cache/

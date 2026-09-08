@@ -120,7 +120,7 @@ print(data.frame(resolution = res.sweep, n_clusters = n.clust))
 object$seurat_cluster.sketched <- object[["sketch_snn_res.0.1"]][, 1]
 Idents(object) <- "seurat_cluster.sketched"
 
-object <- RunUMAP(object, reduction = "pca.sketch", reduction.name = "umap.sketch", return.model = T, dims = 1:15)
+object <- RunUMAP(object, reduction = "pca.sketch", reduction.name = "umap.sketch", return.model = TRUE, dims = 1:15)
 
 object <- ProjectData(
   object = object,
@@ -135,25 +135,25 @@ object <- ProjectData(
 
 DefaultAssay(object) <- "sketch"
 Idents(object) <- "seurat_cluster.sketched"
-p1 <- DimPlot(object, reduction = "umap.sketch", label=F) + ggtitle("Sketched clustering (50,000 cells)") + theme(legend.position = "none")
+p1 <- DimPlot(object, reduction = "umap.sketch", label=FALSE) + ggtitle("Sketched clustering (50,000 cells)") + theme(legend.position = "none")
 
 # switch to full dataset
 DefaultAssay(object) <- "Spatial.008um"
 Idents(object) <- "seurat_cluster.projected"
-p2 <- DimPlot(object, reduction = "full.umap.sketch", label=F) + ggtitle("Projected clustering (full dataset)") + theme(legend.position = "none")
+p2 <- DimPlot(object, reduction = "full.umap.sketch", label=FALSE) + ggtitle("Projected clustering (full dataset)") + theme(legend.position = "none")
 
 pdf('test.figures/sketch_clustering_008um.pdf', width = 12, height = 6)
 p1 | p2
 dev.off()
 
 pdf('test.figures/sketch_spatial_008um.pdf', width = 12, height = 6)
-SpatialDimPlot(object, label = T, repel = T, label.size = 4)
+SpatialDimPlot(object, label = TRUE, repel = TRUE, label.size = 4)
 dev.off()
 
 Idents(object) <- "seurat_cluster.projected"
 cells <- CellsByIdentities(object, idents=0:length(levels(object))-1)
 p <- SpatialDimPlot(object, cells.highlight = cells[setdiff(names(cells), "NA")], 
-                    cols.highlight = c("#FFFF00","grey50"), facet.highlight = T, combine=T) + NoLegend()
+                    cols.highlight = c("#FFFF00","grey50"), facet.highlight = TRUE, combine=TRUE) + NoLegend()
 
 pdf('test.figures/sketch_spatial_highlight_008um.pdf', width = 12, height = 6)
 print(p)
@@ -167,7 +167,7 @@ object_subset <- subset(object, cells = Cells(object[['Spatial.008um']]), downsa
 # Order clusters by similarity
 DefaultAssay(object_subset) <- "Spatial.008um"
 Idents(object_subset) <- "seurat_cluster.projected"
-object_subset <- BuildClusterTree(object_subset, assay = "Spatial.008um", reduction = "full.pca.sketch", reorder = T)
+object_subset <- BuildClusterTree(object_subset, assay = "Spatial.008um", reduction = "full.pca.sketch", reorder = TRUE)
 
 markers <- FindAllMarkers(object_subset, assay = 'Spatial.008um', only.pos = TRUE)
 markers %>%
@@ -267,13 +267,13 @@ dev.off()
 # Working resolution - revisit once the sweep above is inspected
 object$banksy_cluster <- object[["BANKSY_snn_res.0.2"]][, 1]
 Idents(object) <- "banksy_cluster"
-p <- SpatialDimPlot(object, images = "slice1.008um", group.by = "banksy_cluster", label = T, repel = T, label.size = 4) 
+p <- SpatialDimPlot(object, images = "slice1.008um", group.by = "banksy_cluster", label = TRUE, repel = TRUE, label.size = 4) 
 pdf('test.figures/banksy_spatial_008um.pdf')
 print(p)
 dev.off()
 
 banksy_cells <- CellsByIdentities(object)
-p <- SpatialDimPlot(object, cells.highlight = banksy_cells[setdiff(names(banksy_cells), "NA")], cols.highlight = c("#FFFF00","grey50"),facet.highlight = T, combine=T) + NoLegend()
+p <- SpatialDimPlot(object, cells.highlight = banksy_cells[setdiff(names(banksy_cells), "NA")], cols.highlight = c("#FFFF00","grey50"),facet.highlight = TRUE, combine=TRUE) + NoLegend()
 pdf('test.figures/banksy_spatial_highlight_008um.pdf')
 print(p)
 dev.off()

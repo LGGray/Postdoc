@@ -96,19 +96,19 @@ cd $BASE/GRCm39 && OUT_DIR=. Rscript ~/Postdoc/OCM_heart/core_escape_SNPs.R
 
 # 1. Recount. 'force' is REQUIRED: the existing tables have neither the window
 #    table nor the subset columns, and the job now refuses to reuse them.
-sbatch ~/Postdoc/slurm/spatial_ase_sweep.slurm 64 force
+sbatch slurm/spatial_ase_sweep.slurm 64 force
 
 # 2. Task 1 - where on chrX the excess sits. The decisive one.
-sbatch ~/Postdoc/slurm/spatial_window_profile.slurm 64
+sbatch slurm/spatial_window_profile.slurm 64
 
 # 3. Task 2 - how much of the CAST difference survives Xic masking.
-sbatch ~/Postdoc/slurm/spatial_mask_comparison.slurm 64
+sbatch slurm/spatial_mask_comparison.slurm 64
 
 # Tasks 3 and 4 come out of step 1's own log and PDF - no separate job.
 # Only if step 3 says the Xic carries the effect, rebuild the tile map on the
 # masked bed (~14 h/sample; the tile BAMs are reused, only scoring re-runs):
-#   sbatch ~/Postdoc/slurm/spatial_sinto_tiles.slurm 64 0 no_Xic500kb
-#   sbatch ~/Postdoc/slurm/spatial_tile_map.slurm 64 9w,78w no_Xic500kb
+#   sbatch slurm/spatial_sinto_tiles.slurm 64 0 no_Xic500kb
+#   sbatch slurm/spatial_tile_map.slurm 64 9w,78w no_Xic500kb
 ```
 
 Design decisions worth knowing before reading the output:
@@ -518,3 +518,37 @@ sbatch slurm/spatial_spase.slurm 16 "" "" scase
 - Do not read a chrX gene above 50% CAST as a strong escapee. Escape is bounded
   by the active X's output; above 50% the allele call is wrong, not the gene
   remarkable. `spase_scase.R` now flags these `impossible` and excludes them.
+
+## Status, 2026-09-08 — code review fixes, and one question closed with data
+
+Acting on `CODE_REVIEW_2026-09-08.md`.
+
+**Closed: does Allelome.PRO2's `total_reads` equal `A1_reads + A2_reads`?**
+Yes. Checked across 40 `locus_table.txt` files on the cluster (`heart_H3K27ac`,
+`heart_H3K4me3`, `TAC_cardiac_RNAseq`, `aged_cardiac_RNAseq`,
+`Allelome.LINK_mod`), roughly 800,000 rows in total: **zero rows** where
+`A1_reads + A2_reads != total_reads`. The column counts informative reads, not
+all reads over the locus, so every tile ratio in the spatial figures has had the
+right denominator all along.
+
+`tile_ratio_map.R:read_locus()` now recomputes `a1 + a2` regardless, matching
+what `OCM_heart/allelic_ratio/00_functions.R` does at lines 359 and 382. This
+changes no current number — it removes the assumption so the two halves of the
+project agree by construction. To re-check after any Allelome.PRO2 upgrade:
+
+```bash
+f=$(ls $SCRATCH/spatial_tiles_9w_64um/allelome/*/locus_table.txt | head -1)
+awk -F'\t' 'NR==1{for(i=1;i<=NF;i++)h[$i]=i; next} \
+  $h["A1_reads"]+$h["A2_reads"]!=$h["total_reads"]{bad++} \
+  END{print (bad+0)" rows where A1+A2 != total_reads"}' "$f"
+```
+
+The same sweep found **no empty fields and no spaces in locus names**, so the
+whitespace-splitting bug in `spatial_sinto_tiles.slurm`'s `locus_table_state()`
+was never actually firing. It is fixed anyway (`awk -F'\t'`), because the
+default field separator is simply wrong for a tab-delimited table and the
+failure mode — a complete table classed as truncated, deleted, and re-scored at
+~10 min CPU on every link of the chain — is expensive and silent.
+
+**Still open, needs the cluster:** nothing from this review. Every remaining
+item was a code change.

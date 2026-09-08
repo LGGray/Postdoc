@@ -216,9 +216,18 @@ read_locus <- function(path) {
   x <- lt[chr == "chrX"]
   a <- lt[chr %in% AUTOSOMES]
   if (!nrow(x)) return(NULL)
+  # Denominators are recomputed as a1 + a2 rather than read from Allelome.PRO2's
+  # total_reads column, so this side agrees BY CONSTRUCTION with the OCM side,
+  # which does the same at 00_functions.R:359 and :382. Verified 2026-09-08
+  # across 40 locus tables on the cluster (~800k rows): total_reads == a1 + a2
+  # in every row, so this changes no current number. It removes the assumption,
+  # not a bug: if the column ever counted all reads over a locus rather than
+  # informative ones, every tile ratio here would have the wrong denominator.
   data.table(
-    x_a1 = sum(x$a1_reads), x_a2 = sum(x$a2_reads), x_n = sum(x$total_reads),
-    a_a1 = sum(a$a1_reads), a_a2 = sum(a$a2_reads), a_n = sum(a$total_reads)
+    x_a1 = sum(x$a1_reads), x_a2 = sum(x$a2_reads),
+    x_n = sum(x$a1_reads) + sum(x$a2_reads),
+    a_a1 = sum(a$a1_reads), a_a2 = sum(a$a2_reads),
+    a_n = sum(a$a1_reads) + sum(a$a2_reads)
   )
 }
 
@@ -369,7 +378,16 @@ collect_sample <- function(smp) {
     msg("  only %d scored tiles - using the %.3f fallback null band",
         nrow(sc), auto_sd)
   }
-  d[, se := sqrt(a_ratio * (1 - a_ratio) / x_n + auto_sd^2)]
+  # Three variance terms, because z is a difference of two ESTIMATES:
+  #   1. sampling error of x_ratio                     -> /x_n
+  #   2. sampling error of a_ratio, estimated in this same tile -> /a_n
+  #   3. the tile-to-tile technical spread of the true ratio    -> auto_sd^2
+  # Term 2 used to be missing, which treated a_ratio as known. It is not double
+  # counting term 3: auto_sd already has the mean binomial variance subtracted
+  # off, so it is the spread of the TRUE tile ratio, not of its estimate. The
+  # autosomes are ~7x deeper so the correction is small, but it is free.
+  d[, se := sqrt(a_ratio * (1 - a_ratio) / x_n +
+                 a_ratio * (1 - a_ratio) / a_n + auto_sd^2)]
   d[, z := (x_ratio - a_ratio) / se]
   # Binned exactly as OCM_heart/allelic_ratio does it: same breaks, same
   # include.lowest/right, same labels, so a tile falls in the same bin a cell
@@ -606,8 +624,10 @@ panel_call <- function(d) {
 depth_confound <- function(d) {
   s <- d[!is.na(x_ratio) & !is.na(x_n)]
   if (nrow(s) < 40L) return("too few scored tiles to split by depth")
-  q <- cut(s$x_n, breaks = quantile(s$x_n, probs = seq(0, 1, 0.25), na.rm = TRUE),
-           include.lowest = TRUE, labels = FALSE)
+  # Rank-split rather than quantile breaks: x_n is a small integer (median 4-7
+  # at 32 um), so quartiles collide and cut() errors with "'breaks' are not
+  # unique", which would take the whole panel - and the PDF - with it.
+  q <- depth_strata(s$x_n, 4L)
   t <- s[, .(depth = as.integer(median(x_n)), ratio = mean(x_ratio),
              skew = mean(call %in% c("Bl6-skewed", "CAST-skewed"))),
          by = .(q = q)][order(q)]

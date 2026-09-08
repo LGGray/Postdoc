@@ -10,7 +10,7 @@
 #SBATCH --clusters=serial
 #SBATCH --partition=serial_std
 #SBATCH --nodes=1   
-#SBATCH --cpus-per-task=18
+#SBATCH --cpus-per-task=16   # serial_std caps at 16; sbatch REJECTS 18 rather than trimming it
 #SBATCH --mem=50G
 #SBATCH --time=8:00:00
 #SBATCH --array=1-27

@@ -114,6 +114,14 @@ module load slurm_setup
 #   sbatch spatial_ase_sweep.slurm 64         # also write the 64um sinto map
 #   sbatch spatial_ase_sweep.slurm 64 force   # ...and redo the counting pass
 #   sbatch spatial_ase_sweep.slurm 64 force 32   # ...window table on 32um tiles
+#
+# NOTE on arg 3 (WINDOW_TILE_UM): the window table is derived from the same
+# counting pass as everything else, so its name carries the tile size and
+# counts_complete() below looks for chrX_windows_<arg3>um.tsv.gz. Changing arg 3
+# therefore invalidates the completeness check and triggers a FULL recount of
+# both samples (hours), even with FORCE unset. That is by design - the existing
+# counts genuinely do not contain the requested window table - but do not change
+# it casually expecting a cheap re-run.
 #   sbatch spatial_ase_sweep.slurm "" "" 64 umi_dup  # molecules, duplicates kept
 #   sbatch spatial_ase_sweep.slurm "" "" 64 dup      # reads, duplicates kept
 #

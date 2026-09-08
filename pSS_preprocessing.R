@@ -67,7 +67,7 @@ cumu <- cumsum(pct)
 # Determine which PC exhibits cumulative percent greater than 90% and % variation associated with the PC as less than 5
 co1 <- which(cumu > 90 & pct < 5)[1]
 # Determine the difference between variation of PC and subsequent PC
-co2 <- sort(which((pct[1:length(pct) - 1] - pct[2:length(pct)]) > 0.1), decreasing = T)[1] + 1
+co2 <- sort(which((pct[1:length(pct) - 1] - pct[2:length(pct)]) > 0.1), decreasing = TRUE)[1] + 1
 # Minimum of the two calculation
 pcs <- min(co1, co2)
 print(paste('Selected # PCs', pcs))
@@ -120,7 +120,7 @@ pbmc <- SetAssayData(object=pbmc, assay='decontXcounts', slot = 'data', new.data
 
 # Save matrix file for downstream cellTypist analysis
 mtx <- data.frame(GetAssayData(pbmc, assay='decontXcounts', slot = 'counts'))
-data.table::fwrite(mtx, 'decontXcounts.counts.csv', row.names=T)
+data.table::fwrite(mtx, 'decontXcounts.counts.csv', row.names=TRUE)
 
 # Save unlabelled Seurat object
 saveRDS(pbmc, 'pbmc.unlabelled.RDS')
@@ -133,5 +133,5 @@ pbmc$cellTypist <- cellTypist$majority_voting
 # Plot cellTypist labels
 Idents(pbmc) <- 'cellTypist'
 pdf('seurat.cellTypist.pdf', width=15, height=15)
-DimPlot(pbmc, reduction='umap', label=TRUE, raster=F)
+DimPlot(pbmc, reduction='umap', label=TRUE, raster=FALSE)
 dev.off()

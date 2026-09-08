@@ -13,7 +13,8 @@ library(lme4)
 library(emmeans)
 library(ggpubr)
 
-setwd("/Users/graylachlan/LRZ Sync+Share/LGray/GTEx")
+# Machine-specific. Override with GTEX_DIR rather than editing this line.
+setwd(Sys.getenv("GTEX_DIR", "/Users/graylachlan/LRZ Sync+Share/LGray/GTEx"))
 
 gtex_link <- data.frame(read_excel('07_SUPPLEMENTARY_TABLE.xlsx', sheet = 17))
 gtex_link$Link <- paste(gtex_link$ncRNA, gtex_link$Name_pcGene, sep = "_")

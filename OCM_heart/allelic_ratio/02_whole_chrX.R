@@ -6,7 +6,11 @@
 # Writes:   Allelic_ratio_results/whole_chr_cell_metadata.txt, which 03 and 05
 #           read back so they can run as independent jobs.
 # ---------------------------------------------------------------------------
-source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
+# POSTDOC_ROOT lets these scripts be parsed and syntax-checked off the cluster;
+# unset, it is the cluster path these have always used, so job scripts need no change.
+source(file.path(Sys.getenv("POSTDOC_ROOT",
+                            "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc"),
+                 "OCM_heart/allelic_ratio/00_functions.R"))
 
 heart <- readRDS('heart_seurat_object_SCT.rds')
 heart$celltype <- Idents(heart)
@@ -46,7 +50,12 @@ chr_allelic_ratio <- read.table(ALLELIC_RATIOS_FILE, sep = '\t', header = TRUE, 
 chr_allelic_ratio <- subset(chr_allelic_ratio, chr == "chrX")
 assert_one_row_per_cell(chr_allelic_ratio, ALLELIC_RATIOS_FILE)
 
-# Subset seurat object by barcodes
+# Subset seurat object by barcodes. The check first: on Seurat v5 a wrong
+# barcode parse errors here with "Cannot find cells", but on v4 it silently
+# drops them and every number below is then computed on the remainder. 04 does
+# the same check before its subset.
+check_barcode_match(chr_allelic_ratio$cell_barcode, colnames(heart),
+                    what = paste0("02 whole chrX (", ALLELIC_RATIOS_FILE, ")"))
 subset_heart <- subset(heart, cells = chr_allelic_ratio$cell_barcode)
 chr_allelic_ratio <- chr_allelic_ratio[chr_allelic_ratio$cell_barcode %in% colnames(subset_heart), ]
 chr_allelic_ratio <- chr_allelic_ratio[match(colnames(subset_heart), chr_allelic_ratio$cell_barcode), ]
@@ -238,21 +247,38 @@ calibrate_fpr <- function(lrt, ref_level, comparison_level, out_file) {
           FPR_N_REPS, " reps x ", length(FPR_ANIMAL_SDS), " animal_sd values: ",
           format(length(sig) * FPR_N_REPS * length(FPR_ANIMAL_SDS) * 2, big.mark = ","),
           " model fits")
-  fpr <- sapply(sig, function(ct) {
+  # The simulator drops any replicate that errors OR warns (glmmTMB convergence
+  # warnings are common on small groups), so the FPR is computed only over the
+  # replicates that came back clean. That is conservative, but it has to be
+  # VISIBLE: an FPR over 40% of the reps is a different statement than the same
+  # FPR over all 1000. failed_frac is carried out beside it for that reason.
+  failed <- matrix(NA_real_, nrow = length(FPR_ANIMAL_SDS), ncol = length(sig),
+                   dimnames = list(paste0("failed_frac_animal_sd_", FPR_ANIMAL_SDS), sig))
+  fpr <- sapply(seq_along(sig), function(j) {
+    ct <- sig[j]
     message("  ", ct)
     df <- subset(metadata_whole_chr, celltype == ct &
                    sample %in% c(ref_level, comparison_level))
-    sapply(FPR_ANIMAL_SDS, function(sd) {
-      simulate_dispersion_null_fpr(df, ref_level, comparison_level,
-                                   animal_disp_sd = sd, n_reps = FPR_N_REPS)$fpr
+    sapply(seq_along(FPR_ANIMAL_SDS), function(i) {
+      r <- simulate_dispersion_null_fpr(df, ref_level, comparison_level,
+                                        animal_disp_sd = FPR_ANIMAL_SDS[i],
+                                        n_reps = FPR_N_REPS)
+      failed[i, j] <<- r$n_failed / r$n_reps
+      r$fpr
     })
   })
   fpr <- matrix(fpr, nrow = length(FPR_ANIMAL_SDS),
                 dimnames = list(paste0("fpr_animal_sd_", FPR_ANIMAL_SDS), sig))
   # These numbers cost hours; they used to be printed and never saved.
-  write.table(t(fpr), out_file, sep = '\t', quote = FALSE, col.names = NA)
-  print(t(fpr))
-  invisible(fpr)
+  out <- cbind(t(fpr), t(failed))
+  write.table(out, out_file, sep = '\t', quote = FALSE, col.names = NA)
+  print(out)
+  if (any(failed > 0.2, na.rm = TRUE)) {
+    message("WARNING: more than 20% of replicates failed or warned in at least ",
+            "one cell (max ", sprintf("%.0f%%", 100 * max(failed, na.rm = TRUE)),
+            "). The FPRs above are conditional on the clean replicates only.")
+  }
+  invisible(list(fpr = fpr, failed_frac = failed))
 }
 
 calibrate_fpr(adult_vs_aged_lrt, "9w", "78w",
@@ -276,7 +302,7 @@ write.table(Sham_vs_TAC_lrt, file.path(CUTOFF_DIR, 'whole_chr_Sham_vs_TAC_disper
 calibrate_fpr(Sham_vs_TAC_lrt, "Sham", "TAC",
               file.path(CUTOFF_DIR, 'whole_chr_Sham_vs_TAC_dispersion_FPR.txt'))
 
-# Effect sizes: fraction of cells escaping XCI (AR <= 0.9) and median AR per
+# Effect sizes: fraction of cells escaping XCI (AR < MONO_AR) and median AR per
 # celltype/condition. Complements the dispersion LRT p-values above with an
 # interpretable magnitude.
 AR_COL <- "allelic_ratio"
@@ -288,7 +314,7 @@ frac_escaping <- metadata_whole_chr %>%
   mutate(sample = factor(sample, levels = c("9w", "78w", "Sham", "TAC"))) %>%
   group_by(celltype, sample) %>%
   summarise(n = n(),
-            escaping = mean(AR <= 0.9),
+            escaping = mean(AR < MONO_AR),
             median_AR = median(AR),
             .groups = "drop") %>%
   filter(n >= 20)
@@ -300,7 +326,7 @@ pdf(file.path(CUTOFF_DIR, 'whole_chr_fraction_escaping_barplot.pdf'))
 ggplot(frac_escaping, aes(sample, 100*escaping, fill = sample)) +
   geom_col() +
   facet_wrap(~celltype, labeller = label_wrap_gen(14)) +
-  labs(x = NULL, y = "Escaping cells (%)  [AR ≤ 0.9]", fill = "Condition") +
+  labs(x = NULL, y = "Escaping cells (%)  [AR < 0.9]", fill = "Condition") +
   theme_bw(base_size = 9) +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
         panel.grid.minor = element_blank())
@@ -372,7 +398,7 @@ prop_tbl <- subset_heart_flt@meta.data %>%
   group_by(celltype, sample) %>%
   summarise(
     n = n(),
-    n_biallelic = sum(allelic_ratio < 0.9, na.rm = TRUE),
+    n_biallelic = sum(allelic_ratio < MONO_AR, na.rm = TRUE),
     p_biallelic = n_biallelic / n,
     se = sqrt(p_biallelic * (1 - p_biallelic) / n),
     .groups = "drop"
@@ -506,6 +532,14 @@ top_cm_cells
 # below is namespace-qualified for that reason - do not "tidy" the dplyr::
 # prefixes away, matrixStats::count() on a data frame fails with
 # "Argument 'x' is not a vector: list".
+# The block below is a recorded NEGATIVE result, so it is off by default: it
+# attaches tricycle and SingleCellExperiment (which mask several dplyr verbs for
+# the rest of the script) and fits several hundred glmmTMB models on every run,
+# to reproduce a conclusion that is already written above. The depth block that
+# follows it IS live and always runs.
+#
+#   Re-run it with:  RUN_TRICYCLE=1 Rscript allelic_ratio/02_whole_chrX.R
+if (Sys.getenv("RUN_TRICYCLE", "0") == "1") {
 library(tricycle)
 library(SingleCellExperiment)
 
@@ -818,6 +852,10 @@ plot(reducedDim(cc_sce, "tricycleEmbedding"),
      main = "tricycle embedding (ring = cell cycle signal, blob = none)")
 abline(h = 0, v = 0, col = "grey70", lty = 2)
 dev.off()
+} else {
+  message("Skipping the tricycle cell-cycle block (a recorded negative result). ",
+          "Set RUN_TRICYCLE=1 to re-run it.")
+}
 
 
 # ===========================================================================

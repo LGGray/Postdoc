@@ -35,12 +35,16 @@
 #   3. Does ONE escaping population explain it all?  -> the central test
 #   4. Does Xist agree with the allelic calls?       -> the independent check
 # ---------------------------------------------------------------------------
-source("/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc/OCM_heart/allelic_ratio/00_functions.R")
+# POSTDOC_ROOT lets these scripts be parsed and syntax-checked off the cluster;
+# unset, it is the cluster path these have always used, so job scripts need no change.
+source(file.path(Sys.getenv("POSTDOC_ROOT",
+                            "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/Postdoc"),
+                 "OCM_heart/allelic_ratio/00_functions.R"))
 
 OUT_DIR <- file.path(RESULTS_ROOT, "lox_calling")
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
-LOX_AR_THRESHOLD <- 0.90   # the rule 04 currently uses, evaluated here
+LOX_AR_THRESHOLD <- MONO_AR   # the rule 04 uses (00_functions.R), evaluated here
 FDR_CUT          <- 0.05
 notes <- character(0)      # accumulates the plain-language summary written at the end
 say <- function(...) {
@@ -133,7 +137,16 @@ fit_bb <- function(k, N) {
     if (!is.finite(v)) 1e12 else v
   }
   o <- optim(c(qlogis(0.6), qlogis(0.3)), nll, method = "BFGS")
-  list(mu = plogis(o$par[1]), rho = plogis(o$par[2]), nll = o$value, n = length(k))
+  # A non-converged fit is not an error, it just returns wherever BFGS stopped -
+  # and every expected count in steps 3 and 4 is built on mu and rho, so a silent
+  # failure here propagates into the whole comparison. Carry the flag out and
+  # print it wherever mu/rho are quoted.
+  if (o$convergence != 0) {
+    warning("fit_bb did not converge (optim convergence code ", o$convergence,
+            if (!is.null(o$message)) paste0(": ", o$message) else "", ")")
+  }
+  list(mu = plogis(o$par[1]), rho = plogis(o$par[2]), nll = o$value, n = length(k),
+       converged = o$convergence == 0)
 }
 
 # ---------------------------------------------------------------------------
@@ -213,6 +226,10 @@ say("  This is why the current cutoff of ", MIN_CEB_READS, " is a problem for ",
 # ---------------------------------------------------------------------------
 fit_all <- with(subset(cells, total_reads >= 3), fit_bb(A1_reads, total_reads))
 ab_all <- bb_ab(fit_all$mu, fit_all$rho)
+if (!fit_all$converged) {
+  say("  WARNING: the all-cell beta-binomial fit did NOT converge. mu, rho and ",
+      "every expected count below are unreliable.")
+}
 
 expected_vs_observed <- cells %>%
   group_by(total_reads) %>%
@@ -293,6 +310,10 @@ if (nrow(ref) >= 200) {
       ", rho = ", sprintf("%.3f", fit_ref$rho),
       ".  (Compare the circular all-cell fit: mu = ", sprintf("%.3f", fit_all$mu),
       ", rho = ", sprintf("%.3f", fit_all$rho), ".)")
+  if (!fit_ref$converged) {
+    say("  WARNING: the reference-block fit did NOT converge; the per-cell test ",
+        "below is built on an unreliable null.")
+  }
 
   # Per-cell test: how improbable is this cell's skew if it still had an Xi?
   cells$p_lox <- bb_upper_tail(cells$A1_reads, cells$total_reads, ab_ref[1], ab_ref[2])

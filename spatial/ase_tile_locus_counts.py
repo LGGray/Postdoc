@@ -246,7 +246,13 @@ def write_ap2_tree(out_dir, tiles, tile_um, chroms, level, force):
 
     tile_ratio_map.R's read_locus() needs columns chr, a1_reads, a2_reads and
     total_reads (it lowercases the header, so case does not matter) and requires
-    a chrX row to accept the tile. A tile with no informative chrX molecule is
+    a chrX row to accept the tile.
+
+    total_reads here is a1_reads + a2_reads, i.e. INFORMATIVE units only - not
+    every read or molecule covering the locus. Allelome.PRO2's own column was
+    checked against 40 locus tables on the cluster (2026-09-08) and means the
+    same thing, and read_locus() now recomputes a1 + a2 on both paths anyway, so
+    the two sides agree by construction rather than by assumption. A tile with no informative chrX molecule is
     therefore skipped rather than written with zeros: written, it would land in
     the map as "pending" - the colour that means "sinto has not scored this
     yet" - which would be a lie about a tile that has been scored and is empty.
