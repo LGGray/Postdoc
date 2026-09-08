@@ -217,6 +217,70 @@ Two corrections that must be applied, both of which already have assets in
    already estimates this; the same correction applies here, and needs
    re-estimating separately for ATAC because the read length differs.
 
+## Count results, and what they change
+
+Both samples completed on cellranger-arc 2.2.0. BAMs are 23G/21G (9w
+gex/atac) and 26G/26G (78w) under `adult_aged_multiome/<id>/outs/`.
+
+| | 9w | 78w |
+|---|---|---|
+| GEX read pairs | 687,083,537 | 733,410,120 |
+| **GEX duplicates** | **98.58%** | **97.79%** |
+| non-duplicate reads | ~9.8M | ~16.2M |
+| estimated nuclei | 1,758 | 3,822 |
+| median UMI/nucleus | 1,353 | 863 |
+| GEX valid barcodes | 0.9128 | 0.9056 |
+| GEX Q30 barcode / UMI | .973 / .976 | .971 / .975 |
+| GEX antisense | 0.2199 | 0.1850 |
+| ATAC read pairs | 412,392,071 | 444,372,323 |
+| ATAC duplicates | 77.74% | 66.93% |
+| ATAC median HQ fragments/nucleus | 9,994 | 7,820 |
+| ATAC TSS enrichment | 5.96 | 7.42 |
+| ATAC FRiP (fragments in peaks) | 0.1413 | 0.2047 |
+| ATAC peaks | 52,231 | 71,694 |
+| feature linkages | 8,675 | 40,966 |
+
+**Deduplication dominates everything.** `scAllelome_dedup.slurm` measured 39.4%
+duplicates in the OCM data and expected `total_reads` to "roughly halve". Here
+it is 98.58% - a ~70x reduction. The depth bought amplification, not
+molecules: ~390k reads per nucleus collapsed to ~1,350 UMIs, because library
+complexity was the ceiling rather than sequencing. Consequences:
+
+- Read-level Allelome.PRO2 is not a variant worth keeping for this dataset. A
+  single amplified molecule would vote ~70 times, which is exactly the failure
+  `09_dedup_comparison.R` describes ("three real molecules and heavy
+  amplification on one reads as near-monoallelic").
+- **Every threshold calibrated on the read-level tree must be re-derived**:
+  `MIN_TOTAL_READS` in `02_whole_chrX.R`, the sweep grids in `06`/`07`, the
+  exact-count stratification in `08`. They were tuned where dedup halved
+  counts.
+
+**MAPQ encodings differ between the two modalities.** GEX is STAR (unique =
+255); ATAC is BWA (caps at 60). Reusing `-q 255` on the ATAC BAM returns zero
+reads *without erroring* - use `-q 30`. Verified on the BAMs themselves.
+
+**Per-nucleus allelic ratios will be thin; pseudobulk is the level to work
+at.** chrX carries 626,029 SNPs over 169.5 Mb in the `_no_Xist` build, i.e. one
+per 271 bp, so a 101 bp read is informative ~37% of the time. At 1,353 median
+UMIs with chrX order 5% of expression, that is roughly 20-25 informative chrX
+molecules per nucleus - a proportion whose standard error is near 0.10, which
+is the noise regime that made the AR >= 0.90 population in `08` hard to read.
+Per cell type, an abundant population gives ~11k informative molecules, which
+is ample.
+
+**The age contrast has gained a technical confound on top of n=1.** 78w is the
+better sample on nearly every axis - 2.2x the nuclei, 1.7x the unique
+molecules, better ATAC on both TSS enrichment and FRiP, and 4.7x the feature
+linkages. So a 9w-vs-78w difference is confounded with data quality, and one
+animal per group cannot separate them. It was already descriptive-only; it now
+has a named alternative explanation.
+
+**ATAC is the weaker modality.** TSS enrichment of 5.96/7.42 is modest (the
+preflight's 12.05 was a selection effect - only the 363 best nuclei were
+called at 1M reads), and 14-20% FRiP is low against a typical 40-70%. The
+allelic-ATAC aim is the most novel and the least well supported by the data,
+so RNA escape should be made solid first.
+
 ## Statistical ceiling - read this before designing any test
 
 **n = 1 animal per age.** One 9w, one 78w. The 9w-vs-78w contrast therefore
@@ -258,6 +322,24 @@ density calculation already exists in the project.
 2. `slurm/cellranger_arc_multiome.slurm` - count both samples (array 1-2).
 3. Joint QC + WNN cell typing, against the cardiac labels already used in
    `OCM_heart/Seurat_preprocessing.R` so cell types are comparable.
-4. Allelic split of both modalities over the Xic-masked mm39 SNP set.
-5. Peak-to-gene linkage, then ask whether escape genes differ from
+4. **Pseudobulk allelic ratio, no cell typing needed** -
+   `slurm/multiome_allelome_pseudobulk.slurm`. Filters the GEX BAM to
+   `-F 0x400 -q 255`, then runs Allelome.PRO2 against
+   `chr_annotation_mm39.bed` and the `_no_Xist` SNP build. That annotation is
+   one row per chromosome, so a single run returns both halves of the
+   question: chrX gives the escape level, and chr1-chr19 give the
+   mapping-bias baseline under identical filters and SNP set. Autosomes should
+   sit at 0.5; the offset is the correction chrX needs, which supersedes
+   borrowing OCM's estimate from `11_autosomal_control.R`.
+   **Gate:** does chrX reproduce the ~12.7% from the snRNA/spatial work? If
+   not, stop and find out why before building anything on top.
+5. Joint WNN cell typing, against the cardiac labels in
+   `OCM_heart/Seurat_preprocessing.R`. Everything per-celltype blocks on this,
+   because `sinto filterbarcodes` needs a barcode->group `cell_index.txt`.
+6. Per-celltype Allelome.PRO2 via `sinto`, reusing the `scAllelome_*.slurm`
+   GNU-parallel pattern - but those target cm4_tiny at 110 cpus and will need
+   the serial_std 16-cpu treatment.
+7. Allelic ATAC. New work: peaks as the annotation rather than genes, `-q 30`
+   not `-q 255`, and no UMIs so deduplication is positional only.
+8. Peak-to-gene linkage, then ask whether escape genes differ from
    non-escape chrX genes in Xi accessibility and in enhancer usage.
