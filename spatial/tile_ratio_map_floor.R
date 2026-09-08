@@ -10,6 +10,13 @@
 #            changing what it SAYS - which is the claim this script makes.
 #   page 3+  the panels of tile_ratio_map.R, on the tiles that clear the floor.
 #
+# MIN_X_RATIO adds an optional cutoff on the ratio itself (keep x_ratio > it).
+# It is a filter on the OUTCOME, not on precision - see its comment in CONFIG.
+# Use it to LOOK at the section with the impossible tiles gone; never to
+# produce a number, because truncating at 0.5 and averaging the remainder
+# estimates the conditional mean of the upper tail and would rise on pure
+# noise. Every affected caption and the log say so.
+#
 # WHY A FLOOR. tile_ratio_map.R applies none: any tile with x_n > 0 gets a ratio
 # (its line 333, fifelse(x_n > 0, x_a1 / x_n, NA)). A tile holding two
 # informative reads therefore takes a ratio of 0.0, 0.5 or 1.0 and is painted at
@@ -64,21 +71,53 @@ source(file.path(SPATIAL_DIR, "tile_ratio_map.R"))
 MIN_X_UNITS <- as.integer(Sys.getenv("MIN_X_UNITS", "20"))
 if (is.na(MIN_X_UNITS) || MIN_X_UNITS < 1) stop("MIN_X_UNITS must be a positive integer")
 
+# Optional cutoff on the RATIO itself: keep only tiles with x_ratio > this.
+# Unset by default, and it is a different KIND of thing from MIN_X_UNITS, so
+# read this before using it.
+#
+# MIN_X_UNITS filters on precision, which is independent of the answer. A ratio
+# cutoff filters on the OUTCOME. Setting it to 0.5 removes every tile where the
+# inactive allele dominates - "impossible" tiles for this genotype, since CAST
+# is the Xi and there is no mosaicism at patch scale in a Bl6 x CAST F1 - and
+# that is a legitimate thing to LOOK at. It is not a legitimate thing to
+# average. Truncating a distribution at 0.5 and reporting the mean of what is
+# left does not estimate escape; it estimates the conditional mean of the upper
+# tail, and it would rise even if every tile were pure noise about 0.5. So the
+# pooled numbers this script prints under a ratio cutoff are labelled
+# CONDITIONAL and must not be quoted as escape.
+#
+# What the picture IS good for: seeing whether the surviving tiles have spatial
+# structure, and how much of the section is left once the impossible tiles go.
+# If the answer is "most of it", the impossible tiles were a sparse artefact; if
+# half the slide disappears, the read-level statistic is not usable here at all.
+MIN_X_RATIO <- suppressWarnings(as.numeric(Sys.getenv("MIN_X_RATIO", NA)))
+if (!is.na(MIN_X_RATIO) && (MIN_X_RATIO < 0 || MIN_X_RATIO >= 1))
+  stop("MIN_X_RATIO must be in [0, 1)")
+USE_RATIO_CUT <- !is.na(MIN_X_RATIO)
+
 # Alongside the unfloored figures, never on top of them: the whole point is to
-# hold the two next to each other.
+# hold the two next to each other. The ratio cutoff goes in the name too, since
+# a truncated figure must never be mistaken for the unconditional one.
 OUT_PDF <- Sys.getenv("OUT_PDF",
                       file.path(BASE, "ase",
-                                sprintf("tile_ratio_map_%dum%s_min%d.pdf",
-                                        TILE_UM, SUF, MIN_X_UNITS)))
+                                sprintf("tile_ratio_map_%dum%s_min%d%s.pdf",
+                                        TILE_UM, SUF, MIN_X_UNITS,
+                                        if (USE_RATIO_CUT)
+                                          sprintf("_ar%s", sub("0\\.", ".", MIN_X_RATIO))
+                                        else "")))
 
 # Floors for the page-2 sweep. 1 rather than 0 because "no floor" already means
 # "at least one informative unit" - that is what x_n > 0 does.
 SWEEP <- c(1, 2, 5, 10, 20, 50, 100)
 
-# A fourth grey, darker than COL_NA (grey70, pending) and much darker than
-# COL_FOOT (never submitted), so the calls panel can say "below floor" as its
-# own category instead of borrowing one of the other two.
+# A fourth and fifth grey, darker than COL_NA (grey70, pending) and much darker
+# than COL_FOOT (never submitted), so the calls panel can say "below floor" and
+# "below ratio cutoff" as their own categories instead of borrowing one of the
+# other two. The two exclusions are kept APART on purpose: one is a statement
+# about precision, the other about the answer, and a reader has to be able to
+# see which tiles went for which reason.
 COL_FLOOR <- "#7d7b73"
+COL_RATIOCUT <- "#3d3b36"
 
 # SNP_BED_LABEL / SNP_BED come from tile_ratio_map.R, which reads the same env
 # var: set SNP_BED_LABEL=no_Xist when SNP_LABEL is a filter suffix (dup, raw)
@@ -114,11 +153,29 @@ apply_floor <- function(d) {
       MIN_X_UNITS, UNIT_N, n_keep, n_scored, 100 * n_keep / max(n_scored, 1),
       100 * u_keep / max(u_all, 1), UNIT_N)
 
-  d[shallow == TRUE, x_ratio := NA_real_]
+  # The ratio cutoff, applied AFTER the depth floor so the two counts are not
+  # double-charged: a shallow tile that is also below the cutoff is reported as
+  # shallow, because depth is the reason that does not depend on the answer.
+  d[, lowratio := FALSE]
+  if (USE_RATIO_CUT) {
+    d[shallow == FALSE & !is.na(x_ratio) & x_ratio <= MIN_X_RATIO, lowratio := TRUE]
+    n_lr <- sum(d$lowratio)
+    u_lr <- sum(d[lowratio == TRUE]$x_n)
+    msg("  ratio cutoff > %.2f: %d further tiles removed (%.1f%% of those above the floor),",
+        MIN_X_RATIO, n_lr, 100 * n_lr / max(n_keep, 1))
+    msg("      holding %.1f%% of the chrX %s above the floor. NOTE: this filters on the",
+        100 * u_lr / max(u_keep, 1), UNIT_N)
+    msg("      OUTCOME, so the pooled ratio below is CONDITIONAL and is not an escape estimate.")
+  }
 
-  # The null band, refitted. Autosomal spread on the KEPT tiles: a shallow-chrX
-  # tile is a shallow tile generally, so leaving them in inflates the observed
-  # variance and every |z| that is measured against it.
+  d[shallow == TRUE | lowratio == TRUE, x_ratio := NA_real_]
+
+  # The null band, refitted. Autosomal spread on the tiles the DEPTH floor kept
+  # - deliberately not the ratio-cutoff survivors. A shallow-chrX tile is a
+  # shallow tile generally, so leaving those in inflates the observed variance
+  # and every |z| measured against it; but conditioning the null on the chrX
+  # ratio would fit the yardstick to the answer, which is the one thing it must
+  # never depend on.
   sc <- d[shallow == FALSE & !is.na(a_ratio) & a_n > 0]
   if (nrow(sc) >= MIN_TILES_FOR_SD) {
     v_obs   <- var(sc$a_ratio)
@@ -139,6 +196,7 @@ apply_floor <- function(d) {
   # both shallow and unsubmitted is named by the reason this figure applied.
   d[, call := fcase(
       shallow,                          "below floor",
+      lowratio,                         "below ratio cutoff",
       is.na(x_ratio) &  submitted,      "pending",
       is.na(x_ratio) & !submitted,      "not submitted",
       z >  Z_CALL,                      "Bl6-skewed",
@@ -219,7 +277,10 @@ panel_floor_sweep <- function(out) {
                          paste0(UNIT_WEIGHT, ".") ,
                          "A rising or falling line means the shallow tiles\nwere",
                          "not merely noisy but biased, which is a result and",
-                         "belongs in the text.")) +
+                         "belongs in the text.",
+                         if (USE_RATIO_CUT)
+                           sprintf("\nThis page is computed WITHOUT the ratio > %.2f cutoff, deliberately: a sweep of the depth floor over a set already truncated on the ratio would measure the truncation.",
+                                   MIN_X_RATIO) else "")) +
     theme_bw(base_size = 10) +
     theme(panel.grid.minor = element_blank(),
           legend.position = "top",
@@ -235,22 +296,29 @@ panel_floor_sweep <- function(out) {
 # original keeps the unfloored figures exactly as they were; the panel functions
 # resolve it at call time, so they pick this up.
 scored_line <- function(n_ok, n_sub, extra = "") {
-  sprintf("%d tiles clear the %d-%s floor; grey = scored but below it%s",
-          n_ok, MIN_X_UNITS, UNIT_1, extra)
+  if (!USE_RATIO_CUT)
+    sprintf("%d tiles clear the %d-%s floor; grey = scored but below it%s",
+            n_ok, MIN_X_UNITS, UNIT_1, extra)
+  else
+    sprintf(paste("%d tiles clear BOTH the %d-%s floor and a ratio > %.2f cutoff; grey = scored but excluded%s",
+                  "\nTRUNCATED: the ratio cutoff filters on the outcome, so the colour scale below %.2f is empty by",
+                  "construction and any average of what is left is conditional, not an escape estimate."),
+            n_ok, MIN_X_UNITS, UNIT_1, MIN_X_RATIO, extra, MIN_X_RATIO)
 }
 
 # Same panel as the original with "below floor" added as its own key. Copied
 # rather than parameterised because the legend is the part that changes, and a
 # reader comparing the two figures should be able to see the difference here.
 panel_call <- function(d) {
-  lv <- c("Bl6-skewed", "CAST-skewed", "mixed", "below floor", "pending",
-          "not submitted")
+  lv <- c("Bl6-skewed", "CAST-skewed", "mixed", "below floor",
+          "below ratio cutoff", "pending", "not submitted")
   d2 <- copy(d)[, call := factor(call, levels = lv)]
   base_map(d2) +
     geom_tile(data = d2[call != "not submitted"], aes(fill = call),
               width = d$side[1], height = d$side[1], colour = NA) +
     scale_fill_manual(values = c("Bl6-skewed" = COL_BL6, "CAST-skewed" = COL_CAST,
                                  "mixed" = COL_MID, "below floor" = COL_FLOOR,
+                                 "below ratio cutoff" = COL_RATIOCUT,
                                  "pending" = COL_NA, "not submitted" = COL_FOOT),
                       drop = FALSE, name = NULL) +
     guides(fill = guide_legend(override.aes = list(colour = "#c3c2b7"))) +
@@ -258,8 +326,8 @@ panel_call <- function(d) {
                          d$sample[1]),
          subtitle = sprintf("|z| > %d vs this sample's own %.3f autosomal null band, refitted on the tiles above the floor: %s\n%s",
                             Z_CALL, d$auto_sd[1],
-                            paste(sprintf("%s %d", lv[1:4],
-                                          sapply(lv[1:4], function(l) sum(d2$call == l, na.rm = TRUE))),
+                            paste(sprintf("%s %d", lv[1:5],
+                                          sapply(lv[1:5], function(l) sum(d2$call == l, na.rm = TRUE))),
                                   collapse = ", "),
                             depth_confound(d)),
          caption = paste("STILL A POWER MAP, even with the floor. z = (x_ratio - a_ratio)/se and se shrinks with depth,",
@@ -270,8 +338,18 @@ panel_call <- function(d) {
 
 ##### ------------------------- run ------------------------- #####
 
-msg("Tile size %d um, samples: %s, SNP mask: %s, floor %d %s",
-    TILE_UM, paste(SAMPLES, collapse = ", "), SNP_LABEL, MIN_X_UNITS, UNIT_N)
+msg("Tile size %d um, samples: %s, SNP mask: %s, floor %d %s%s",
+    TILE_UM, paste(SAMPLES, collapse = ", "), SNP_LABEL, MIN_X_UNITS, UNIT_N,
+    if (USE_RATIO_CUT) sprintf(", ratio cutoff > %.2f", MIN_X_RATIO) else "")
+if (USE_RATIO_CUT) {
+  msg("")
+  msg("  ***  A RATIO CUTOFF IS ON. This figure is exploratory: it shows what the")
+  msg("  ***  section looks like once tiles below %.2f are removed. Because the cutoff", MIN_X_RATIO)
+  msg("  ***  selects on the very quantity being measured, the pooled ratios printed")
+  msg("  ***  below are CONDITIONAL and are not estimates of escape. Quote the")
+  msg("  ***  unconditional numbers, or the molecule-level ones, instead.")
+  msg("")
+}
 
 all_raw <- list(); all_flt <- list()
 for (s in SAMPLES) {
@@ -313,13 +391,15 @@ if (!length(all_flt)) {
 
   csv <- sub("\\.pdf$", ".csv", OUT_PDF)
   fwrite(flt[, .(sample, tile, x, y, n_bins, x_a1, x_a2, x_n, a_a1, a_a2, a_n,
-                 x_ratio, x_bin, a_ratio, z, call, submitted, shallow)], csv)
+                 x_ratio, x_bin, a_ratio, z, call, submitted, shallow,
+                 lowratio)], csv)
 
   snp_bed <- SNP_BED
   prov <- data.table(
     k = c("script", "run_at", "tile_um", "samples", "snp_label",
           "snp_bed_label", "snp_bed",
-          "snp_bed_md5", "annotation", "count_unit", "min_x_units", "z_call",
+          "snp_bed_md5", "annotation", "count_unit", "min_x_units",
+          "min_x_ratio", "pooled_is_conditional", "z_call",
           "auto_sd_refitted", "tiles_scored", "tiles_kept",
           "pooled_x_all", "pooled_x_kept"),
     v = c("spatial/tile_ratio_map_floor.R",
@@ -328,7 +408,14 @@ if (!length(all_flt)) {
           SNP_BED_LABEL, snp_bed,
           if (file.exists(snp_bed)) unname(tools::md5sum(snp_bed)) else
             "bed not readable from here",
-          ANNOT_BASE, COUNT_UNIT, MIN_X_UNITS, Z_CALL,
+          ANNOT_BASE, COUNT_UNIT, MIN_X_UNITS,
+          if (USE_RATIO_CUT) MIN_X_RATIO else "none",
+          # Spelled out in the sidecar, because a truncated pooled ratio read
+          # back later with no flag beside it is indistinguishable from a real
+          # measurement, and that is the mistake this field exists to prevent.
+          if (USE_RATIO_CUT) "TRUE - pooled_x_kept is conditional on the ratio cutoff and is NOT an escape estimate"
+          else "FALSE",
+          Z_CALL,
           paste(sprintf("%s=%.4f", names(all_flt),
                         vapply(all_flt, function(d) d$auto_sd[1], 0)), collapse = ","),
           paste(sprintf("%s=%d", names(all_raw),
@@ -340,7 +427,7 @@ if (!length(all_flt)) {
                                                     sum(d$x_n, na.rm = TRUE), 0)), collapse = ","),
           paste(sprintf("%s=%.4f", names(all_flt),
                         vapply(all_flt, function(d) {
-                          k <- d[shallow == FALSE]
+                          k <- d[shallow == FALSE & lowratio == FALSE]
                           sum(k$x_a1, na.rm = TRUE) / sum(k$x_n, na.rm = TRUE)
                         }, 0)), collapse = ",")))
   setnames(prov, c("key", "value"))
@@ -351,7 +438,13 @@ if (!length(all_flt)) {
 
   # The table the floor has to survive: if pooled_kept differs from pooled_all
   # by more than rounding, the shallow tiles were biased and not just noisy.
-  msg("\nPooled chrX ratio, all scored tiles vs tiles clearing the floor:")
+  # Under a ratio cutoff that reading does not apply - pooled_kept is then a
+  # truncated mean and is guaranteed to be higher - so say which it is.
+  if (USE_RATIO_CUT)
+    msg("\nPooled chrX ratio. pooled_kept is CONDITIONAL on x_ratio > %.2f and is NOT\nan escape estimate; it must rise, whatever the data say. pooled_all is the\nnumber to quote.",
+        MIN_X_RATIO)
+  else
+    msg("\nPooled chrX ratio, all scored tiles vs tiles clearing the floor:")
   cmp <- merge(
     raw[!is.na(x_ratio), .(tiles_all = .N, units_all = sum(x_n),
                            pooled_all = round(sum(x_a1) / sum(x_n), 4)), by = sample],

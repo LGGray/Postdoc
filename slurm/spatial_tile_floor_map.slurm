@@ -22,6 +22,7 @@
 #
 #   sbatch slurm/spatial_tile_floor_map.slurm 64 9w,78w dup
 #   sbatch slurm/spatial_tile_floor_map.slurm 64 9w,78w dup 50
+#   sbatch slurm/spatial_tile_floor_map.slurm 64 9w,78w dup 20 "" 0.5
 #
 # Read-only with respect to the tile run, but unlike spatial_tile_map.slurm it
 # is meant for a FINISHED one: with a floor on, a below-floor tile and a
@@ -57,6 +58,20 @@ case "$SNP_LABEL" in
 esac
 SNP_BED_LABEL="${5:-$BED_DEFAULT}"
 
+# Optional cutoff on the ratio itself: keep only tiles with x_ratio > this.
+# Arg 6, so reaching it means passing arg 5 - use "" there to keep the bed
+# default:  sbatch $0 64 9w,78w dup 20 "" 0.5
+#
+# This filters on the OUTCOME, not on precision. At 0.5 it removes the tiles
+# where the inactive allele dominates, which cannot happen in this genotype, so
+# it is a useful thing to LOOK at - and any number computed from what is left is
+# a truncated mean, not an escape estimate. The script says so in its log, in
+# every affected caption and in the provenance sidecar; do not strip that.
+MIN_X_RATIO="${6:-}"
+# The cutoff goes in the FILENAME as well, matching the R default, so a
+# truncated figure can never land on top of the unconditional one. 0.5 -> _ar.5.
+if [ -n "$MIN_X_RATIO" ]; then AR_SUF="_ar${MIN_X_RATIO#0}"; else AR_SUF=""; fi
+
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 REPO=$BASE/Postdoc
 
@@ -71,8 +86,8 @@ conda activate seurat_env
 
 TILE_UM="$TILE_UM" SAMPLES="$SAMPLES" SNP_LABEL="$SNP_LABEL" \
   MIN_X_UNITS="$MIN_X_UNITS" SPATIAL_DIR="$REPO/spatial" \
-  SNP_BED_LABEL="$SNP_BED_LABEL" \
-  OUT_PDF="$BASE/adult_aged_spatial/ase/tile_ratio_map_${TILE_UM}um${SUF}_min${MIN_X_UNITS}.pdf" \
+  SNP_BED_LABEL="$SNP_BED_LABEL" MIN_X_RATIO="$MIN_X_RATIO" \
+  OUT_PDF="$BASE/adult_aged_spatial/ase/tile_ratio_map_${TILE_UM}um${SUF}_min${MIN_X_UNITS}${AR_SUF}.pdf" \
   Rscript "$REPO/spatial/tile_ratio_map_floor.R"
 
 echo "Done. PDF, CSV and provenance in $BASE/adult_aged_spatial/ase/"
