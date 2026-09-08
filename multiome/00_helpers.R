@@ -67,7 +67,21 @@ assign_celltypes <- function(obj, panels, cluster_col = "seurat_clusters",
   means <- t(means)                      # clusters x panels
   best <- colnames(ps)[apply(means, 1, which.max)]
   names(best) <- rownames(means)
-  obj$celltype_provisional <- best[cl]
+
+  # as.character() and a DIRECT meta.data assignment, both load-bearing.
+  # `best[cl]` inherits its names from `best`, i.e. the CLUSTER LABELS - so
+  # `obj$celltype_provisional <- best[cl]` hands AddMetaData a vector named
+  # "0","1","2",... which matches no cell, and fails with "No cell overlap
+  # between new meta data and Seurat object". Writing into meta.data by
+  # position, with names stripped, avoids AddMetaData's name matching
+  # altogether. Same reason the score columns above use as.numeric().
+  ct <- as.character(best[cl])
+  if (all(is.na(ct))) {
+    stop("every cluster failed to score; cluster_col '", cluster_col,
+         "' may not hold the clusters (values seen: ",
+         paste(head(unique(cl), 5), collapse = ", "), ")")
+  }
+  obj@meta.data[["celltype_provisional"]] <- ct
 
   if (verbose) {
     message("provisional cluster -> cell type:")

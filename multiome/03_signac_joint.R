@@ -212,6 +212,12 @@ write.csv(obj@misc[["panel_cluster_means"]],
 present <- lapply(PANELS, function(g) intersect(g, rownames(obj)))
 present <- present[lengths(present) > 0]
 
+# Checkpoint here, not only at the end. FeatureMatrix plus the merged LSI is
+# the multi-hour part of this script, and the last two failures both landed
+# after it -- so it is written out before anything cosmetic can throw.
+saveRDS(obj, file.path(WORK, "multiome_signac_joint.rds"))
+say("checkpoint written: multiome_signac_joint.rds")
+
 comp <- obj@meta.data %>% count(seurat_clusters, sample) %>%
   tidyr::pivot_wider(names_from = sample, values_from = n, values_fill = 0)
 say("per-cluster sample composition - the point of a SHARED space is that these")
@@ -238,10 +244,18 @@ print(
 )
 dev.off()
 
-pdf(file.path(OUT, "wnn_modality_weights.pdf"), width = 9, height = 6)
-print(VlnPlot(obj, features = c("SCT.weight", "ATAC.weight"), group.by = "celltype_provisional",
-              pt.size = 0, ncol = 1) & RotatedAxis())
-dev.off()
+# FindMultiModalNeighbors names its weight columns after the assays behind the
+# reductions, which has varied across Seurat versions (SCT.weight/ATAC.weight
+# vs pca.weight/lsi.weight). Detect them rather than hardcode: a wrong name
+# here would throw at the very end of a multi-hour job.
+wcols <- grep("\\.weight$", colnames(obj@meta.data), value = TRUE)
+say("WNN weight columns found: %s", if (length(wcols)) paste(wcols, collapse = ", ") else "none")
+if (length(wcols)) {
+  pdf(file.path(OUT, "wnn_modality_weights.pdf"), width = 9, height = 6)
+  print(VlnPlot(obj, features = wcols, group.by = "celltype_provisional",
+                pt.size = 0, ncol = 1) & RotatedAxis())
+  dev.off()
+}
 
 # ---- gene activity: accessibility over gene body + promoter ----
 say("--- GeneActivity ---")
