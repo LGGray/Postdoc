@@ -303,15 +303,17 @@ add_text(s, [
 ], LEFT, 6.0, 12.3, 1.2, size=13)
 
 s = new_slide("Allelic ratio maps at 64 µm",
-    "Top: CAST fraction on chrX per tile, i.e. inactive-X expression. Bottom: the same for autosomes, which sit at 0.5 everywhere. chrX tiles are CAST-low across the whole section with no visible patches. "
-    "The wide per-tile spread on chrX is depth: at 30 UMIs a tile cannot resolve 10% from 25%. The two sections are not depth matched, so do not read this as an age comparison.")
+    "Top: allelic ratio (B6 fraction) on chrX per tile, on the same 11-level colour scale as the snRNA-seq UMAPs; red = monoallelic, green/blue = inactive-X expression. Bottom: the same for autosomes, which sit at 0.5 everywhere. "
+    "Why the tile median is 0.75 (9w) / 0.82 (78w), pooled 0.87, rather than the 0.95 of the snRNA-seq nuclei: (1) the tile count is chromosome-wide, and 60% of the CAST molecules on chrX come from a handful of non-genic / multicopy loci that read ~100% CAST (the artefact story two slides on); gene-body-only the section is at 0.94, matching the nuclei. In the snRNA-seq the same split barely matters (0.95 chromosome-wide vs 0.98 gene-body), so these loci are far more prominent in the spatial libraries, which capture cytoplasmic RNA. "
+    "(2) A tile holds ~30 informative UMIs, so the binomial spread alone is +/- 0.06, and the autosomal control shows tile ratios are 15-35x overdispersed on top of that; hence the wide violin, and the tiles at exactly 1.0 in the shallower 78w section. "
+    "No visible patches. The two sections are not depth matched, so do not read this as an age comparison.")
 picture_or_placeholder(s, "F12_spatial_tile_maps_64um.png", LEFT, TOP, 6.4, H)
-picture_or_placeholder(s, "F13_spatial_tile_distribution.png", 7.1, TOP, 5.75, 2.5)
+picture_or_placeholder(s, "F13_spatial_tile_distribution.png", 7.1, TOP, 5.75, 2.9)
 add_text(s, [
-    ("chrX tiles are CAST-low across the whole section; autosomal tiles sit at 0.5", 0),
-    ("No visible patches: the per-tile spread on chrX is depth, not biology (30 UMIs cannot separate 10% from 25%)", 0),
-    ("Sections are not depth matched and 78w is the noisier library, so this is not an age comparison", 0),
-], 7.1, 4.6, 5.75, 2.6, size=13)
+    ("Same colour scale as the snRNA-seq UMAPs; autosomal tiles sit at 0.5, chrX tiles are B6-dominated everywhere, no patches", 0),
+    ("Tile median 0.75 / 0.82 (pooled 0.87) vs 0.95 in nuclei: the tile count is chromosome-wide and includes the artefact loci that carry 60% of chrX CAST molecules (gene-body only: 0.94)", 0),
+    ("~30 UMIs per tile, 15-35x overdispersed: the wide spread is noise, not biology; sections are not depth matched", 0),
+], 7.1, 4.9, 5.75, 2.3, size=12)
 
 s = new_slide("No spatial structure of escape",
     "C(d) is the probability that two chrX UMIs at distance d carry the same allele. It is flat from 4 µm to 2 mm in both sections and equals the no-structure value p^2 + (1-p)^2 for a global escape "

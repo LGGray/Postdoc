@@ -26,7 +26,7 @@ MONO_AR <- 0.90          # OCM_heart/allelic_ratio/00_functions.R
 MIN_TOTAL_READS <- 30    # cutoff_30 directory
 
 # ---- style -----------------------------------------------------------------
-SAMPLE_COL <- c("9w" = "#2B7BBA", "78w" = "#E2711D", "Sham" = "#8C8C8C", "TAC" = "#7B3294")
+SAMPLE_COL <- c("9w" = "#2B7BBA", "78w" = "#E2711D", "Sham" = "#1B9E77", "TAC" = "#7B3294")
 SAMPLE_LAB <- c("9w" = "Adult (9w)", "78w" = "Aged (78w)", "Sham" = "Sham", "TAC" = "TAC")
 # Allelic-ratio palette used throughout OCM_heart (blue = biallelic/escape ... red = monoallelic)
 AR_BREAKS <- c(seq(0, 0.9, by = 0.1), 0.95, 1.0)
@@ -462,36 +462,50 @@ save_fig((p1 | p2) + plot_layout(guides = "collect") & theme(legend.position = "
 
 # F12 - 64 um tile maps: chrX vs autosomes ------------------------------------
 # Tiles are placed on their row/column indices (64 um each), which is exact;
-# the x/y columns are image coordinates whose spacing drifts.
+# the x/y columns are image coordinates whose spacing drifts. Colour is the
+# B6 fraction binned with the same 11-level palette as the OCM UMAPs, so the
+# spatial and snRNA-seq slides read on one scale.
 tm <- read_csv(file.path(SPA, "ase/tile_ratio_map_64um.csv"), show_col_types = FALSE) %>%
   mutate(sample = sample_factor(sample, c("9w","78w")),
          row = as.integer(sub(".*_r(\\d+)_c\\d+$", "\\1", tile)),
          col = as.integer(sub(".*_c(\\d+)$", "\\1", tile)),
-         x_cast = x_a2 / x_n, a_cast = a_a2 / a_n)
+         x_b6 = x_a1 / x_n, a_b6 = a_a1 / a_n)
 tml <- tm %>% filter(!is.na(x_n), x_n >= 10) %>%
-  select(sample, row, col, `chrX (inactive-X escape)` = x_cast, `Autosomes (control)` = a_cast) %>%
-  pivot_longer(c(`chrX (inactive-X escape)`, `Autosomes (control)`), names_to = "set", values_to = "cast") %>%
-  mutate(set = factor(set, c("chrX (inactive-X escape)", "Autosomes (control)")))
+  select(sample, row, col, `chrX` = x_b6, `Autosomes (control)` = a_b6) %>%
+  pivot_longer(c(`chrX`, `Autosomes (control)`), names_to = "set", values_to = "b6") %>%
+  mutate(set = factor(set, c("chrX", "Autosomes (control)")), bin = ar_bin(b6))
 tissue <- tm %>% select(sample, row, col)
 p <- ggplot(tml) +
   geom_tile(data = tissue, aes(col, row), fill = "grey88", width = 1, height = 1) +
-  geom_tile(aes(col, row, fill = cast), width = 1, height = 1) +
+  geom_tile(aes(col, row, fill = bin), width = 1, height = 1) +
   facet_grid(set ~ sample, labeller = labeller(sample = SAMPLE_LAB)) +
-  scale_fill_viridis_c(option = "magma", limits = c(0, 0.6), oob = squish, name = "CAST fraction\n(0 = fully silenced)") +
+  scale_fill_manual(values = setNames(AR_COLS, AR_LABELS), drop = FALSE, name = "Allelic ratio\n(B6 / total)") +
   scale_y_reverse() + coord_equal() +
   labs(title = "Allelic ratio per 64 um tile", x = NULL, y = NULL,
-       subtitle = "Tiles with >= 10 informative UMIs; grey = tissue tiles below depth. Autosomes sit near 0.5, chrX near 0.1 everywhere") +
+       subtitle = "Tiles with >= 10 informative UMIs; grey = tissue tiles below depth. Same colour scale as the snRNA-seq UMAPs") +
   theme(axis.text = element_blank(), axis.ticks = element_blank(), axis.line = element_blank())
 save_fig(p, "F12_spatial_tile_maps_64um", 11, 10)
 
-# F13 - tile distributions ----------------------------------------------------
-p <- ggplot(tml, aes(cast, fill = set)) +
-  geom_histogram(bins = 40, position = "identity", alpha = 0.7, colour = NA) +
-  facet_wrap(~sample, labeller = labeller(sample = SAMPLE_LAB), scales = "free_y") +
-  scale_fill_manual(values = c("#7B3294", "#B8B8B8"), name = NULL) +
-  labs(x = "CAST fraction per 64 um tile", y = "Tiles", title = "Per-tile CAST fraction: chrX vs autosomes") +
-  theme(legend.position = "top")
-save_fig(p, "F13_spatial_tile_distribution", 10, 4.5)
+# F13 - tile distributions, with the snRNA-seq per-nucleus chrX ratio for scale
+tile_v <- tml %>% transmute(sample, what = ifelse(set == "chrX", "chrX, 64 um tiles", "Autosomes, 64 um tiles"), ar = b6)
+nuc_v <- wc2 %>% filter(sample %in% c("9w","78w"), set == "chrX") %>%
+  transmute(sample = sample_factor(sample, c("9w","78w")), what = "chrX, snRNA-seq nuclei", ar = ar)
+vd <- bind_rows(tile_v, nuc_v) %>%
+  mutate(what = factor(what, c("Autosomes, 64 um tiles", "chrX, 64 um tiles", "chrX, snRNA-seq nuclei")))
+vmed <- vd %>% group_by(sample, what) %>% summarise(med = median(ar), n = n(), .groups = "drop") %>%
+  mutate(lab = sprintf("median %.2f\nn = %s", med, comma(n)))
+p <- ggplot(vd, aes(what, ar, fill = what)) +
+  geom_violin(scale = "width", bounds = c(0, 1), colour = NA, alpha = 0.9) +
+  geom_boxplot(width = 0.12, outlier.shape = NA, fill = "white") +
+  geom_hline(yintercept = MONO_AR, linetype = 2, colour = "grey30") +
+  geom_text(data = vmed, aes(what, -0.02, label = lab), inherit.aes = FALSE, size = 3, vjust = 1) +
+  facet_wrap(~sample, labeller = labeller(sample = SAMPLE_LAB)) +
+  scale_fill_manual(values = c("#B8B8B8", "#8B1913", "#C97314"), guide = "none") +
+  scale_x_discrete(labels = c("Autosomes\n64 um tiles", "chrX\n64 um tiles", "chrX\nsnRNA-seq nuclei")) +
+  coord_cartesian(ylim = c(-0.12, 1.02)) +
+  labs(x = NULL, y = "Allelic ratio (B6 / total)", title = "Per-tile allelic ratio, with the per-nucleus snRNA-seq ratio for scale",
+       subtitle = "Tiles: whole-chromosome counts at ~30 UMIs each. Nuclei: >= 30 chrX reads. Dashed line = 0.9 boundary")
+save_fig(p, "F13_spatial_tile_distribution", 10, 5)
 
 # F14 - pair correlation vs distance: no spatial structure --------------------
 pc <- bind_rows(lapply(c("9w","78w"), function(s)
