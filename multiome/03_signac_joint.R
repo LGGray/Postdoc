@@ -74,6 +74,7 @@ PANELS <- list(
   "Epicardial - Mesothelial cells"  = c("Wt1","Msln","Upk3b","Krt19")
 )
 
+source(file.path(BASE, "Postdoc", "multiome", "00_helpers.R"))
 say <- function(...) cat(sprintf(...), "\n", sep = "")
 say("Signac %s, Seurat %s", packageVersion("Signac"), packageVersion("Seurat"))
 
@@ -125,21 +126,42 @@ build_one <- function(id) {
   keep <- intersect(colnames(mat), pass$barcode)
   say("  %d QC-pass nuclei", length(keep))
 
+  # Prefix the cell names HERE rather than letting merge(add.cell.ids=) do it.
+  # A Fragment object stores its own barcode->cellname map, and merge does not
+  # rewrite it, so prefixing at merge time leaves the ChromatinAssay's cells
+  # unprefixed while meta.data is prefixed. That mismatch is what produced
+  # "No cell overlap between new meta data and Seurat object" from
+  # AddModuleScore. Naming once, up front, keeps every assay consistent.
+  newnames <- paste0(id, "_", keep)
+
   o <- CreateSeuratObject(mat[, keep], project = id, assay = "RNA")
+  o <- RenameCells(o, new.names = newnames)
   o$sample     <- id
   o$percent.mt <- PercentageFeatureSet(o, pattern = "^mt-")
   meta <- pass %>% filter(barcode %in% keep) %>%
-    select(barcode, atac_fragments, frip, tss_frac) %>% column_to_rownames("barcode")
+    select(barcode, atac_fragments, frip, tss_frac) %>%
+    mutate(barcode = paste0(id, "_", barcode)) %>% column_to_rownames("barcode")
   o <- AddMetaData(o, meta[colnames(o), , drop = FALSE])
 
-  # Fragments are keyed by the CANONICAL barcode (verified), so `keep` is
-  # directly usable and the resulting matrix aligns with the RNA assay.
+  # Fragments are keyed by the CANONICAL barcode (verified: 20/20 sampled match
+  # gex_barcode, 0/20 atac_barcode). Signac's `cells` map takes the desired
+  # object cell names as NAMES and the in-file barcodes as VALUES, so this is
+  # where the prefix is declared to the fragment object.
   say("  FeatureMatrix over %d common peaks", length(combined))
-  fr <- CreateFragmentObject(path = frag, cells = keep)
-  cm <- FeatureMatrix(fragments = fr, features = combined, cells = keep, process_n = 5000)
+  fr <- CreateFragmentObject(path = frag, cells = setNames(keep, newnames))
+  cm <- FeatureMatrix(fragments = fr, features = combined, process_n = 5000)
+  say("  FeatureMatrix: %d peaks x %d cells", nrow(cm), ncol(cm))
 
-  o[["ATAC"]] <- CreateChromatinAssay(counts = cm, fragments = fr,
-                                      annotation = gtf, genome = "GRCm39")
+  shared <- intersect(colnames(o), colnames(cm))
+  if (!length(shared)) {
+    stop("no shared cells between RNA assay and FeatureMatrix for ", id,
+         "\n  RNA e.g.: ", paste(head(colnames(o), 2), collapse = ", "),
+         "\n  ATAC e.g.: ", paste(head(colnames(cm), 2), collapse = ", "))
+  }
+  say("  %d cells with both modalities", length(shared))
+  o <- subset(o, cells = shared)
+  o[["ATAC"]] <- CreateChromatinAssay(counts = cm[, shared, drop = FALSE],
+                                      fragments = fr, annotation = gtf, genome = "GRCm39")
   o
 }
 objs <- lapply(SAMPLES, build_one); names(objs) <- SAMPLES
@@ -148,7 +170,8 @@ objs <- lapply(SAMPLES, build_one); names(objs) <- SAMPLES
 # merge, then normalise each modality ONCE over the shared features
 # ---------------------------------------------------------------------------
 say("--- merged: RNA PCA and ATAC LSI in a shared space ---")
-obj <- merge(objs[[1]], y = objs[[2]], add.cell.ids = SAMPLES)
+# No add.cell.ids: build_one already prefixed, see the note there.
+obj <- merge(objs[[1]], y = objs[[2]])
 
 DefaultAssay(obj) <- "RNA"
 obj <- SCTransform(obj, verbose = FALSE)      # percent.mt NOT regressed; see 02
@@ -182,18 +205,12 @@ say("  joint clusters: %d", length(levels(obj)))
 
 # ---- provisional cell typing on the joint clusters ----
 DefaultAssay(obj) <- "SCT"
+obj <- assign_celltypes(obj, PANELS, assay = "SCT", layer = "data")
+Idents(obj) <- "celltype_provisional"
+write.csv(obj@misc[["panel_cluster_means"]],
+          file.path(OUT, "cluster_panel_scores.csv"))
 present <- lapply(PANELS, function(g) intersect(g, rownames(obj)))
 present <- present[lengths(present) > 0]
-obj <- AddModuleScore(obj, features = present, name = "panel", verbose = FALSE)
-sc <- paste0("panel", seq_along(present))
-colnames(obj@meta.data)[match(sc, colnames(obj@meta.data))] <- names(present)
-per_cluster <- obj@meta.data %>% group_by(seurat_clusters) %>%
-  summarise(across(all_of(names(present)), mean), .groups = "drop")
-assign <- names(present)[apply(per_cluster[, names(present)], 1, which.max)]
-names(assign) <- as.character(per_cluster$seurat_clusters)
-obj$celltype_provisional <- assign[as.character(obj$seurat_clusters)]
-Idents(obj) <- "celltype_provisional"
-write_csv(per_cluster, file.path(OUT, "cluster_panel_scores.csv"))
 
 comp <- obj@meta.data %>% count(seurat_clusters, sample) %>%
   tidyr::pivot_wider(names_from = sample, values_from = n, values_fill = 0)

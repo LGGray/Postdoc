@@ -70,6 +70,7 @@ PANELS <- list(
   "Epicardial - Mesothelial cells"  = c("Wt1","Msln","Upk3b","Krt19")
 )
 
+source(file.path(BASE, "Postdoc", "multiome", "00_helpers.R"))
 say <- function(...) cat(sprintf(...), "\n", sep = "")
 pdfout <- function(name, w = 9, h = 7) pdf(file.path(OUT, name), width = w, height = h)
 
@@ -121,20 +122,12 @@ present <- lapply(PANELS, function(g) intersect(g, rownames(merged)))
 drop <- names(present)[lengths(present) == 0]
 if (length(drop)) say("panels with no genes present, skipped: %s", paste(drop, collapse = ", "))
 present <- present[lengths(present) > 0]
-merged <- AddModuleScore(merged, features = present, name = "panel", verbose = FALSE)
-score_cols <- paste0("panel", seq_along(present))
-colnames(merged@meta.data)[match(score_cols, colnames(merged@meta.data))] <- names(present)
-
-per_cluster <- merged@meta.data %>%
-  group_by(seurat_clusters) %>%
-  summarise(across(all_of(names(present)), mean), .groups = "drop")
-assign <- names(present)[apply(per_cluster[, names(present)], 1, which.max)]
-names(assign) <- as.character(per_cluster$seurat_clusters)
-merged$celltype_provisional <- assign[as.character(merged$seurat_clusters)]
-say("provisional assignment:")
-print(as.data.frame(table(cluster = merged$seurat_clusters,
-                          celltype = merged$celltype_provisional)) %>% filter(Freq > 0))
-write_csv(per_cluster, file.path(OUT, "cluster_panel_scores.csv"))
+# assign_celltypes rather than AddModuleScore: the latter died on the merged
+# Signac object with "No cell overlap between new meta data and Seurat object",
+# and 02 makes the identical call, so it is replaced here too.
+merged <- assign_celltypes(merged, PANELS, assay = "SCT", layer = "data")
+write.csv(merged@misc[["panel_cluster_means"]],
+          file.path(OUT, "cluster_panel_scores.csv"))
 
 # ---- the honesty check: is a cluster just one sample? ----
 comp <- merged@meta.data %>%
