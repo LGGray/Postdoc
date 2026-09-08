@@ -81,7 +81,7 @@ assign_celltypes <- function(obj, panels, cluster_col = "seurat_clusters",
          "' may not hold the clusters (values seen: ",
          paste(head(unique(cl), 5), collapse = ", "), ")")
   }
-  obj@meta.data[["celltype_provisional"]] <- ct
+  obj <- set_meta(obj, "celltype_provisional", ct)
 
   if (verbose) {
     message("provisional cluster -> cell type:")
@@ -91,6 +91,27 @@ assign_celltypes <- function(obj, panels, cluster_col = "seurat_clusters",
   # @misc, not attr(): Seurat objects are S4 and a plain attribute can be
   # dropped silently by any method that reconstructs the object.
   obj@misc[["panel_cluster_means"]] <- means
+  obj
+}
+
+# Assign a metadata column BY POSITION, with names stripped.
+#
+# Route every metadata write through this. Seurat's `obj$col <- v` goes through
+# AddMetaData, which matches on names whenever v has them - and in R almost
+# every lookup produces names you did not ask for:
+#   best[cl]                    is named by CLUSTER LABEL
+#   CELLTYPE_SHORT[x]           is named by FULL CELL TYPE
+#   ifelse(test, yes, no)       inherits the names of `test`
+# Each of those looks like a plain character vector and fails identically with
+# "No cell overlap between new meta data and Seurat object". That error has now
+# cost three job submissions from three different call sites, so the guard
+# belongs at the boundary rather than in each function.
+set_meta <- function(obj, name, values) {
+  n <- nrow(obj@meta.data)
+  if (length(values) != n) {
+    stop("set_meta('", name, "'): ", length(values), " values for ", n, " cells")
+  }
+  obj@meta.data[[name]] <- unname(values)
   obj
 }
 
@@ -136,7 +157,9 @@ CELLTYPE_SHORT <- c(
 )
 short_labels <- function(x) {
   out <- CELLTYPE_SHORT[as.character(x)]
-  ifelse(is.na(out), as.character(x), out)   # unmapped labels pass through
+  # unname() is load-bearing: `out` is named by the FULL cell type, and ifelse
+  # inherits the names of its `test`. See set_meta above.
+  unname(ifelse(is.na(out), as.character(x), out))   # unmapped labels pass through
 }
 
 # Okabe-Ito, a published palette designed and tested for colour-vision

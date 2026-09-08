@@ -126,7 +126,7 @@ present <- present[lengths(present) > 0]
 # Signac object with "No cell overlap between new meta data and Seurat object",
 # and 02 makes the identical call, so it is replaced here too.
 merged <- assign_celltypes(merged, PANELS, assay = "SCT", layer = "data")
-merged$celltype_short <- short_labels(merged$celltype_provisional)
+merged <- set_meta(merged, "celltype_short", short_labels(merged$celltype_provisional))
 SC_COL <- celltype_scale(sort(unique(merged$celltype_short)), "colour")
 write.csv(merged@misc[["panel_cluster_means"]],
           file.path(OUT, "cluster_panel_scores.csv"))

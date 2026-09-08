@@ -206,7 +206,7 @@ say("  joint clusters: %d", length(levels(obj)))
 # ---- provisional cell typing on the joint clusters ----
 DefaultAssay(obj) <- "SCT"
 obj <- assign_celltypes(obj, PANELS, assay = "SCT", layer = "data")
-obj$celltype_short <- short_labels(obj$celltype_provisional)
+obj <- set_meta(obj, "celltype_short", short_labels(obj$celltype_provisional))
 CT_LEVELS <- sort(unique(obj$celltype_short))
 SC_COL <- celltype_scale(CT_LEVELS, "colour")
 Idents(obj) <- "celltype_provisional"

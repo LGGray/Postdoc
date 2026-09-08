@@ -34,7 +34,7 @@ obj <- readRDS(RDS)
 say("%d nuclei, %d clusters, assays: %s", ncol(obj),
     length(unique(obj$seurat_clusters)), paste(Assays(obj), collapse = ", "))
 
-obj$celltype_short <- short_labels(obj$celltype_provisional)
+obj <- set_meta(obj, "celltype_short", short_labels(obj$celltype_provisional))
 CT_LEVELS <- sort(unique(obj$celltype_short))
 SC_COL <- celltype_scale(CT_LEVELS, "colour")
 say("cell types (%d): %s", length(CT_LEVELS), paste(CT_LEVELS, collapse = ", "))
