@@ -50,12 +50,30 @@ dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 
 SAMPLES <- c("9w", "78w")
 
-# ---- thresholds: REVIEW against qc_distributions_*.pdf before trusting ----
+# ---- thresholds: chosen from the quantile report, not inherited ----
+#
+# percent.mt is DATA-DRIVEN by default, and that is a correction rather than a
+# preference. A fixed `percent.mt < 5`, carried over from
+# OCM_heart/Seurat_preprocessing.R, removed 84.8% of 9w and 83.9% of 78w nuclei
+# on its own - more than every other criterion combined. That number was
+# calibrated on CellBender-FILTERED input, and ambient RNA in cardiac tissue is
+# heavily mitochondrial, so CellBender was stripping most of that signal before
+# the 5% test ever applied. Against un-denoised multiome counts it is not the
+# same test.
+#
+# Relaxing it is defensible on top of that, because chrM reads cannot
+# contaminate a chrX allelic ratio: percent.mt here is a proxy for droplet
+# quality, not a direct confound for the measurement. The direct quality
+# metrics - nCount, nFeature, atac_fragments, FRiP - are doing that job.
+#
+# Set percent_mt_rule = "fixed" to go back to an absolute cap.
 TH <- list(
   nCount_RNA_min     = 500,
   nCount_RNA_max     = 20000,
   nFeature_RNA_min   = 200,
   nFeature_RNA_max   = 5000,
+  percent_mt_rule    = "mad",
+  percent_mt_mads    = 3,
   percent_mt_max     = 5,
   # ATAC floors are deliberately permissive. Sample-level FRiP is only 0.14
   # (9w) and 0.20 (78w), so a per-nucleus FRiP floor set by scRNA intuition
@@ -82,6 +100,14 @@ qc_one <- function(id) {
   obj <- CreateSeuratObject(mat, project = id)
   obj$percent.mt <- PercentageFeatureSet(obj, pattern = "^mt-")
 
+  # Confirm the pattern matches real genes. If it matched nothing, percent.mt
+  # would be 0 everywhere and the criterion would silently pass all nuclei -
+  # the opposite failure to the one seen, but just as quiet.
+  mt_genes <- grep("^mt-", rownames(obj), value = TRUE)
+  say("mito genes matched by '^mt-': %d [%s]", length(mt_genes),
+      paste(head(mt_genes, 13), collapse = ", "))
+  if (length(mt_genes) == 0) say("WARNING: no mito genes matched; percent.mt is meaningless")
+
   m <- read_csv(pbm, show_col_types = FALSE) %>%
     filter(is_cell == 1) %>%
     mutate(
@@ -103,6 +129,17 @@ qc_one <- function(id) {
     tibble::rownames_to_column("barcode") %>%
     inner_join(m, by = "barcode")
 
+  # ---- quantiles, so a threshold can be picked as a number ----
+  QS <- c(.01, .05, .10, .25, .50, .75, .90, .95, .99)
+  metrics <- c("nCount_RNA", "nFeature_RNA", "percent.mt",
+               "atac_fragments", "frip", "tss_frac")
+  qtab <- t(vapply(metrics, function(v) quantile(md[[v]], QS, na.rm = TRUE),
+                   numeric(length(QS))))
+  colnames(qtab) <- paste0("p", round(100 * QS))
+  say("quantiles across the %d called nuclei:", nrow(md))
+  print(round(qtab, 3))
+  write.csv(qtab, file.path(OUT, sprintf("quantiles_%s.csv", id)))
+
   # ---- distributions, so thresholds are chosen and not inherited ----
   long <- md %>%
     select(barcode, nCount_RNA, nFeature_RNA, percent.mt,
@@ -121,18 +158,31 @@ qc_one <- function(id) {
   dev.off()
 
   # ---- attrition, one criterion at a time ----
+  mt_cut <- if (identical(TH$percent_mt_rule, "mad")) {
+    median(md$percent.mt, na.rm = TRUE) + TH$percent_mt_mads * mad(md$percent.mt, na.rm = TRUE)
+  } else {
+    TH$percent_mt_max
+  }
+  say("percent.mt rule '%s' -> effective cut %.2f%% (median %.2f, mad %.2f)",
+      TH$percent_mt_rule, mt_cut,
+      median(md$percent.mt, na.rm = TRUE), mad(md$percent.mt, na.rm = TRUE))
+
   crit <- list(
     nCount_RNA_min     = md$nCount_RNA   >= TH$nCount_RNA_min,
     nCount_RNA_max     = md$nCount_RNA   <= TH$nCount_RNA_max,
     nFeature_RNA_min   = md$nFeature_RNA >= TH$nFeature_RNA_min,
     nFeature_RNA_max   = md$nFeature_RNA <= TH$nFeature_RNA_max,
-    percent_mt_max     = md$percent.mt   <= TH$percent_mt_max,
+    percent_mt         = md$percent.mt   <= mt_cut,
     atac_fragments_min = md$atac_fragments >= TH$atac_fragments_min,
     frip_min           = !is.na(md$frip) & md$frip >= TH$frip_min
   )
+  cuts <- c(nCount_RNA_min = TH$nCount_RNA_min, nCount_RNA_max = TH$nCount_RNA_max,
+            nFeature_RNA_min = TH$nFeature_RNA_min, nFeature_RNA_max = TH$nFeature_RNA_max,
+            percent_mt = mt_cut,
+            atac_fragments_min = TH$atac_fragments_min, frip_min = TH$frip_min)
   att <- tibble(
     criterion = names(crit),
-    threshold = unlist(TH[names(crit)]),
+    threshold = as.numeric(cuts[names(crit)]),
     fails     = vapply(crit, function(k) sum(!k), integer(1)),
     pct_fail  = round(100 * vapply(crit, function(k) mean(!k), numeric(1)), 2)
   )
