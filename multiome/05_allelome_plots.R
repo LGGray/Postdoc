@@ -5,15 +5,20 @@
 # SCRATCH path, so a run that hit the wall clock still gets plotted. Writes one
 # consolidated TSV per tree to DSS and caches it, so re-plotting is instant.
 #
-# ALLELE ORIENTATION IS INFERRED AND REPORTED, NOT ASSUMED. score.R gives
-# allelic_ratio = A1_reads / total_reads, but which of A1/A2 is B6 traces back
-# through the pileup construction and is not documented in the toolkit. Getting
-# it backwards inverts every conclusion, so instead of guessing this checks it
-# against a strong prior: Xist is deleted on the B6 allele, so B6 cannot be
-# silenced, CAST is the inactive X in EVERY nucleus, and pooled chrX must
-# therefore be heavily skewed toward B6. A pooled chrX A1 fraction near 0.87
-# means A1 = B6; near 0.13 means A1 = CAST; near 0.5 means something upstream
-# is wrong and the script stops rather than reporting a number.
+# ALLELE ORIENTATION: A1 = C57BL/6 (B6), A2 = CAST/EiJ. Confirmed directly,
+# which matters because the toolkit does not document it - score.R only shows
+# allelic_ratio = A1_reads/total_reads, and A1/A2 arrive from the SNP bed's
+# allele column through the pileup with no label attached.
+#
+# So escape = A2/(A1+A2), the CAST fraction: Xist is deleted on the B6 allele,
+# B6 therefore cannot be silenced, and CAST is the inactive X in every nucleus.
+#
+# The pooled chrX skew is kept as an INDEPENDENT CHECK rather than as the
+# source of the orientation. With the orientation known from outside the data
+# that is a real test - a chrX A1 fraction that is NOT strongly B6 contradicts
+# the whole chain and points at the Xic mask, the SNP file or the genotype.
+# Deriving the orientation FROM the skew, as an earlier version did, was mildly
+# circular: it assumed the biology in order to measure it.
 #
 # The loader mirrors load_allelome_tree() in
 # OCM_heart/allelic_ratio/00_functions.R rather than sourcing it: that file
@@ -38,6 +43,8 @@ SAMPLES    <- c("9w", "78w")
 ANNOT_BASE <- "chr_annotation_mm39.bed"
 AUTOSOMES  <- paste0("chr", 1:19)
 PRIOR_ESCAPE <- 0.127     # snRNA/spatial estimate this should reproduce
+A1_IS      <- "B6"        # A1 = C57BL/6, A2 = CAST/EiJ - confirmed, not inferred
+CHRX_A1_MIN <- 0.60       # below this, the data contradicts the known orientation
 MIN_INFORMATIVE <- 20     # per-nucleus gate, applied at ANALYSIS time on the
                           # actual informative chrX count - not a UMI proxy
 
@@ -96,25 +103,26 @@ ar_x    <- px$a1 / (px$a1 + px$a2)
 ar_auto <- pa$a1 / (pa$a1 + pa$a2)
 
 say("")
-say("=================== allele orientation ===================")
-say("pooled chrX      A1 fraction: %.4f  (%d / %d reads)", ar_x, px$a1, px$a1 + px$a2)
-say("pooled autosomal A1 fraction: %.4f  (%d / %d reads)", ar_auto, pa$a1, pa$a1 + pa$a2)
-if (ar_x > 0.65) {
-  A1_IS <- "B6"; escape_of <- function(a1, a2) a2 / (a1 + a2)
-  say("-> chrX is B6-skewed, so A1 = B6 and escape = A2/(A1+A2) = CAST fraction")
-} else if (ar_x < 0.35) {
-  A1_IS <- "CAST"; escape_of <- function(a1, a2) a1 / (a1 + a2)
-  say("-> chrX is CAST-depleted in A2, so A1 = CAST and escape = A1/(A1+A2)")
-} else {
-  stop(sprintf(paste0("pooled chrX A1 fraction is %.3f, i.e. near 0.5.\n",
-    "  With Xist deleted on B6, CAST is the inactive X in every nucleus and chrX\n",
-    "  must be strongly skewed. A balanced chrX means something upstream is wrong -\n",
-    "  candidates: the Xic mask, the SNP file, or the sample genotype. Not plotting\n",
-    "  a number that cannot be interpreted."), ar_x))
+# A1 = B6 is known, so escape is the CAST fraction. Not derived from the data.
+escape_of <- function(a1, a2) a2 / (a1 + a2)
+
+say("============ orientation check (A1 = %s, known) ============", A1_IS)
+say("pooled chrX      A1(%s) fraction: %.4f  (%d / %d reads)", A1_IS, ar_x, px$a1, px$a1 + px$a2)
+say("pooled autosomal A1(%s) fraction: %.4f  (%d / %d reads)", A1_IS, ar_auto, pa$a1, pa$a1 + pa$a2)
+say("implied pooled chrX escape (CAST): %.4f", 1 - ar_x)
+if (ar_x < CHRX_A1_MIN) {
+  stop(sprintf(paste0("pooled chrX A1(B6) fraction is %.3f, below the %.2f floor.\n",
+    "  A1 = B6 is known independently, and Xist is deleted on B6, so B6 cannot be\n",
+    "  silenced and chrX MUST be strongly B6-skewed. This says it is not, which\n",
+    "  contradicts the chain rather than revising the orientation. Candidates, in\n",
+    "  rough order of likelihood: the Xic mask (is _no_Xist the right extent?), the\n",
+    "  SNP file, the sample genotype, or the dedup/MAPQ filters. Not plotting a\n",
+    "  number that cannot be interpreted."), ar_x, CHRX_A1_MIN))
 }
+say("-> consistent with A1 = B6 and full skewing; escape = A2/(A1+A2) = CAST fraction")
 say("autosomal mapping bias: A1 excess of %+.4f from 0.5 (B6-reference bias)",
     ar_auto - 0.5)
-say("==========================================================")
+say("===========================================================")
 say("")
 
 wilson <- function(k, n) {
@@ -257,4 +265,4 @@ if (!is.null(pn)) {
 
 say("")
 say("output under %s", OUT)
-say("A1 = %s (inferred from the chrX skew, see the orientation block above)", A1_IS)
+say("A1 = %s (known); escape reported as the CAST fraction", A1_IS)
