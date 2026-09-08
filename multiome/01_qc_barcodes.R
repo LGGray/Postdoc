@@ -19,16 +19,9 @@
 # sinto names each output BAM after the group, so both modalities yield
 # <barcode>.bam and a nucleus joins across them on filename alone.
 #
-# WHY FIXED THRESHOLDS AND NOT ddqcR. OCM_heart/Seurat_preprocessing.R defines
-# a local initialQC override but every call site is commented out; the QC that
-# actually runs there is the fixed subset() below. This follows the working
-# path. ddqcR is still installed if we want to revisit it.
-#
-# WHY THE THRESHOLDS NEED REVIEWING RATHER THAN REUSING. The OCM numbers were
-# set on CellBender-filtered snRNA. This data is shallower per nucleus - median
-# 1353 UMIs at 9w and 863 at 78w - so a floor tuned there can bite much harder
-# here, especially at 78w. The attrition table below reports what each single
-# criterion removes so the cost is visible before anything is committed to.
+# RNA cutoffs come from ddqcR and ATAC floors are applied separately; see the
+# "QC method" section below for why, and for what the inherited fixed cutoffs
+# did to this data.
 #
 # Run in seurat_env (NOT the RNAseq env the allelic scripts use):
 #   conda activate seurat_env
@@ -50,39 +43,67 @@ dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 
 SAMPLES <- c("9w", "78w")
 
-# ---- thresholds: chosen from the quantile report, not inherited ----
+# ---- QC method ----
 #
-# percent.mt is DATA-DRIVEN by default, and that is a correction rather than a
-# preference. A fixed `percent.mt < 5`, carried over from
-# OCM_heart/Seurat_preprocessing.R, removed 84.8% of 9w and 83.9% of 78w nuclei
-# on its own - more than every other criterion combined. That number was
-# calibrated on CellBender-FILTERED input, and ambient RNA in cardiac tissue is
-# heavily mitochondrial, so CellBender was stripping most of that signal before
-# the 5% test ever applied. Against un-denoised multiome counts it is not the
-# same test.
+# RNA cutoffs come from ddqcR, which is the right tool here for a specific
+# reason rather than a general preference. Cardiomyocytes are the most
+# mitochondria-rich cell type in the heart, so ANY global mito cutoff - the
+# fixed 5% or a global MAD - preferentially deletes the cell type this project
+# is actually about. ddqcR clusters first and takes MAD-based cutoffs WITHIN
+# each cluster, so a legitimately high-mito cardiomyocyte population is judged
+# against other cardiomyocytes instead of against fibroblasts.
 #
-# Relaxing it is defensible on top of that, because chrM reads cannot
-# contaminate a chrX allelic ratio: percent.mt here is a proxy for droplet
-# quality, not a direct confound for the measurement. The direct quality
-# metrics - nCount, nFeature, atac_fragments, FRiP - are doing that job.
+# History worth not repeating: the fixed `percent.mt < 5` inherited from
+# OCM_heart/Seurat_preprocessing.R removed 84.8% of 9w and 83.9% of 78w nuclei
+# on its own, more than every other criterion combined. That number was
+# calibrated on CellBender-FILTERED input, and cardiac ambient RNA is heavily
+# mitochondrial, so CellBender was stripping most of that signal before the 5%
+# test ever applied. It was never transferable to un-denoised counts.
 #
-# Set percent_mt_rule = "fixed" to go back to an absolute cap.
-TH <- list(
-  nCount_RNA_min     = 500,
-  nCount_RNA_max     = 20000,
-  nFeature_RNA_min   = 200,
-  nFeature_RNA_max   = 5000,
-  percent_mt_rule    = "mad",
-  percent_mt_mads    = 3,
-  percent_mt_max     = 5,
-  # ATAC floors are deliberately permissive. Sample-level FRiP is only 0.14
-  # (9w) and 0.20 (78w), so a per-nucleus FRiP floor set by scRNA intuition
-  # would discard most of the data.
+# ddqcR is RNA-only, so the ATAC floors below are applied independently and
+# intersected. They also act as the backstop for ddqcR's known failure mode:
+# per-cluster MAD is relative, so a cluster consisting ENTIRELY of poor
+# droplets can survive it. atac_fragments and FRiP measure quality absolutely.
+ATAC_TH <- list(
   atac_fragments_min = 1000,
   frip_min           = 0.05
 )
+# Reference-only, to quantify what ddqcR buys against what we had. Never
+# applied - reported in the log so the choice of method is defensible.
+REF <- list(percent_mt_fixed = 5, mads = 3)
 
 say <- function(...) cat(sprintf(...), "\n", sep = "")
+
+if (!requireNamespace("ddqcR", quietly = TRUE)) {
+  stop("ddqcR is not installed in this environment.\n",
+       "  It is used by pSS_preprocessing.R, so it exists somewhere - check\n",
+       "  which env that runs in, or install into seurat_env. Do NOT silently\n",
+       "  fall back to a global cutoff: that is the failure this script exists\n",
+       "  to avoid.")
+}
+suppressPackageStartupMessages(library(ddqcR))
+
+# Local override of ddqcR::initialQC, carried over from
+# OCM_heart/Seurat_preprocessing.R. The packaged version hardcodes the HUMAN
+# "MT-" prefix; against a mouse object it matches nothing, percent.mt comes
+# back 0 for every nucleus, and the mito criterion then passes everything
+# silently. pSS_preprocessing.R can use the stock function because its data is
+# human.
+initialQC <- function(data,
+                      basic.n.genes = 100,
+                      basic.percent.mt = 80,
+                      mt.prefix = "^mt-",
+                      rb.prefix = "^Rp[sl][[:digit:]]|^Rplp[[:digit:]]|^Rpsa") {
+  mt.features <- grep(mt.prefix, rownames(data), ignore.case = TRUE, value = TRUE)
+  rb.features <- grep(rb.prefix, rownames(data), ignore.case = TRUE, value = TRUE)
+  data[["percent.mt"]] <- if (length(mt.features) > 0) {
+    PercentageFeatureSet(data, features = mt.features)
+  } else rep(0, ncol(data))
+  data[["percent.rb"]] <- if (length(rb.features) > 0) {
+    PercentageFeatureSet(data, features = rb.features)
+  } else rep(0, ncol(data))
+  subset(data, subset = nFeature_RNA >= basic.n.genes & percent.mt <= basic.percent.mt)
+}
 
 qc_one <- function(id) {
   say("=========== %s ===========", id)
@@ -157,43 +178,49 @@ qc_one <- function(id) {
   )
   dev.off()
 
-  # ---- attrition, one criterion at a time ----
-  mt_cut <- if (identical(TH$percent_mt_rule, "mad")) {
-    median(md$percent.mt, na.rm = TRUE) + TH$percent_mt_mads * mad(md$percent.mt, na.rm = TRUE)
-  } else {
-    TH$percent_mt_max
-  }
-  say("percent.mt rule '%s' -> effective cut %.2f%% (median %.2f, mad %.2f)",
-      TH$percent_mt_rule, mt_cut,
-      median(md$percent.mt, na.rm = TRUE), mad(md$percent.mt, na.rm = TRUE))
+  # ---- RNA: ddqcR, per-cluster data-driven cutoffs ----
+  n_called <- ncol(obj)
+  obj <- initialQC(obj)
+  say("initialQC (n.genes >= 100, percent.mt <= 80): %d -> %d nuclei",
+      n_called, ncol(obj))
 
-  crit <- list(
-    nCount_RNA_min     = md$nCount_RNA   >= TH$nCount_RNA_min,
-    nCount_RNA_max     = md$nCount_RNA   <= TH$nCount_RNA_max,
-    nFeature_RNA_min   = md$nFeature_RNA >= TH$nFeature_RNA_min,
-    nFeature_RNA_max   = md$nFeature_RNA <= TH$nFeature_RNA_max,
-    percent_mt         = md$percent.mt   <= mt_cut,
-    atac_fragments_min = md$atac_fragments >= TH$atac_fragments_min,
-    frip_min           = !is.na(md$frip) & md$frip >= TH$frip_min
-  )
-  cuts <- c(nCount_RNA_min = TH$nCount_RNA_min, nCount_RNA_max = TH$nCount_RNA_max,
-            nFeature_RNA_min = TH$nFeature_RNA_min, nFeature_RNA_max = TH$nFeature_RNA_max,
-            percent_mt = mt_cut,
-            atac_fragments_min = TH$atac_fragments_min, frip_min = TH$frip_min)
-  att <- tibble(
-    criterion = names(crit),
-    threshold = as.numeric(cuts[names(crit)]),
-    fails     = vapply(crit, function(k) sum(!k), integer(1)),
-    pct_fail  = round(100 * vapply(crit, function(k) mean(!k), numeric(1)), 2)
-  )
-  say("attrition per criterion (each in isolation):")
-  print(as.data.frame(att), row.names = FALSE)
+  # Called bare, exactly as pSS_preprocessing.R does. ddqc.metrics takes
+  # tuning arguments (MAD threshold, clustering resolution) but the package is
+  # not installed locally to check their names against, and a wrong argument
+  # name here is an error rather than a silent default. Verify with
+  # ?ddqc.metrics on the cluster before tuning; the defaults are the published
+  # ones and are a reasonable starting point.
+  pdf(file.path(OUT, sprintf("ddqc_%s.pdf", id)), width = 10, height = 7)
+  df.qc <- ddqc.metrics(obj)
+  dev.off()
+  obj <- filterData(obj, df.qc)
+  say("ddqcR (package defaults): -> %d nuclei", ncol(obj))
+  # write.csv, not write_csv: df.qc may carry its cluster ids as rownames and
+  # as_tibble(rownames=) errors when they are absent. This handles both.
+  write.csv(df.qc, file.path(OUT, sprintf("ddqc_metrics_%s.csv", id)))
 
-  keep <- Reduce(`&`, crit)
-  say("PASS %d / %d nuclei (%.1f%%)", sum(keep), length(keep), 100 * mean(keep))
+  rna_pass <- colnames(obj)
 
-  pass <- md[keep, ]
-  write_csv(att,  file.path(OUT, sprintf("attrition_%s.csv", id)))
+  # ---- ATAC: absolute floors, independent of ddqcR ----
+  atac_pass <- md$barcode[
+    md$atac_fragments >= ATAC_TH$atac_fragments_min &
+    !is.na(md$frip) & md$frip >= ATAC_TH$frip_min
+  ]
+  say("ATAC floors (fragments >= %d, FRiP >= %.2f): %d / %d nuclei pass",
+      ATAC_TH$atac_fragments_min, ATAC_TH$frip_min, length(atac_pass), nrow(md))
+
+  keep_bc <- intersect(rna_pass, atac_pass)
+  say("BOTH: %d / %d nuclei (%.1f%%)", length(keep_bc), n_called,
+      100 * length(keep_bc) / n_called)
+
+  # ---- reference comparison, reported not applied ----
+  ref_fixed <- sum(md$percent.mt <= REF$percent_mt_fixed)
+  ref_mad   <- sum(md$percent.mt <= median(md$percent.mt, na.rm = TRUE) +
+                     REF$mads * mad(md$percent.mt, na.rm = TRUE), na.rm = TRUE)
+  say("for reference, mito criterion ALONE would keep: fixed %g%% -> %d, global %d-MAD -> %d, of %d",
+      REF$percent_mt_fixed, ref_fixed, REF$mads, ref_mad, nrow(md))
+
+  pass <- md[md$barcode %in% keep_bc, ]
   write_csv(pass, file.path(OUT, sprintf("qc_pass_%s.csv", id)))
 
   # ---- sinto barcode files: group is the CANONICAL barcode in both ----
@@ -205,7 +232,7 @@ qc_one <- function(id) {
               sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
   say("wrote sinto_%s_rna.txt and sinto_%s_atac.txt (%d nuclei each)", id, id, nrow(pass))
 
-  tibble(sample = id, called = nrow(md), passed = nrow(pass),
+  tibble(sample = id, called = n_called, passed = nrow(pass),
          median_umi = median(md$nCount_RNA),
          median_frags = median(md$atac_fragments))
 }
