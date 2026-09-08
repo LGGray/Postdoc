@@ -40,6 +40,18 @@ SAMPLES="${2:-9w,78w}"
 SNP_LABEL="${3:-no_Xist}"
 if [ "$SNP_LABEL" = "no_Xist" ]; then SUF=""; else SUF="_$SNP_LABEL"; fi
 
+# Arg 3 doubles as the output-directory suffix, and for the duplicate-inclusive
+# trees that suffix is a FILTER mode, not a SNP mask: spatial_sinto_tiles.slurm
+# writes _dup and _raw while scoring against the no_Xist bed. Deriving the bed
+# name from arg 3 would invent "SNPfile_..._dup.bed" and the provenance sidecar
+# would carry no fingerprint, so map the filter suffixes back to the mask that
+# was actually used. Arg 4 overrides, for a tile run scored against another.
+case "$SNP_LABEL" in
+  dup|raw|none) BED_DEFAULT=no_Xist ;;
+  *)            BED_DEFAULT=$SNP_LABEL ;;
+esac
+SNP_BED_LABEL="${4:-$BED_DEFAULT}"
+
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 REPO=$BASE/Postdoc
 
@@ -65,6 +77,7 @@ Rscript -e 'for (p in c("arrow","png")) if (!requireNamespace(p, quietly=TRUE))
   2>&1 | sed 's/^/  /'
 
 TILE_UM="$TILE_UM" SAMPLES="$SAMPLES" SNP_LABEL="$SNP_LABEL" \
+  SNP_BED_LABEL="$SNP_BED_LABEL" \
   OUT_PDF="$BASE/adult_aged_spatial/ase/tile_ratio_map_${TILE_UM}um${SUF}.pdf" \
   Rscript "$REPO/spatial/tile_ratio_map.R"
 

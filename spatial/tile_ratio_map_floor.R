@@ -80,6 +80,11 @@ SWEEP <- c(1, 2, 5, 10, 20, 50, 100)
 # own category instead of borrowing one of the other two.
 COL_FLOOR <- "#7d7b73"
 
+# SNP_BED_LABEL / SNP_BED come from tile_ratio_map.R, which reads the same env
+# var: set SNP_BED_LABEL=no_Xist when SNP_LABEL is a filter suffix (dup, raw)
+# rather than a mask, so the provenance sidecar fingerprints the bed that was
+# really used instead of a path derived from the directory name.
+
 ##### ------------------- apply the floor ------------------- #####
 
 # Re-derive everything downstream of the ratio on the kept tiles. Not a filter
@@ -310,17 +315,17 @@ if (!length(all_flt)) {
   fwrite(flt[, .(sample, tile, x, y, n_bins, x_a1, x_a2, x_n, a_a1, a_a2, a_n,
                  x_ratio, x_bin, a_ratio, z, call, submitted, shallow)], csv)
 
-  snp_bed <- file.path(dirname(BASE), "GRCm39",
-                       sprintf("SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_%s.bed",
-                               SNP_LABEL))
+  snp_bed <- SNP_BED
   prov <- data.table(
-    k = c("script", "run_at", "tile_um", "samples", "snp_label", "snp_bed",
+    k = c("script", "run_at", "tile_um", "samples", "snp_label",
+          "snp_bed_label", "snp_bed",
           "snp_bed_md5", "annotation", "count_unit", "min_x_units", "z_call",
           "auto_sd_refitted", "tiles_scored", "tiles_kept",
           "pooled_x_all", "pooled_x_kept"),
     v = c("spatial/tile_ratio_map_floor.R",
           format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-          TILE_UM, paste(levels(flt$sample), collapse = ","), SNP_LABEL, snp_bed,
+          TILE_UM, paste(levels(flt$sample), collapse = ","), SNP_LABEL,
+          SNP_BED_LABEL, snp_bed,
           if (file.exists(snp_bed)) unname(tools::md5sum(snp_bed)) else
             "bed not readable from here",
           ANNOT_BASE, COUNT_UNIT, MIN_X_UNITS, Z_CALL,

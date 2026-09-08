@@ -46,6 +46,21 @@ SUF     <- if (SNP_LABEL == "no_Xist") "" else paste0("_", SNP_LABEL)
 # published figures must not depend on a variable only another script sets.
 AS_LIBRARY <- nzchar(Sys.getenv("TILE_RATIO_MAP_LIB"))
 
+# The SNP mask the tree was actually scored against, named INDEPENDENTLY of
+# SNP_LABEL. SNP_LABEL doubles as the output-directory suffix, and for the
+# duplicate-inclusive trees that suffix is a FILTER mode - spatial_sinto_tiles
+# .slurm writes _dup and _raw - not a mask. Deriving the bed name from it then
+# invents a path that does not exist ("SNPfile_..._dup.bed"), and the sidecar
+# loses the one fingerprint that lets a figure be attributed to its bed later.
+# Defaults to SNP_LABEL, which is correct whenever the suffix really is a mask.
+SNP_BED_LABEL <- Sys.getenv("SNP_BED_LABEL", SNP_LABEL)
+SNP_BED <- file.path(dirname(BASE), "GRCm39",
+                     sprintf("SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_%s.bed",
+                             SNP_BED_LABEL))
+if (!file.exists(SNP_BED))
+  message(sprintf("note: no SNP bed at %s\n      the provenance sidecar cannot fingerprint it - set SNP_BED_LABEL to the mask the tile run used",
+                  SNP_BED))
+
 # What one unit in a1_reads/a2_reads/total_reads actually is. Allelome.PRO2
 # counts READS, so "read" is the default and the original figures are unchanged.
 # spatial/ase_tile_locus_counts.py can write either level, and at --ap2-level
@@ -889,16 +904,15 @@ if (!AS_LIBRARY && length(all_d)) {
   # attributed later. NOT data.table(key = ...): `key` is data.table()'s own
   # argument and that form errors.
   # BASE is <root>/adult_aged_spatial and the beds live in <root>/GRCm39.
-  snp_bed <- file.path(dirname(BASE), "GRCm39",
-                       sprintf("SNPfile_C57BL_6NJxCAST_EiJ_sorted_mm39_%s.bed",
-                               SNP_LABEL))
+  snp_bed <- SNP_BED
   prov <- data.table(
-    k = c("script", "run_at", "tile_um", "samples", "snp_label", "snp_bed",
+    k = c("script", "run_at", "tile_um", "samples", "snp_label",
+          "snp_bed_label", "snp_bed",
           "snp_bed_md5", "annotation", "scratch_supplement", "z_call",
           "auto_sd_per_sample", "tiles_scored"),
     v = c("spatial/tile_ratio_map.R", format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
           TILE_UM, paste(levels(out$sample), collapse = ","), SNP_LABEL,
-          snp_bed,
+          SNP_BED_LABEL, snp_bed,
           if (file.exists(snp_bed)) unname(tools::md5sum(snp_bed)) else
             "bed not readable from here",
           ANNOT_BASE, SCRATCH_SUPPLEMENT, Z_CALL,
