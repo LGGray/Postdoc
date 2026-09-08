@@ -168,8 +168,14 @@ short_labels <- function(x) {
 # cycled: past 8 categories this returns NULL and the caller keeps Seurat's
 # default rather than inventing a 9th hue. Yellow is placed last because it is
 # the weakest of the eight against a white scatter background.
+#
+# NO GREY AMONG THE CATEGORIES. Grey reads as "missing/other/inactive" to
+# anyone used to looking at these plots, so a grey cluster is ambiguous no
+# matter how it is labelled. Keeping grey OUT of the categorical set is what
+# makes it unambiguous as na.value below - the convention is only useful if it
+# is reserved. Okabe-Ito's own eighth colour is black, used here in its place.
 OKABE_ITO <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7",
-               "#56B4E9", "#D55E00", "#999999", "#F0E442")
+               "#56B4E9", "#D55E00", "#000000", "#F0E442")
 
 celltype_scale <- function(levels, aes = c("colour", "fill")) {
   aes <- match.arg(aes)
