@@ -39,6 +39,13 @@ ANNOT_BASE <- "chr_annotation_mm39.bed"
 SNP_LABEL <- Sys.getenv("SNP_LABEL", "no_Xist")
 SUF     <- if (SNP_LABEL == "no_Xist") "" else paste0("_", SNP_LABEL)
 
+# Sourced for its loaders and panels rather than run for its figures. Set by
+# tile_ratio_map_floor.R, which needs collect_sample() and every panel_* but
+# draws its own pages from them. Unset - the normal case - and this file
+# behaves exactly as it did before the flag existed, which is the point: the
+# published figures must not depend on a variable only another script sets.
+AS_LIBRARY <- nzchar(Sys.getenv("TILE_RATIO_MAP_LIB"))
+
 # What one unit in a1_reads/a2_reads/total_reads actually is. Allelome.PRO2
 # counts READS, so "read" is the default and the original figures are unchanged.
 # spatial/ase_tile_locus_counts.py can write either level, and at --ap2-level
@@ -707,36 +714,41 @@ clustering_test <- function(d, label, n_perm = 2000L) {
   invisible(NULL)
 }
 
-msg("Tile size %d um, samples: %s, SNP mask: %s",
-    TILE_UM, paste(SAMPLES, collapse = ", "), SNP_LABEL)
-all_d <- list()
-pdf(OUT_PDF, width = 9, height = 8)
-for (s in SAMPLES) {
-  msg("[%s]", s)
-  d <- tryCatch(collect_sample(s), error = function(e) { msg("  %s", conditionMessage(e)); NULL })
-  if (is.null(d)) next
-  if (!any(!is.na(d$x_ratio))) { msg("  no tile has a chrX ratio - skipping plots"); next }
-  print(panel_ratio_ocm(d, he = TRUE))
-  print(panel_ratio_ocm(d, he = FALSE))
-  print(panel_ratio(d, he = FALSE))
-  print(panel_auto(d))
-  print(panel_auto_zoom(d))
-  print(panel_depth(d))
-  print(panel_call(d))
-  # Print the depth autocorrelation FIRST, because it is what decides which of
-  # the two nulls in clustering_test() is the honest one. Moran's I near 0 on
-  # x_n would make the free permutation valid; in practice it is 0.3-0.8, since
-  # depth is tissue thickness and capture efficiency, both of which have
-  # geometry. The ratio's own I is printed beside it: if depth is structured
-  # and the ratio is not, every "cluster" below is a power map.
-  sc_m <- d[!is.na(x_ratio)]
-  msg("  spatial autocorrelation (Moran's I, 4-neighbour): chrX depth %.3f, autosomal depth %.3f, chrX ratio %.3f",
-      moran_I(sc_m, sc_m$x_n), moran_I(sc_m, sc_m$a_n), moran_I(sc_m, sc_m$x_ratio))
-  msg("  spatial clustering of the calls:")
-  for (lab in c("CAST-skewed", "Bl6-skewed", "mixed")) clustering_test(d, lab)
-  all_d[[s]] <- d
+# The figures themselves. Guarded so that a script wanting the loaders and
+# panels - tile_ratio_map_floor.R - can source this file without it drawing
+# anything or overwriting OUT_PDF on the way past.
+if (!AS_LIBRARY) {
+  msg("Tile size %d um, samples: %s, SNP mask: %s",
+      TILE_UM, paste(SAMPLES, collapse = ", "), SNP_LABEL)
+  all_d <- list()
+  pdf(OUT_PDF, width = 9, height = 8)
+  for (s in SAMPLES) {
+    msg("[%s]", s)
+    d <- tryCatch(collect_sample(s), error = function(e) { msg("  %s", conditionMessage(e)); NULL })
+    if (is.null(d)) next
+    if (!any(!is.na(d$x_ratio))) { msg("  no tile has a chrX ratio - skipping plots"); next }
+    print(panel_ratio_ocm(d, he = TRUE))
+    print(panel_ratio_ocm(d, he = FALSE))
+    print(panel_ratio(d, he = FALSE))
+    print(panel_auto(d))
+    print(panel_auto_zoom(d))
+    print(panel_depth(d))
+    print(panel_call(d))
+    # Print the depth autocorrelation FIRST, because it is what decides which of
+    # the two nulls in clustering_test() is the honest one. Moran's I near 0 on
+    # x_n would make the free permutation valid; in practice it is 0.3-0.8, since
+    # depth is tissue thickness and capture efficiency, both of which have
+    # geometry. The ratio's own I is printed beside it: if depth is structured
+    # and the ratio is not, every "cluster" below is a power map.
+    sc_m <- d[!is.na(x_ratio)]
+    msg("  spatial autocorrelation (Moran's I, 4-neighbour): chrX depth %.3f, autosomal depth %.3f, chrX ratio %.3f",
+        moran_I(sc_m, sc_m$x_n), moran_I(sc_m, sc_m$a_n), moran_I(sc_m, sc_m$x_ratio))
+    msg("  spatial clustering of the calls:")
+    for (lab in c("CAST-skewed", "Bl6-skewed", "mixed")) clustering_test(d, lab)
+    all_d[[s]] <- d
+  }
+  invisible(dev.off())
 }
-invisible(dev.off())
 
 ##### --------------------- distributions --------------------- #####
 # The maps show WHERE; these show WHERE MOST TILES SIT, which a map cannot.
@@ -857,7 +869,7 @@ panel_violin <- function(out) {
           plot.caption  = element_text(size = 7, colour = "#52514e", hjust = 0))
 }
 
-if (length(all_d)) {
+if (!AS_LIBRARY && length(all_d)) {
   out <- rbindlist(all_d, fill = TRUE)
   # Order the panels by SAMPLES (9w, 78w), not alphabetically - "78w" sorts
   # before "9w" as a string, which puts the aged sample first and reads
