@@ -72,7 +72,7 @@ PANELS <- list(
 
 source(file.path(BASE, "Postdoc", "multiome", "00_helpers.R"))
 say <- function(...) cat(sprintf(...), "\n", sep = "")
-pdfout <- function(name, w = 9, h = 7) pdf(file.path(OUT, name), width = w, height = h)
+pdfout <- function(name, w = 9, h = 7) dev_open(file.path(OUT, name), width = w, height = h)
 
 # ---------------------------------------------------------------------------
 # load QC-passing nuclei
@@ -126,6 +126,8 @@ present <- present[lengths(present) > 0]
 # Signac object with "No cell overlap between new meta data and Seurat object",
 # and 02 makes the identical call, so it is replaced here too.
 merged <- assign_celltypes(merged, PANELS, assay = "SCT", layer = "data")
+merged$celltype_short <- short_labels(merged$celltype_provisional)
+SC_COL <- celltype_scale(sort(unique(merged$celltype_short)), "colour")
 write.csv(merged@misc[["panel_cluster_means"]],
           file.path(OUT, "cluster_panel_scores.csv"))
 
@@ -144,12 +146,12 @@ write_csv(comp, file.path(OUT, "cluster_sample_composition.csv"))
 # ---------------------------------------------------------------------------
 pdfout("umap_rna_clusters.pdf", 10, 8)
 print(DimPlot(merged, label = TRUE, repel = TRUE) + ggtitle("Merged RNA, clusters"))
-print(DimPlot(merged, group.by = "celltype_provisional", label = TRUE, repel = TRUE,
+print(DimPlot(merged, group.by = "celltype_short", label = TRUE, repel = TRUE,
               label.size = 3) +
         ggtitle("Merged RNA, provisional cell type") +
         theme(legend.position = "bottom"))
 print(DimPlot(merged, group.by = "sample") + ggtitle("Merged RNA, by sample"))
-print(DimPlot(merged, split.by = "sample", group.by = "celltype_provisional") +
+print(DimPlot(merged, split.by = "sample", group.by = "celltype_short") +
         ggtitle("Split by sample - n=1 per age, so read cautiously"))
 dev.off()
 
@@ -164,7 +166,7 @@ if (file.exists(MARKER_FILE)) {
   say("marker.genes.txt: %d of %d genes present", length(mk),
       length(read.table(MARKER_FILE, header = FALSE)$V1))
   pdfout("marker_dotplot.pdf", 14, 7)
-  print(DotPlot(merged, features = mk, group.by = "celltype_provisional") +
+  print(DotPlot(merged, features = mk, group.by = "celltype_short") +
           RotatedAxis() + ggtitle("Established marker panel (marker.genes.txt)"))
   dev.off()
 } else say("marker.genes.txt not found at %s - skipping dotplot", MARKER_FILE)

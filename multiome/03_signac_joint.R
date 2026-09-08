@@ -181,7 +181,7 @@ DefaultAssay(obj) <- "ATAC"
 obj <- RunTFIDF(obj, verbose = FALSE)
 obj <- FindTopFeatures(obj, min.cutoff = "q5")
 obj <- RunSVD(obj, verbose = FALSE)
-pdf(file.path(OUT, "lsi_depth_correlation.pdf"), width = 7, height = 5)
+dev_open(file.path(OUT, "lsi_depth_correlation.pdf"), width = 7, height = 5)
 print(DepthCor(obj) + ggtitle("LSI component vs sequencing depth"))
 dev.off()
 say("  DepthCor written - confirm component 1 is the depth-correlated one before")
@@ -206,6 +206,9 @@ say("  joint clusters: %d", length(levels(obj)))
 # ---- provisional cell typing on the joint clusters ----
 DefaultAssay(obj) <- "SCT"
 obj <- assign_celltypes(obj, PANELS, assay = "SCT", layer = "data")
+obj$celltype_short <- short_labels(obj$celltype_provisional)
+CT_LEVELS <- sort(unique(obj$celltype_short))
+SC_COL <- celltype_scale(CT_LEVELS, "colour")
 Idents(obj) <- "celltype_provisional"
 write.csv(obj@misc[["panel_cluster_means"]],
           file.path(OUT, "cluster_panel_scores.csv"))
@@ -228,18 +231,46 @@ write_csv(comp, file.path(OUT, "cluster_sample_composition.csv"))
 # ---------------------------------------------------------------------------
 # figures
 # ---------------------------------------------------------------------------
-pdf(file.path(OUT, "umap_joint.pdf"), width = 14, height = 5)
+# A SHARED LEGEND, not direct labels. There are 7 cell types here; direct
+# labelling works up to about 4 series, and past that the labels collide with
+# each other and with the data - which is exactly what happened on the first
+# version of this figure, worst in the ATAC panel. One legend for three panels
+# also makes the point that the three embeddings share an identity assignment.
+panel <- function(red, ttl) {
+  p <- DimPlot(obj, reduction = red, group.by = "celltype_short",
+               pt.size = 0.3, shuffle = TRUE) +
+    ggtitle(ttl) +
+    theme(plot.title = element_text(size = 11, face = "bold"),
+          axis.title = element_text(size = 9))
+  if (!is.null(SC_COL)) p <- p + SC_COL
+  p
+}
+dev_open(file.path(OUT, "umap_joint.pdf"), width = 15, height = 5.5)
 print(
-  (DimPlot(obj, reduction = "rna.umap",  label = TRUE, repel = TRUE) + NoLegend() + ggtitle("RNA")) |
-  (DimPlot(obj, reduction = "atac.umap", label = TRUE, repel = TRUE) + NoLegend() + ggtitle("ATAC (common peaks, merged LSI)")) |
-  (DimPlot(obj, reduction = "wnn.umap",  label = TRUE, repel = TRUE) + NoLegend() + ggtitle("WNN joint"))
+  (panel("rna.umap", "RNA") | panel("atac.umap", "ATAC (common peaks, merged LSI)") |
+   panel("wnn.umap", "WNN joint")) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "bottom", legend.title = element_blank(),
+        legend.text = element_text(size = 9))
 )
 dev.off()
 
-pdf(file.path(OUT, "umap_joint_by_sample.pdf"), width = 11, height = 5)
+# The presentation panel: one large WNN plot, where 7 direct labels do fit and
+# a reader does not have to move between legend and cluster.
+dev_open(file.path(OUT, "umap_wnn_labelled.pdf"), width = 9, height = 7.5)
+p <- DimPlot(obj, reduction = "wnn.umap", group.by = "celltype_short",
+             label = TRUE, repel = TRUE, label.size = 4, pt.size = 0.4,
+             shuffle = TRUE) +
+  NoLegend() + ggtitle("Joint RNA + ATAC (WNN), 9w and 78w") +
+  theme(plot.title = element_text(size = 13, face = "bold"))
+if (!is.null(SC_COL)) p <- p + SC_COL
+print(p)
+dev.off()
+
+dev_open(file.path(OUT, "umap_joint_by_sample.pdf"), width = 11, height = 5)
 print(
   (DimPlot(obj, reduction = "wnn.umap", group.by = "sample") + ggtitle("WNN, by sample")) |
-  (DimPlot(obj, reduction = "wnn.umap", split.by = "sample", group.by = "celltype_provisional") +
+  (DimPlot(obj, reduction = "wnn.umap", split.by = "sample", group.by = "celltype_short") +
      ggtitle("n=1 per age - descriptive only"))
 )
 dev.off()
@@ -251,9 +282,11 @@ dev.off()
 wcols <- grep("\\.weight$", colnames(obj@meta.data), value = TRUE)
 say("WNN weight columns found: %s", if (length(wcols)) paste(wcols, collapse = ", ") else "none")
 if (length(wcols)) {
-  pdf(file.path(OUT, "wnn_modality_weights.pdf"), width = 9, height = 6)
-  print(VlnPlot(obj, features = wcols, group.by = "celltype_provisional",
-                pt.size = 0, ncol = 1) & RotatedAxis())
+  dev_open(file.path(OUT, "wnn_modality_weights.pdf"), width = 9, height = 6)
+  print(VlnPlot(obj, features = wcols, group.by = "celltype_short",
+                pt.size = 0, ncol = 1) &
+          theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+                axis.title.x = element_blank()))
   dev.off()
 }
 
@@ -268,11 +301,12 @@ if (!inherits(ga, "try-error")) {
   say("  GeneActivity assay: %d features", nrow(ga))
   esc <- intersect(ESCAPE_GENES, rownames(obj[["GeneActivity"]]))
   if (length(esc)) {
-    pdf(file.path(OUT, "escape_gene_activity.pdf"), width = 12, height = 8)
+    dev_open(file.path(OUT, "escape_gene_activity.pdf"), width = 12, height = 8)
     DefaultAssay(obj) <- "GeneActivity"
     print(FeaturePlot(obj, features = esc, reduction = "wnn.umap", ncol = 4) &
             theme(plot.title = element_text(size = 9)))
-    print(DotPlot(obj, features = esc, group.by = "celltype_provisional") + RotatedAxis() +
+    print(DotPlot(obj, features = esc, group.by = "celltype_short") +
+            theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
             ggtitle("Core escape genes: ATAC gene activity"))
     dev.off()
   }
@@ -282,7 +316,7 @@ if (!inherits(ga, "try-error")) {
 say("--- CoveragePlot at core escape loci ---")
 DefaultAssay(obj) <- "ATAC"
 avail <- intersect(c("Xist", ESCAPE_GENES), gtf$gene_name)
-pdf(file.path(OUT, "coverage_escape_loci.pdf"), width = 10, height = 7)
+dev_open(file.path(OUT, "coverage_escape_loci.pdf"), width = 10, height = 7)
 for (g in avail) {
   p <- try(CoveragePlot(obj, region = g, features = g, expression.assay = "SCT",
                         extend.upstream = 5000, extend.downstream = 5000), silent = TRUE)

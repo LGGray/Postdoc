@@ -93,3 +93,70 @@ assign_celltypes <- function(obj, panels, cluster_col = "seurat_clusters",
   obj@misc[["panel_cluster_means"]] <- means
   obj
 }
+
+# ---------------------------------------------------------------------------
+# Plotting helpers
+# ---------------------------------------------------------------------------
+
+# cairo_pdf when available, plain pdf otherwise.
+#
+# pdf() writes Type-1 fonts in latin1 and cannot measure anything outside that
+# encoding, which is where "font width unknown for character 0x09 in encoding
+# latin1" comes from and why some labels came out mispositioned. cairo_pdf is
+# UTF-8 throughout.
+#
+# onefile = TRUE is NOT optional: cairo_pdf defaults to FALSE, which treats the
+# filename as a per-page pattern and would silently split every multi-page
+# figure into separate files.
+dev_open <- function(path, width = 9, height = 7) {
+  if (isTRUE(capabilities("cairo"))) {
+    grDevices::cairo_pdf(path, width = width, height = height, onefile = TRUE)
+  } else {
+    message("cairo unavailable; falling back to pdf() - expect latin1 font warnings")
+    grDevices::pdf(path, width = width, height = height)
+  }
+}
+
+# Short display labels. Full names stay in `celltype_provisional` and in every
+# exported table; these exist only so a panel small enough to sit three-across
+# is legible. "Pericytes - Smooth muscle cells" is 31 characters and was
+# colliding with three other labels.
+CELLTYPE_SHORT <- c(
+  "Ventricular Cardiomyocytes"      = "Ventricular CM",
+  "Cardiomyocytes (stressed)"       = "CM (stressed)",
+  "Fibroblasts"                     = "Fibroblasts",
+  "Endothelial cells"               = "Endothelial",
+  "Endocardium"                     = "Endocardium",
+  "Lymphatic endothelial"           = "Lymphatic EC",
+  "Pericytes - Smooth muscle cells" = "Pericyte/SMC",
+  "Macrophages"                     = "Macrophages",
+  "T cells"                         = "T cells",
+  "B cells"                         = "B cells",
+  "Epicardial - Mesothelial cells"  = "Epicardial/Meso"
+)
+short_labels <- function(x) {
+  out <- CELLTYPE_SHORT[as.character(x)]
+  ifelse(is.na(out), as.character(x), out)   # unmapped labels pass through
+}
+
+# Okabe-Ito, a published palette designed and tested for colour-vision
+# deficiency. Seurat's default is evenly-spaced HCL hues, which are not
+# CVD-safe - a real problem for a figure shown to a room. Fixed order, never
+# cycled: past 8 categories this returns NULL and the caller keeps Seurat's
+# default rather than inventing a 9th hue. Yellow is placed last because it is
+# the weakest of the eight against a white scatter background.
+OKABE_ITO <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7",
+               "#56B4E9", "#D55E00", "#999999", "#F0E442")
+
+celltype_scale <- function(levels, aes = c("colour", "fill")) {
+  aes <- match.arg(aes)
+  levels <- unique(as.character(levels))
+  if (length(levels) > length(OKABE_ITO)) {
+    message(sprintf("%d categories exceeds the %d-colour fixed order; keeping the default scale",
+                    length(levels), length(OKABE_ITO)))
+    return(NULL)
+  }
+  vals <- setNames(OKABE_ITO[seq_along(levels)], levels)
+  if (aes == "colour") ggplot2::scale_colour_manual(values = vals, na.value = "grey80")
+  else                 ggplot2::scale_fill_manual(values = vals, na.value = "grey80")
+}

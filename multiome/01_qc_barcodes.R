@@ -72,6 +72,7 @@ ATAC_TH <- list(
 # applied - reported in the log so the choice of method is defensible.
 REF <- list(percent_mt_fixed = 5, mads = 3)
 
+source(file.path(BASE, "Postdoc", "multiome", "00_helpers.R"))
 say <- function(...) cat(sprintf(...), "\n", sep = "")
 
 if (!requireNamespace("ddqcR", quietly = TRUE)) {
@@ -166,7 +167,7 @@ qc_one <- function(id) {
     select(barcode, nCount_RNA, nFeature_RNA, percent.mt,
            atac_fragments, frip, tss_frac) %>%
     pivot_longer(-barcode, names_to = "metric", values_to = "value")
-  pdf(file.path(OUT, sprintf("qc_distributions_%s.pdf", id)), width = 10, height = 6)
+  dev_open(file.path(OUT, sprintf("qc_distributions_%s.pdf", id)), width = 10, height = 6)
   print(
     ggplot(long, aes(value)) +
       geom_histogram(bins = 80) +
@@ -190,7 +191,7 @@ qc_one <- function(id) {
   # name here is an error rather than a silent default. Verify with
   # ?ddqc.metrics on the cluster before tuning; the defaults are the published
   # ones and are a reasonable starting point.
-  pdf(file.path(OUT, sprintf("ddqc_%s.pdf", id)), width = 10, height = 7)
+  dev_open(file.path(OUT, sprintf("ddqc_%s.pdf", id)), width = 10, height = 7)
   df.qc <- ddqc.metrics(obj)
   dev.off()
   obj <- filterData(obj, df.qc)
