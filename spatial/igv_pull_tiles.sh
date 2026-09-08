@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'st=$?; echo "ERROR: $0 stopped at line $LINENO (exit $st)" >&2' ERR
 
 # Pull a handful of tile BAMs into one directory for IGV: N CAST-biased ("blue")
 # tiles and N depth-matched strongly-Bl6 ("red") ones per sample, each in BOTH
@@ -61,7 +62,9 @@ fi
 # Column positions, resolved from the header rather than hardcoded: the floor
 # script appends columns (lowratio) and a fixed $16 would silently read the
 # wrong field the next time one is added.
-col() { head -1 "$CSV" | tr ',' '\n' | grep -nxF "$1" | cut -d: -f1; }
+# `|| true` so a missing column yields an empty string and the explicit check
+# below reports which one, rather than `set -e` killing the assignment first.
+col() { head -1 "$CSV" | tr ',' '\n' | grep -nxF "$1" | cut -d: -f1 || true; }
 C_SAMPLE=$(col sample); C_TILE=$(col tile); C_A1=$(col x_a1); C_A2=$(col x_a2)
 C_N=$(col x_n); C_RATIO=$(col x_ratio); C_Z=$(col z); C_CALL=$(col call)
 for v in C_SAMPLE C_TILE C_A1 C_A2 C_N C_RATIO C_Z C_CALL; do
@@ -114,8 +117,8 @@ top_genes() {
   GENE_TSV_FOUND=1
   gzip -dc "$gz" | awk -F'\t' -v t="$tile" -v s="$smp" '
     NR>1 && $1==t && $4=="chrX" && $11+0 > 0 {
-      printf "%s\t%s\t%s\tA1=%s A2=%s reads=%s\n", s, t, $5, $9, $10, $11 }' \
-    | sort -t= -k4,4nr | head -5
+      printf "%s\t%s\t%s\t%s\tA1=%s A2=%s reads=%s\n", $11, s, t, $5, $9, $10, $11 }' \
+    | sort -k1,1nr | awk 'NR <= 5' | cut -f2-
 }
 
 # Defined once, not per sample: $smp and $OUTDIR resolve when it is called.
@@ -143,7 +146,7 @@ for smp in ${SAMPLES//,/ }; do
   blue=$(awk -F, -v s="$smp" -v cs=$C_SAMPLE -v cc=$C_CALL -v cn=$C_N -v ct=$C_TILE \
              -v c1=$C_A1 -v c2=$C_A2 -v cr=$C_RATIO -v cz=$C_Z \
     'NR>1 && $cs==s && $cc=="CAST-skewed" {print $cn"\t"$ct"\t"$c1"\t"$c2"\t"$cr"\t"$cz}' \
-    "$CSV" | sort -k1,1nr | head -"$N")
+    "$CSV" | sort -k1,1nr | awk -v n="$N" 'NR <= n')
   if [ -z "$blue" ]; then
     echo "  no CAST-skewed tiles in $CSV for $smp - skipping"; continue
   fi
@@ -158,7 +161,7 @@ for smp in ${SAMPLES//,/ }; do
             -v c1=$C_A1 -v c2=$C_A2 -v cz=$C_Z -v rmin="$RED_MIN" -v m="$med" \
     'NR>1 && $cs==s && $cr+0 >= rmin {d=$cn-m; if (d<0) d=-d;
      print d"\t"$cn"\t"$ct"\t"$c1"\t"$c2"\t"$cr"\t"$cz}' \
-    "$CSV" | sort -k1,1n | head -"$N" | cut -f2-)
+    "$CSV" | sort -k1,1n | awk -v n="$N" 'NR <= n' | cut -f2-)
   if [ -z "$red" ]; then
     echo "  WARNING: no tile reaches ratio >= $RED_MIN in $smp - lower RED_MIN" >&2
   fi
