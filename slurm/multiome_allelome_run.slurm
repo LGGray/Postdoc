@@ -117,10 +117,13 @@ run_stage () {
   [ -f "$CELLS" ] || { echo "[$TAG] $ID: missing $CELLS - skipping" >&2; return 0; }
   mkdir -p "$BAMDIR" "$OUTDIR"
 
-  local n_want; n_want=$(wc -l < "$CELLS")
+  # Count DISTINCT GROUPS, not lines. The cells file is one line per nucleus
+  # with a group column, so for the per-celltype file wc -l gives 1422 while
+  # sinto produces 7 BAMs - and 7 < 1422 made this re-split on every run.
+  local n_want; n_want=$(cut -f2 "$CELLS" | sort -u | wc -l)
   local n_have; n_have=$(ls "$BAMDIR"/*.bam 2>/dev/null | wc -l)
   if [ "$n_have" -lt "$n_want" ]; then
-    echo "[$TAG] $(date +%T) $ID: sinto split, $n_want groups ($n_have already present)"
+    echo "[$TAG] $(date +%T) $ID: sinto split into $n_want groups ($n_have BAMs already present)"
     conda activate sinto
     sinto filterbarcodes --bam "$FLT" --cells "$CELLS" --outdir "$BAMDIR" --nproc "$nproc"
     conda activate RNAseq
