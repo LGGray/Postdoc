@@ -193,6 +193,83 @@ CUTOFF_DIR <- file.path(RESULTS_ROOT,
                         paste0("cutoff_", MIN_TOTAL_READS))
 dir.create(CUTOFF_DIR, showWarnings = FALSE, recursive = TRUE)
 
+# ---------------------------------------------------------------------------
+# Doublet exclusion.
+#
+# scDblFinder is run on the merged Seurat object by
+# OCM_heart/scDblFinder_rates.R, which writes one row per nucleus with a
+# singlet/doublet class. Point DOUBLET_FILE at that table and every Allelome.PRO2
+# tree ingested below drops the doublet nuclei, so the ratio tables under
+# RESULTS_ROOT are doublet-free without re-running Seurat_preprocessing.R and
+# without re-scoring a single BAM:
+#
+#   DOUBLET_FILE=Allelic_ratio_results/scDblFinder_per_cell.txt \
+#     RESULTS_ROOT=Allelic_ratio_results_nodoublet \
+#     Rscript allelic_ratio/10_build_ratio_table.R
+#
+# Unset, nothing is filtered and the existing results reproduce exactly.
+#
+# WHAT THIS DOES NOT DO: it filters the allelic ratio tables, it does not
+# re-derive the clustering. The celltype labels on heart_seurat_object_SCT.rds
+# were fit with the doublets present, so cluster boundaries are unchanged --
+# only which nuclei are counted inside them. That is the trade for not
+# re-running the pipeline. Re-run Seurat_preprocessing.R if the annotation
+# itself needs to be doublet-free.
+DOUBLET_FILE <- Sys.getenv("DOUBLET_FILE", "")
+
+# Read once, at source time, so all three ingestion points agree and a bad path
+# fails before any tree is walked rather than an hour in.
+DOUBLET_CELLS <- if (nzchar(DOUBLET_FILE)) {
+  if (!file.exists(DOUBLET_FILE)) {
+    stop("DOUBLET_FILE does not exist: ", DOUBLET_FILE)
+  }
+  .d <- read.delim(DOUBLET_FILE, header = TRUE, stringsAsFactors = FALSE)
+  if (!all(c("cell", "class") %in% names(.d))) {
+    stop("DOUBLET_FILE needs `cell` and `class` columns (as written by ",
+         "OCM_heart/scDblFinder_rates.R); got: ", paste(names(.d), collapse = ", "))
+  }
+  .keys <- unique(.d$cell[.d$class == "doublet"])
+  if (!length(.keys)) {
+    stop("DOUBLET_FILE has no rows with class == 'doublet': ", DOUBLET_FILE,
+         "\n  Filtering nothing would write a 'nodoublet' result identical to ",
+         "the original.")
+  }
+  message(sprintf("DOUBLET_FILE: %s\n  %d doublets of %d nuclei (%.2f%%) to exclude",
+                  DOUBLET_FILE, length(.keys), nrow(.d),
+                  100 * length(.keys) / nrow(.d)))
+  .keys
+} else {
+  character(0)
+}
+
+# Drop the doublet nuclei from a table keyed by <sample>_<barcode>.
+#
+# Loud rather than silent when nothing matches. The key here is the same
+# <sample>_<barcode> the Seurat object uses, so zero overlap means the barcode
+# parse is wrong, not that the tree is clean -- the failure mode
+# check_barcode_match() exists to catch. Silently filtering nothing would write
+# a whole "nodoublet" directory byte-identical to the original and there would
+# be no error anywhere to say so.
+drop_doublets <- function(df, what = "table", col = "cell_barcode") {
+  if (!length(DOUBLET_CELLS)) return(df)
+  if (!col %in% names(df)) stop(what, ": no `", col, "` column to filter on")
+  cells <- unique(df[[col]])
+  hit   <- intersect(cells, DOUBLET_CELLS)
+  if (!length(hit)) {
+    stop(what, ": NONE of the ", length(DOUBLET_CELLS), " doublet keys match ",
+         "the ", length(cells), " cells in this table.\n",
+         "  table:    ", paste(head(cells, 3), collapse = ", "), "\n",
+         "  doublets: ", paste(head(DOUBLET_CELLS, 3), collapse = ", "), "\n",
+         "  Both must be <sample>_<barcode>. Filtering nothing here would write ",
+         "a 'nodoublet' result identical to the original.")
+  }
+  keep <- !df[[col]] %in% DOUBLET_CELLS
+  message(sprintf("%s: dropped %d of %d cells as doublets (%.2f%%), %d of %d rows",
+                  what, length(hit), length(cells),
+                  100 * length(hit) / length(cells), sum(!keep), nrow(df)))
+  df[keep, , drop = FALSE]
+}
+
 # The raw per-cell allelic ratio table is cutoff-INDEPENDENT: it is every cell
 # with any chrX coverage, and both 02 and 06 filter it themselves. It stays at
 # the top level rather than being duplicated into each cutoff directory.
@@ -360,6 +437,9 @@ load_allelome_tree <- function(tree, samples = c("9w", "78w", "Sham", "TAC")) {
   out <- out[out$total_reads > 0, ]
   out$ar_a1  <- out$A1_reads / out$total_reads
   out$ar_dom <- pmax(out$A1_reads, out$A2_reads) / out$total_reads
+  # Before collapse_autosomes(), so the autosomal control is built from the
+  # same nuclei as chrX rather than a superset of them.
+  out <- drop_doublets(out, paste0("load_allelome_tree(", tree, ")"))
   out[, c("cell_barcode", "sample", "chr",
           "A1_reads", "A2_reads", "total_reads", "ar_a1", "ar_dom")]
 }

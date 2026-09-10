@@ -52,6 +52,11 @@ names(core_escape_block_ratio) <- cell_barcodes
 core_escape_block_ratio <- core_escape_block_ratio[!sapply(core_escape_block_ratio, is.null)]
 core_escape_block_ratio <- bind_rows(core_escape_block_ratio, .id = "cell_barcode")
 
+# 04 does not go through load_allelome_tree(), so the doublet filter has to be
+# applied here too -- CEB_RATIOS_FILE is what 05, 07 and 08 read.
+core_escape_block_ratio <- drop_doublets(core_escape_block_ratio,
+                                         paste0("04 core escape (", CEB_TREE, ")"))
+
 # Write out the core escape block allelic ratio table
 write.table(core_escape_block_ratio, CEB_RATIOS_FILE, sep = '\t', row.names = FALSE, quote = FALSE)
 core_escape_block_ratio <- read.delim(CEB_RATIOS_FILE, header = TRUE)

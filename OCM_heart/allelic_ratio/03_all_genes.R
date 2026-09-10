@@ -59,6 +59,10 @@ gene_df <- lapply(seq_along(barcodes), function(i) {
 }) %>%
   bind_rows()
 
+# The third ingestion point: 03 walks Allelome.PRO2_all_genes itself rather
+# than via load_allelome_tree(), so it needs the filter applied here as well.
+gene_df <- drop_doublets(gene_df, "03 all genes (Allelome.PRO2_all_genes)")
+
 # Match cell types from Seurat object
 gene_df$celltype <- Idents(heart)[gene_df$cell_barcode]
 
