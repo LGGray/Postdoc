@@ -381,98 +381,58 @@ if (consolidated) {
   save_fig(p, "F09c_snRNA_escape_gene_counts", 10, 5.5)
 } else message("SKIP F09: consolidation of per-nucleus gene tables not finished yet")
 
-# F23 - does the aging shift predict the TAC shift? ---------------------------
-# Boss's question: correlate the adult->aged fold change in allelic ratio with
-# the Sham->TAC fold change, to ask whether the same cell types (and the same
-# genes) move under both stresses. Both axes are log2 fold changes of the
-# CAST (inactive-X) signal, so > 0 means more escape.
-fc_ct <- fe %>%
-  select(celltype, sample, n, escaping) %>%
-  pivot_wider(names_from = sample, values_from = c(n, escaping)) %>%
-  filter(!is.na(escaping_9w), !is.na(escaping_78w),
-         !is.na(escaping_Sham), !is.na(escaping_TAC)) %>%
-  mutate(aging = log2(escaping_78w / escaping_9w),
-         tac   = log2(escaping_TAC / escaping_Sham),
+# F23 - does the aging shift in whole-chrX AR predict the TAC shift? ---------
+# cor(adult - aged, Sham - TAC) over cell types, on the whole-chromosome
+# allelic ratio. AR is pooled over the nuclei of a cell type (sum A1 / sum
+# reads), so it is the cell type's whole-chrX ratio rather than an average of
+# per-nucleus ratios. Sign convention follows the question: positive on either
+# axis means that stress lowered AR, i.e. raised inactive-X expression.
+ar_ct <- cells %>%
+  filter(total_reads >= 30, !celltype %in% c("CM (stressed)", "Epicardial")) %>%
+  group_by(celltype, sample) %>%
+  summarise(A1 = sum(A1_reads), A2 = sum(A2_reads), n = n(), .groups = "drop") %>%
+  mutate(ar = A1 / (A1 + A2))
+
+fc_ct <- ar_ct %>%
+  select(celltype, sample, ar, n) %>%
+  pivot_wider(names_from = sample, values_from = c(ar, n)) %>%
+  filter(if_all(starts_with("ar_"), ~ !is.na(.x))) %>%
+  mutate(d_age = ar_9w - ar_78w,          # adult - aged
+         d_tac = ar_Sham - ar_TAC,        # Sham  - TAC
          n_min = pmin(n_9w, n_78w, n_Sham, n_TAC),
-         thin  = n_TAC < 100)
+         thin  = n_min < 100)
 
-ct_all  <- cor.test(fc_ct$aging, fc_ct$tac)
-ct_fat  <- with(filter(fc_ct, !thin), cor.test(aging, tac))
-message(sprintf("F23 cell types: r=%+.2f p=%.2f (n=%d); excluding thin: r=%+.2f p=%.2f (n=%d)",
-                ct_all$estimate, ct_all$p.value, nrow(fc_ct),
-                ct_fat$estimate, ct_fat$p.value, sum(!fc_ct$thin)))
+ct_all <- cor.test(fc_ct$d_age, fc_ct$d_tac)
+ct_fat <- with(filter(fc_ct, !thin), cor.test(d_age, d_tac))
+message(sprintf("F23: r=%+.2f [%+.2f, %+.2f] p=%.2f (n=%d); >=100 nuclei r=%+.2f [%+.2f, %+.2f] p=%.2f (n=%d)",
+                ct_all$estimate, ct_all$conf.int[1], ct_all$conf.int[2], ct_all$p.value, nrow(fc_ct),
+                ct_fat$estimate, ct_fat$conf.int[1], ct_fat$conf.int[2], ct_fat$p.value, sum(!fc_ct$thin)))
 
-lim <- max(abs(c(fc_ct$aging, fc_ct$tac))) * 1.15
-p_a <- ggplot(fc_ct, aes(aging, tac)) +
+# equal aspect on a shared range, so a 1:1 relationship would read as 45 deg
+rng <- range(c(fc_ct$d_age, fc_ct$d_tac, 0))
+pad <- diff(rng) * 0.16
+rng <- rng + c(-pad, pad)
+p <- ggplot(fc_ct, aes(d_age, d_tac)) +
   geom_hline(yintercept = 0, colour = "grey80") +
   geom_vline(xintercept = 0, colour = "grey80") +
+  geom_smooth(method = "lm", formula = y ~ x, colour = "grey45", fill = "grey88", linewidth = 0.6) +
   geom_point(aes(size = n_min, fill = thin), shape = 21, colour = "grey20", alpha = 0.9) +
-  ggrepel::geom_text_repel(aes(label = celltype), size = 3.6, seed = 1,
-                           min.segment.length = 0.2, box.padding = 0.5) +
+  ggrepel::geom_text_repel(aes(label = celltype), size = 4, seed = 1,
+                           min.segment.length = 0.2, box.padding = 0.6) +
   scale_fill_manual(values = c(`FALSE` = "#3C7DA6", `TRUE` = "white"),
-                    labels = c(`FALSE` = "≥ 100 TAC nuclei", `TRUE` = "< 100 TAC nuclei"),
+                    labels = c(`FALSE` = "≥ 100 nuclei in every sample", `TRUE` = "< 100 in at least one"),
                     name = NULL) +
-  scale_size_area(max_size = 9, name = "Nuclei\n(smallest group)") +
-  coord_equal(xlim = c(-lim, lim), ylim = c(-lim, lim)) +
-  labs(x = "Aging: log2 FC of biallelic nuclei (78w / 9w)",
-       y = "Pressure overload: log2 FC (TAC / Sham)",
-       title = "Whole-chrX, per cell type",
-       subtitle = sprintf("Pearson r = %+.2f (p = %.2f) over all %d cell types\nExcluding the four with < 100 TAC nuclei, r = %+.2f (p = %.2f)",
-                          ct_all$estimate, ct_all$p.value, nrow(fc_ct),
-                          ct_fat$estimate, ct_fat$p.value)) +
+  scale_size_area(max_size = 10, name = "Nuclei\n(smallest group)") +
+  coord_equal(xlim = rng, ylim = rng) +
+  labs(x = "Aging: whole-chrX AR, adult − aged",
+       y = "Pressure overload: whole-chrX AR, Sham − TAC",
+       title = "Aging and pressure overload do not move the same cell types",
+       subtitle = sprintf(
+         "r = %+.2f (95%% CI %+.2f to %+.2f, p = %.2f) over %d cell types; on the %d with ≥ 100 nuclei, r = %+.2f (p = %.2f)\nPositive = that stress raised inactive-X expression. One animal per condition - descriptive only",
+         ct_all$estimate, ct_all$conf.int[1], ct_all$conf.int[2], ct_all$p.value, nrow(fc_ct),
+         sum(!fc_ct$thin), ct_fat$estimate, ct_fat$p.value)) +
   theme(legend.position = "right")
-
-if (consolidated) {
-  gsum <- g %>% group_by(sample, gene) %>%
-    summarise(A1 = sum(A1_reads), A2 = sum(A2_reads), .groups = "drop") %>%
-    mutate(total = A1 + A2, cast = A2 / total)
-  fc_g <- gsum %>% select(sample, gene, total, cast) %>%
-    pivot_wider(names_from = sample, values_from = c(total, cast)) %>%
-    filter(if_all(starts_with("total_"), ~ !is.na(.x) & .x >= 100),
-           if_all(starts_with("cast_"),  ~ !is.na(.x) & .x > 0)) %>%
-    mutate(aging = log2(cast_78w / cast_9w), tac = log2(cast_TAC / cast_Sham),
-           escape_gene = gene %in% ESCAPE_GENES,
-           # A fold change off a near-zero Sham baseline is unstable: those
-           # genes make the upper cloud and pull the median TAC shift from
-           # +0.03 (baseline >= 5%) to +2.3. Fit only the stable ones.
-           stable = cast_Sham >= 0.02)
-  g_ct  <- cor.test(fc_g$aging, fc_g$tac)
-  g_ct2 <- with(filter(fc_g, stable), cor.test(aging, tac))
-  message(sprintf("F23 genes: r=%+.2f p=%.2f (n=%d); baseline >= 2%%: r=%+.2f p=%.2f (n=%d)",
-                  g_ct$estimate, g_ct$p.value, nrow(fc_g),
-                  g_ct2$estimate, g_ct2$p.value, sum(fc_g$stable)))
-
-  p_b <- ggplot(fc_g, aes(aging, tac)) +
-    geom_hline(yintercept = 0, colour = "grey80") +
-    geom_vline(xintercept = 0, colour = "grey80") +
-    geom_point(aes(colour = escape_gene, alpha = stable), size = 2) +
-    geom_smooth(data = filter(fc_g, stable), method = "lm", formula = y ~ x,
-                colour = "grey35", fill = "grey85", linewidth = 0.6) +
-    scale_alpha_manual(values = c(`FALSE` = 0.22, `TRUE` = 0.95),
-                       labels = c(`FALSE` = "Sham CAST < 2% (unstable FC)", `TRUE` = "Sham CAST ≥ 2%"),
-                       name = NULL,
-                       guide = guide_legend(override.aes = list(colour = "grey45", size = 2.5))) +
-    ggrepel::geom_text_repel(data = filter(fc_g, escape_gene), aes(label = gene),
-                             size = 3.2, seed = 1, min.segment.length = 0.2, colour = "#B3401F") +
-    scale_colour_manual(values = c(`FALSE` = "grey55", `TRUE` = "#B3401F"),
-                        labels = c(`FALSE` = "other chrX gene", `TRUE` = "canonical escapee"),
-                        name = NULL) +
-    labs(x = "Aging: log2 FC of CAST fraction (78w / 9w)",
-         y = "Pressure overload: log2 FC (TAC / Sham)",
-         title = "Per gene, pseudobulk over all cell types",
-         subtitle = sprintf("%d chrX genes with ≥ 100 reads in all four samples; r = %+.2f (p = %.2f)\nOn the %d with Sham CAST ≥ 2%%, r = %+.2f (p = %.2f)",
-                            nrow(fc_g), g_ct$estimate, g_ct$p.value,
-                            sum(fc_g$stable), g_ct2$estimate, g_ct2$p.value)) +
-    theme(legend.position = "right")
-  p <- p_a + p_b + plot_annotation(
-    title = "Aging and pressure overload move XCI escape independently",
-    subtitle = "Both axes are log2 fold changes of inactive-X signal. One animal per condition - descriptive only",
-    theme = theme(plot.title = element_text(face = "bold", size = 17),
-                  plot.subtitle = element_text(size = 13, colour = "grey30")))
-  save_fig(p, "F23_snRNA_aging_vs_TAC_foldchange", 15, 6.5)
-} else {
-  save_fig(p_a, "F23_snRNA_aging_vs_TAC_foldchange", 9, 6.5)
-}
+save_fig(p, "F23_snRNA_aging_vs_TAC_foldchange", 10.5, 7)
 
 # F21/F22 - cell-type UMAP and QC panels for slide 6 (all nuclei, from the Seurat metadata dump)
 # Preferred input: the cluster dump of the Seurat object (all nuclei). Fallback

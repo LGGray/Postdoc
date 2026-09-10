@@ -350,20 +350,23 @@ add_text(s, [
 ], 6.3, 5.4, 6.55, 1.8, size=13)
 
 s = new_slide("Do aging and pressure overload move the same cell types?",
-    "Correlating the adult-to-aged fold change in inactive-X signal against the Sham-to-TAC fold change, per cell type (left) and per gene (right). "
-    "The answer is no. Over all nine cell types r = -0.71, but that is carried entirely by endocardium and T cells, which have fewer than 100 TAC nuclei; "
-    "on the five cell types with enough nuclei r = -0.05 (p = 0.93). Per gene, r = +0.09 over 96 genes and +0.03 on the 26 with a Sham CAST baseline above 2%. "
-    "The pale cloud on the right is genes whose Sham CAST is near zero: dividing by that baseline gives fold changes of +2 to +6 that mean nothing. "
-    "Restricting to a baseline above 5% moves the median TAC shift from +2.3 to +0.03. So both stresses perturb XCI, but not through a shared cell-type or gene programme - "
-    "at least not at n = 1 per condition, where neither axis is measured well enough to detect a modest shared component.")
-picture_or_placeholder(s, "F23_snRNA_aging_vs_TAC_foldchange.png", LEFT, TOP, 12.35, 5.0)
+    "cor(adult - aged, Sham - TAC) on the whole-chrX allelic ratio, one point per cell type. AR is pooled over the nuclei of a cell type; positive on either axis means that stress "
+    "lowered AR, i.e. raised inactive-X expression. r = -0.05 over nine cell types (95% CI -0.69 to +0.64, p = 0.90); on the five with at least 100 nuclei in every sample, r = -0.30 (p = 0.62). "
+    "So no relationship - but with nine points the confidence interval spans almost the whole range, and it moves between -0.31 and +0.58 depending on whether AR is pooled, median or mean per nucleus. "
+    "The honest reading is that this comparison is not answerable at n = 1 per condition, not that the two are independent. "
+    "What the plot does show is that almost every cell type sits in the upper right: both stresses push AR down, i.e. towards more inactive-X expression, and TAC does so about twice as strongly as aging. "
+    "Ventricular CM are the exception, essentially flat with age but the largest TAC shift.")
+picture_or_placeholder(s, "F23_snRNA_aging_vs_TAC_foldchange.png", LEFT, TOP, 8.6, H)
 add_text(s, [
-    ("No correlation on either axis: cell types r = -0.05, genes r = +0.03", -1),
-    ("The r = -0.71 over all nine cell types rests on endocardium and T cells, both < 100 TAC nuclei", 0),
-    ("Genes with near-zero Sham CAST give unstable fold changes (pale); the canonical escapees sit at the origin", 0),
-    ("Aging and pressure overload both perturb XCI, but not via a shared programme", 0),
-    ("One animal per condition: a modest shared component would not be detectable here", 0),
-], LEFT, 6.05, 12.35, 1.3, size=13)
+    ("Both stresses lower AR in nearly every cell type", -1),
+    ("TAC shifts AR about 2x more than aging does", 0),
+    ("Ventricular CM: flat with age, largest TAC shift", 0),
+    ("No correlation between the two", -1),
+    ("r = -0.05 (9 cell types), -0.30 (the 5 with ≥ 100 nuclei)", 0),
+    ("95% CI -0.69 to +0.64: nine points cannot resolve this", 0),
+    ("r moves from -0.31 to +0.58 with pooled vs median AR", 0),
+    ("Not evidence of independence - evidence of no power", 0),
+], 9.1, TOP, 3.85, H, size=13)
 
 # ===========================================================================
 # AIM 2 - spatial
