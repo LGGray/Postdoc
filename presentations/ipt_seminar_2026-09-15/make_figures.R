@@ -2,7 +2,7 @@
 # Figures for the IPT seminar / lab meeting, 15 Sep 2026.
 #
 # Reads ONLY summary tables already produced on the cluster (mounted locally at
-# /Users/lachlang/cluster) and redraws them in one consistent style for slides.
+# /Users/graylachlan/cluster) and redraws them in one consistent style for slides.
 # Nothing here recomputes an analysis; every number comes from an existing
 # OCM_heart / spatial / multiome output. Runs on the laptop:
 #
@@ -16,9 +16,9 @@ suppressPackageStartupMessages({
   library(patchwork); library(scales); library(forcats); library(ggrepel)
 })
 
-CL  <- Sys.getenv("CLUSTER_MOUNT", "/Users/lachlang/cluster")
-OUT <- Sys.getenv("FIG_OUT", "/Users/lachlang/Downloads/IPT_Seminar_2026-09-15/figures")
-DAT <- Sys.getenv("FIG_DATA", "/Users/lachlang/Downloads/IPT_Seminar_2026-09-15/data")
+CL  <- Sys.getenv("CLUSTER_MOUNT", "/Users/graylachlan/cluster")
+OUT <- Sys.getenv("FIG_OUT", "/Users/graylachlan/LRZ Sync+Share/LGray/Presentations/IPT_Seminar_2026-09-15/figures")
+DAT <- Sys.getenv("FIG_DATA", "/Users/graylachlan/LRZ Sync+Share/LGray/Presentations/IPT_Seminar_2026-09-15/data")
 dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
 OCM <- file.path(CL, "OCM"); SPA <- file.path(CL, "adult_aged_spatial"); MUL <- file.path(CL, "adult_aged_multiome")
 
@@ -165,22 +165,19 @@ f03(AGE, OUT); f03(STRESS, OUT_ST)
 fe <- read_tsv(file.path(OCM, "Allelic_ratio_results/cutoff_30/whole_chr_fraction_escaping_per_celltype_and_condition.txt"),
                show_col_types = FALSE) %>%
   mutate(celltype = factor(short_ct(celltype), CT_ORDER)) %>%
-  filter(!celltype %in% c("CM (stressed)", "Epicardial")) %>%
-  mutate(se = sqrt(escaping * (1 - escaping) / n))
+  filter(!celltype %in% c("CM (stressed)", "Epicardial"))
 f04 <- function(samples, dir, subtitle) {
   d <- fe %>% filter(sample %in% samples) %>% mutate(sample = sample_factor(sample, samples))
   p <- ggplot(d, aes(celltype, 100 * escaping, fill = sample)) +
     geom_col(position = position_dodge(width = 0.8), width = 0.75) +
-    geom_errorbar(aes(ymin = 100 * (escaping - se), ymax = 100 * (escaping + se)),
-                  position = position_dodge(width = 0.8), width = 0.25, linewidth = 0.3) +
     scale_fill_manual(values = SAMPLE_COL, labels = SAMPLE_LAB, name = NULL) +
     labs(x = NULL, y = sprintf("Nuclei with chrX AR < %.1f (%%)", MONO_AR),
          title = "Nuclei with detectable biallelic chrX expression", subtitle = subtitle) +
     theme(axis.text.x = element_text(angle = 40, hjust = 1), legend.position = "top")
   save_fig(p, "F04_snRNA_fraction_biallelic_nuclei", 10, 5.5, dir = dir)
 }
-f04(AGE, OUT, "Error bars: binomial SE. One animal per age - descriptive only")
-f04(STRESS, OUT_ST, "Error bars: binomial SE. One animal per condition - descriptive only")
+f04(AGE, OUT, "One animal per age - descriptive only, not a test of age")
+f04(STRESS, OUT_ST, "One animal per condition - descriptive only, not a test of condition")
 
 # F05 - depth bias: mean AR rises with allelic depth --------------------------
 bands <- c(10, 25, 40, 60, 100, 200, Inf)

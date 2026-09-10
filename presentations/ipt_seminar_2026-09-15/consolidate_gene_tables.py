@@ -1,7 +1,7 @@
 # Consolidate per-nucleus Allelome.PRO2 chrX locus tables (Allelome.PRO2_all_genes)
 # into one long table: sample, cell_barcode, gene, start, end, A1_reads, A2_reads, total_reads
 import os, sys, time
-base = "/Users/lachlang/cluster/OCM/Allelome.PRO2_all_genes"
+base = "/Users/graylachlan/cluster/OCM/Allelome.PRO2_all_genes"
 out = sys.argv[1]
 t0 = time.time()
 with open(out, "w") as fo:

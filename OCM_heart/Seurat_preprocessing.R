@@ -1,7 +1,13 @@
 library(Seurat)
 library(ddqcR)
 library(glmGamPoi)
+library(SingleCellExperiment)
+library(scDblFinder)
+library(BiocParallel)
 options(future.globals.maxSize = 8 * 1024^3)
+
+# Threads for the scDblFinder run below (one worker per sample is plenty)
+DBL_THREADS <- 4
 
 # ! important ! run this command below to modify input file for Seurat
 # ptrepack --complevel 5 tiny_output_filtered.h5:/matrix tiny_output_filtered_seurat.h5:/matrix
@@ -243,6 +249,62 @@ heart <- merge(heart_9w, y = c(heart_78w, heart_TAC, heart_Sham), add.cell.ids =
 heart@meta.data$sample <- factor(heart@meta.data$sample, levels = c("9w", "78w", "Sham", "TAC"))
 
 
+# Doublet detection with scDblFinder ------------------------------------------
+# Run on the merged object but pass samples= so artificial doublets are built
+# within each sample rather than across them, and clusters=TRUE so they are
+# built between cell types instead of at random - the right choice in heart,
+# where the cell types are very distinct. Done before the sinto barcode export
+# so no doublet barcode is ever handed to the per-cell BAM split.
+heart[["RNA"]] <- JoinLayers(heart[["RNA"]])
+
+dbl_sce <- SingleCellExperiment(
+  assays = list(counts = GetAssayData(heart, assay = "RNA", layer = "counts"))
+)
+dbl_sce$sample <- heart$sample
+
+set.seed(42)
+dbl_sce <- scDblFinder(
+  dbl_sce,
+  samples  = "sample",
+  clusters = TRUE,
+  BPPARAM  = MulticoreParam(DBL_THREADS)
+)
+
+stopifnot(identical(colnames(dbl_sce), colnames(heart)))
+heart$scDblFinder.class <- factor(as.character(dbl_sce$scDblFinder.class),
+                                  levels = c("singlet", "doublet"))
+heart$scDblFinder.score <- dbl_sce$scDblFinder.score
+
+# Doublet rate per sample
+dbl_tab <- table(heart$sample, heart$scDblFinder.class)
+dbl_rates <- data.frame(
+  sample      = rownames(dbl_tab),
+  n_cells     = as.integer(rowSums(dbl_tab)),
+  singlet     = as.integer(dbl_tab[, "singlet"]),
+  doublet     = as.integer(dbl_tab[, "doublet"]),
+  pct_doublet = round(100 * dbl_tab[, "doublet"] / rowSums(dbl_tab), 2),
+  row.names   = NULL
+)
+print(dbl_rates)
+write.table(dbl_rates, file = "scDblFinder_rates_per_sample.txt",
+            sep = "\t", quote = FALSE, row.names = FALSE)
+
+pdf("scDblFinder_QC_heart.pdf", width = 10, height = 4)
+VlnPlot(heart, features = c("nFeature_RNA", "nCount_RNA"), group.by = "sample",
+        split.by = "scDblFinder.class", pt.size = 0, ncol = 2)
+print(
+  ggplot(heart@meta.data, aes(x = sample, y = scDblFinder.score, fill = scDblFinder.class)) +
+    geom_violin(scale = "width") +
+    labs(title = "scDblFinder score per sample", y = "scDblFinder score") +
+    theme_minimal()
+)
+dev.off()
+
+# Drop the doublets
+heart <- subset(heart, subset = scDblFinder.class == "singlet")
+table(heart$sample)
+
+
 # Export cell IDs file for sinto per sample
 # Create the base dataframe
 cell_ID <- data.frame(V1=rownames(heart@meta.data), V2=rownames(heart@meta.data))
@@ -320,17 +382,23 @@ heart.markers <- read.table("heart_cluster_markers_logfc_0.5_resolution_0.1.txt"
 # Save markers to file
 write.table(heart.markers, file = "heart_cluster_markers_logfc_0.5_resolution_0.1.txt")
 
-pdf('marker_genes_dotplot.pdf', width = 10, height = 8)
-DotPlot(heart, features = subset(heart.markers, ) + RotatedAxis() +
-theme(axis.text.x = element_text(angle = 90, vjust=1, size=8))
+# Top 10 markers per cluster by avg_log2FC, used by the dotplot below and the
+# heatmaps further down.
+findallmarkers.markers <- unique(unlist(lapply(split(heart.markers, heart.markers$cluster), function(x){
+    x[order(x$avg_log2FC, decreasing = TRUE),][1:10,'gene']
+})))
+
+# Distinct filename from the Sarah-marker dotplot below, which used to
+# overwrite this one.
+pdf('findallmarkers_top10_dotplot.pdf', width = 10, height = 8)
+print(
+  DotPlot(heart, features = findallmarkers.markers) + RotatedAxis() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 1, size = 8))
+)
 dev.off()
 
 saveRDS(heart, file = "heart_seurat_object_SCT.rds")
 heart <- readRDS("heart_seurat_object_SCT.rds")
-
-findallmarkers.markers <- unique(unlist(lapply(split(heart.markers, heart.markers$cluster), function(x){
-    x[order(x$avg_log2FC, decreasing = TRUE),][1:10,'gene']
-})))
 
 
 # Using Sarah's marker genes

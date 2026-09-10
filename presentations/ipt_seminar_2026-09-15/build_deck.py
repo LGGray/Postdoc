@@ -1,5 +1,6 @@
 # Append the results slides to the intro deck, using the deck's own layouts.
 #   python3 presentations/ipt_seminar_2026-09-15/build_deck.py
+import copy
 import os
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -8,9 +9,9 @@ from pptx.oxml.ns import qn
 from lxml import etree
 from PIL import Image
 
-SRC = "/Users/lachlang/Downloads/IPT Seminar 15.9.26.pptx"
-BASE = "/Users/lachlang/Downloads/IPT_Seminar_2026-09-15"
-OUT = os.path.join(BASE, "IPT Seminar 15.9.26 - with results.pptx")
+SRC = "/Users/graylachlan/LRZ Sync+Share/LGray/Presentations/IPT Seminar 15.9.26.pptx"
+BASE = "/Users/graylachlan/LRZ Sync+Share/LGray/Presentations/IPT_Seminar_2026-09-15"
+OUT = os.path.join(BASE, "IPT Seminar 15.9.26 - v2.pptx")
 FIG = os.path.join(BASE, "figures")
 EX = os.path.join(BASE, "existing_figures")
 
@@ -139,6 +140,14 @@ def new_slide(title, notes=None, layout=None):
     return s
 
 
+def move_slide(index_from, index_to):
+    """python-pptx can only append; reorder the sldIdLst to place a slide."""
+    lst = prs.slides._sldIdLst
+    ids = list(lst)
+    lst.remove(ids[index_from])
+    lst.insert(index_to, ids[index_from])
+
+
 def section(title, subtitle, notes=None):
     s = prs.slides.add_slide(L_SECTION)
     s.shapes.title.text = title
@@ -147,6 +156,71 @@ def section(title, subtitle, notes=None):
         s.notes_slide.notes_text_frame.text = notes
     return s
 
+
+# ---------------------------------------------------------------------------
+# Intro slides 2 and 5 (existing): wording carried over from the hand-edited
+# 2026-09-09 deck. Edit here, not in PowerPoint, or the next build reverts it.
+# ---------------------------------------------------------------------------
+def replace_line(shape, old, new):
+    """Swap one line of an existing placeholder, keeping its run formatting."""
+    for para in shape.text_frame.paragraphs:
+        if "".join(r.text for r in para.runs).strip() == old:
+            for r in para.runs[1:]:
+                r._r.getparent().remove(r._r)
+            para.runs[0].text = new
+            return True
+    return False
+
+
+for sh in prs.slides[1].shapes:
+    if sh.has_text_frame:
+        replace_line(sh, "Prior to menopause, males have a higher risk of cardiovascular disease including:",
+                         "Males have a higher lifetime risk of cardiovascular disease including:")
+
+def set_lines(shape, lines):
+    """Rewrite a placeholder as one paragraph of soft-broken lines.
+
+    PowerPoint's in-paragraph break is an <a:br/> element, not a \\x0b
+    character: assigning the character makes lxml escape it to a literal
+    "_x000B_". An empty string in `lines` is a blank line.
+    """
+    tf = shape.text_frame
+    para = tf.paragraphs[0]
+    src = para.runs[0]._r if para.runs else None
+    rPr = copy.deepcopy(src.find(qn("a:rPr"))) if src is not None and src.find(qn("a:rPr")) is not None else None
+    for extra in tf.paragraphs[1:]:
+        extra._p.getparent().remove(extra._p)
+    pel = para._p
+    for child in list(pel):
+        if child.tag != qn("a:pPr"):
+            pel.remove(child)
+    for i, line in enumerate(lines):
+        if i:
+            pel.append(pel.makeelement(qn("a:br"), {}))
+        if not line:
+            continue
+        r = pel.makeelement(qn("a:r"), {})
+        if rPr is not None:
+            r.append(copy.deepcopy(rPr))
+        t = pel.makeelement(qn("a:t"), {})
+        t.text = line
+        r.append(t)
+        pel.append(r)
+
+
+# Slide 5: three aims, with the multiome as Aim 3.
+set_lines(prs.slides[4].shapes.title, [
+    "Research question",
+    "How does aging influence XCI in the heart at snRNA-seq, spatial, and multiome resolution?",
+    "",
+    "Research Aims",
+    "Aim 1: Quantify XCI escape in snRNA-seq of adult and aged hearts",
+    "",
+    "Aim 2: Determine whether XCI escape is spatially structured across the myocardium",
+    "",
+    "Aim 3: Test whether the inactive X gains distal chromosome accessibility with age, and in which cell types",
+    "",
+])
 
 # ---------------------------------------------------------------------------
 # Slide 6 (existing): swap the four-sample UMAP + QC panels for adult/aged versions
@@ -160,6 +234,11 @@ if fig("F21_snRNA_UMAP_celltypes.png") and fig("F22_snRNA_QC_panels.png"):
     fit_picture(s6, fig("F22_snRNA_QC_panels.png"), 6.1, 1.6, 7.0, 5.7)
     s6.notes_slide.notes_text_frame.text = ("Adult and aged nuclei only (Sham/TAC libraries processed in the same run are kept for the aside). "
         "Marker-based cell types on the shared UMAP; QC metrics after ddqcR filtering; cell-type proportions per sample.")
+s6.shapes.title.text = "Overview of snRNA-seq data"
+
+# Aim 1 divider, ahead of the overview slide (hand-edit from the 2026-09-09 deck).
+_d = new_slide("Aim 1: Quantify XCI escape in snRNA-seq of adult and aged hearts")
+move_slide(len(prs.slides._sldIdLst) - 1, 5)
 
 # ===========================================================================
 # AIM 1 - snRNA-seq
@@ -192,7 +271,7 @@ add_text(s, [
     ("Lymphocytes: too few nuclei to read", 0),
     ("Caveat", -1),
     ("One animal per age: descriptive, not a test of age", 0),
-    ("Depth-dependent (next slide)", 0),
+    ("Depth-dependent", 0),
 ], 9.0, TOP, 3.9, H, size=14)
 
 s = new_slide("Whole-chrX allelic ratio on the UMAP",
@@ -254,7 +333,7 @@ add_text(s, [
 ], LEFT, 5.65, 12.3, 1.5, size=14)
 add_caption(s, "Left: ventricular cardiomyocytes only", LEFT, 5.3, 5.2, size=11)
 
-s = new_slide("Aside: pressure overload (TAC)",
+s = new_slide("Pressure overload influences XCI escape",
     "Not part of the grant, but the same animals and pipeline, kept separate from the aging story. TAC induces the hypertrophic programme (Nppa, Nppb, Ankrd1, Myh7) in ventricular cardiomyocytes "
     "and raises the fraction of biallelic ventricular CM nuclei from 11% to 18%; other cell types move little. Cardiac stress without aging can therefore also perturb XCI stability. One animal per condition. "
     "Sham/TAC versions of every snRNA-seq figure are in figures/sham_tac/ if anyone asks.")
@@ -270,7 +349,7 @@ add_text(s, [
 # ===========================================================================
 # AIM 2 - spatial
 # ===========================================================================
-section("Aim 2: spatial structure of XCI escape",
+section("Aim 2: Determine whether XCI escape is spatially structured across the myocardium",
         "Visium HD 3′ · 8 µm bins · one adult (9w) and one aged (78w) section · same F1 model",
         "Aim 2 asks whether escape is dispersed, clonal, or concentrated in niches. Reminder of the genotype: XCI is fully skewed, so there is no mosaic and no clonal 'which X' patches by construction; "
         "any spatial structure would be structure of escape itself.")
@@ -382,7 +461,7 @@ add_text(s, [
 # ===========================================================================
 # WP2 preview - multiome
 # ===========================================================================
-section("Preview: multiome (RNA + ATAC in the same nucleus)",
+section("Aim 3: Test whether the inactive X gains distal chromosome accessibility with age, and in which cell types",
         "10x Epi Multiome · one adult (9w) and one aged (78w) heart · cellranger-arc 2.2.0 on GRCm39",
         "This is WP2 of the grant, run on the same biobanked animals. RNA gives escape per nucleus, ATAC gives accessibility of the inactive X, which RNA alone cannot.")
 
