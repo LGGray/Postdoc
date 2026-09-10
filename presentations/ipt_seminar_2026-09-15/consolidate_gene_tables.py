@@ -4,6 +4,20 @@ import os, sys, time
 base = "/Users/graylachlan/cluster/OCM/Allelome.PRO2_all_genes"
 out = sys.argv[1]
 t0 = time.time()
+
+# Drop scDblFinder doublets, so the per-gene tables match the doublet-free
+# Allelic_ratio_results_nodoublet tree. Pass --keep-doublets for the old behaviour.
+DBL = "/Users/graylachlan/cluster/OCM/Allelic_ratio_results/scDblFinder_per_cell.txt"
+doublets = set()
+if "--keep-doublets" not in sys.argv:
+    with open(DBL) as f:
+        hdr = next(f).rstrip("\n").split("\t")
+        ic, ik = hdr.index("cell"), hdr.index("class")
+        for line in f:
+            x = line.rstrip("\n").split("\t")
+            if x[ik] == "doublet":
+                doublets.add(x[ic])
+    print(f"excluding {len(doublets)} scDblFinder doublets", flush=True)
 with open(out, "w") as fo:
     fo.write("sample\tcell_barcode\tchr\tstart\tend\tgene\tA1_reads\tA2_reads\ttotal_reads\n")
     for s in ["9w", "78w", "Sham", "TAC"]:
@@ -16,6 +30,8 @@ with open(out, "w") as fo:
             # dir name: <date>_<sample>_<barcode>_annotation_us_mm39_chrX.bed_1
             parts = d.split("_")
             bc = parts[4]
+            if f"{s}_{bc}" in doublets:
+                continue
             with open(p) as f:
                 next(f)
                 for line in f:

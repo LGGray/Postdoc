@@ -22,6 +22,26 @@ DAT <- Sys.getenv("FIG_DATA", "/Users/graylachlan/LRZ Sync+Share/LGray/Presentat
 dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
 OCM <- file.path(CL, "OCM"); SPA <- file.path(CL, "adult_aged_spatial"); MUL <- file.path(CL, "adult_aged_multiome")
 
+# Which allelic-ratio results tree to read for the snRNA-seq section. The
+# doublet-free rerun (slurm/allelic_ratio_nodoublet.slurm) writes a parallel
+# tree, so the two can be drawn without clobbering each other:
+#   RESULTS_ROOT=Allelic_ratio_results_nodoublet Rscript make_figures.R
+# Tables that tree has not produced yet are skipped with a message rather than
+# silently falling back to the doublet-containing ones.
+RES <- Sys.getenv("RESULTS_ROOT", "Allelic_ratio_results")
+arp <- function(...) file.path(OCM, RES, ...)
+SKIPPED <- character()
+have <- function(...) {
+  rel <- file.path(...)
+  if (file.exists(arp(rel))) return(TRUE)
+  SKIPPED <<- c(SKIPPED, rel)
+  message("SKIP: ", file.path(RES, rel), " does not exist")
+  FALSE
+}
+if (RES != "Allelic_ratio_results")
+  message("NOTE: F00 reads cell_counts_per_celltype_and_condition.txt, which lives ",
+          "outside ", RES, " and is NOT doublet-filtered.")
+
 MONO_AR <- 0.90          # OCM_heart/allelic_ratio/00_functions.R
 MIN_TOTAL_READS <- 30    # cutoff_30 directory
 
@@ -71,7 +91,7 @@ sample_factor <- function(x, levels = c("9w","78w","Sham","TAC")) factor(x, leve
 # ===========================================================================
 # PART 1 - snRNA-seq (OCM: 9w, 78w, Sham, TAC)
 # ===========================================================================
-cells <- read_tsv(file.path(OCM, "Allelic_ratio_results/cutoff_sweep/cutoff_sweep_cell_table.txt"),
+cells <- read_tsv(arp("cutoff_sweep/cutoff_sweep_cell_table.txt"),
                   show_col_types = FALSE) %>%
   mutate(sample = sample_factor(sample), celltype = short_ct(celltype))
 counts_all <- read_tsv(file.path(OCM, "cell_counts_per_celltype_and_condition.txt"), show_col_types = FALSE) %>%
@@ -109,7 +129,7 @@ f01 <- function(samples, dir) {
 f01(AGE, OUT); f01(STRESS, OUT_ST)
 
 # F02 - autosomes vs chrX: the model works -----------------------------------
-wc <- read_tsv(file.path(OCM, "Allelic_ratio_results/whole_chr_allelic_ratios.txt"), show_col_types = FALSE)
+wc <- read_tsv(arp("whole_chr_allelic_ratios.txt"), show_col_types = FALSE)
 wc2 <- wc %>%
   mutate(set = ifelse(chr == "chrX", "chrX", ifelse(chr %in% paste0("chr", 1:19), "Autosomes", NA))) %>%
   filter(!is.na(set)) %>%
@@ -139,7 +159,7 @@ f02 <- function(samples, dir) {
 f02(AGE, OUT); f02(STRESS, OUT_ST)
 
 # F03 - whole-chrX AR by cell type and condition ------------------------------
-meta <- read_tsv(file.path(OCM, "Allelic_ratio_results/cutoff_30/whole_chr_cell_metadata.txt"),
+meta <- read_tsv(arp("cutoff_30/whole_chr_cell_metadata.txt"),
                  show_col_types = FALSE) %>%
   mutate(celltype = factor(short_ct(celltype), CT_ORDER)) %>%
   filter(!celltype %in% c("CM (stressed)", "Epicardial"))
@@ -162,7 +182,7 @@ f03 <- function(samples, dir) {
 f03(AGE, OUT); f03(STRESS, OUT_ST)
 
 # F04 - fraction of nuclei below the monoallelic boundary --------------------
-fe <- read_tsv(file.path(OCM, "Allelic_ratio_results/cutoff_30/whole_chr_fraction_escaping_per_celltype_and_condition.txt"),
+fe <- read_tsv(arp("cutoff_30/whole_chr_fraction_escaping_per_celltype_and_condition.txt"),
                show_col_types = FALSE) %>%
   mutate(celltype = factor(short_ct(celltype), CT_ORDER)) %>%
   filter(!celltype %in% c("CM (stressed)", "Epicardial"))
@@ -225,7 +245,8 @@ f06 <- function(samples, dir, w) {
 f06(AGE, OUT, 11); f06(STRESS, OUT_ST, 11)
 
 # F07 - core escape genes: posterior mean AR per cell type ---------------------
-bp <- read_tsv(file.path(OCM, "Allelic_ratio_results/core_escape_genes_bayes_posterior_by_gene.txt"),
+if (have("core_escape_genes_bayes_posterior_by_gene.txt")) {
+bp <- read_tsv(arp("core_escape_genes_bayes_posterior_by_gene.txt"),
                show_col_types = FALSE) %>%
   mutate(celltype = factor(short_ct(celltype), rev(CT_ORDER))) %>%
   filter(!celltype %in% c("CM (stressed)", "Epicardial"), total_reads >= 10)
@@ -243,9 +264,10 @@ f07 <- function(samples, dir) {
   save_fig(p, "F07_snRNA_core_escape_posterior", 12, 5.5, dir = dir)
 }
 f07(AGE, OUT); f07(STRESS, OUT_ST)
+}
 
 # F20 - Xist vs allelic ratio, beta-binomial odds ratio per cell type ----------
-xb <- read_tsv(file.path(OCM, "Allelic_ratio_results/core_escape_cutoff_5/core_escape_block_new_Xist_vs_AR_betabinomial.txt"),
+xb <- read_tsv(arp("core_escape_cutoff_5/core_escape_block_new_Xist_vs_AR_betabinomial.txt"),
                show_col_types = FALSE) %>%
   mutate(celltype = factor(short_ct(celltype), rev(CT_ORDER)),
          lo = exp(beta - 1.96 * se), hi = exp(beta + 1.96 * se), sig = FDR < 0.05)
@@ -267,11 +289,12 @@ f20 <- function(samples, dir) {
 f20(AGE, OUT); f20(STRESS, OUT_ST)
 
 # F08 - core escape block, adult vs aged per cell type ------------------------
-pb <- read_tsv(file.path(OCM, "Allelic_ratio_results/core_escape_genes_pseudobulk_by_celltype.txt"),
+if (have("core_escape_genes_pseudobulk_by_celltype.txt") && have("core_escape_genes_pseudobulk_9w_vs_78w.txt")) {
+pb <- read_tsv(arp("core_escape_genes_pseudobulk_by_celltype.txt"),
                show_col_types = FALSE) %>%
   mutate(celltype = short_ct(celltype), cast = A2_reads / total_reads,
          se = sqrt(cast * (1 - cast) / total_reads))
-ab <- read_tsv(file.path(OCM, "Allelic_ratio_results/core_escape_genes_pseudobulk_9w_vs_78w.txt"),
+ab <- read_tsv(arp("core_escape_genes_pseudobulk_9w_vs_78w.txt"),
                show_col_types = FALSE) %>%
   mutate(celltype = short_ct(celltype), star = ifelse(FDR <= 0.001, "***", ifelse(FDR <= 0.01, "**", ifelse(FDR <= 0.05, "*", "ns"))))
 pb2 <- pb %>% filter(sample %in% c("9w", "78w"), total_reads >= 30) %>%
@@ -290,6 +313,7 @@ p <- ggplot(pb2, aes(cast, celltype, colour = sample)) +
        subtitle = "Pooled over Kdm5c, Kdm6a, Ddx3x, Eif2s3x; Fisher test FDR; n = 1 animal per age") +
   theme(legend.position = "top")
 save_fig(p, "F08_snRNA_core_escape_adult_vs_aged", 8.5, 5.5)
+}
 
 # F09 - per-gene pseudobulk heatmap (grant Figure 2 style) --------------------
 gf <- file.path(DAT, "all_genes_per_cell.tsv")
@@ -367,7 +391,7 @@ if (file.exists(smf)) {
     mutate(celltype = short_ct(celltype), sample = as.character(sample))
   qc_note <- "All nuclei after QC"
 } else {
-  qc_meta <- read_tsv(file.path(OCM, "Allelic_ratio_results/cutoff_30/whole_chr_cell_metadata.txt"), show_col_types = FALSE) %>%
+  qc_meta <- read_tsv(arp("cutoff_30/whole_chr_cell_metadata.txt"), show_col_types = FALSE) %>%
     rename(cell_barcode = 1) %>% select(cell_barcode, nFeature_RNA, percent.mt)
   sm <- cells %>% select(cell_barcode, sample, celltype, nCount_RNA, UMAP_1, UMAP_2) %>%
     mutate(sample = as.character(sample)) %>% left_join(qc_meta, by = "cell_barcode")

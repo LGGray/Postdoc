@@ -245,32 +245,35 @@ move_slide(len(prs.slides._sldIdLst) - 1, 5)
 # ===========================================================================
 s = new_slide("Allele-specific analysis per nucleus",
     "Allelome.PRO2 was run per nucleus against the B6/CAST SNP set (Xist masked). The whole-chromosome allelic ratio is B6 reads over all SNP-overlapping reads. "
-    "Adult and aged only. Left: 86-89% of nuclei clear the 30-read cutoff. Right: autosomes sit at 0.53, the B6-ward mapping bias; chrX at ~0.95 because the CAST X is the inactive X in every nucleus. "
+    "Adult and aged only. Left: 85-88% of nuclei clear the 30-read cutoff. Right: autosomes sit at 0.53, the B6-ward mapping bias; chrX at ~0.95 because the CAST X is the inactive X in every nucleus. "
     "Any CAST read on chrX is expression from the inactive X.")
 picture_or_placeholder(s, "F01_snRNA_chrX_reads_per_nucleus.png", LEFT, TOP, 6.4, 3.6)
 picture_or_placeholder(s, "F02_snRNA_autosome_vs_chrX.png", 7.0, TOP, 5.85, 3.6)
 add_text(s, [
     ("Allelome.PRO2 per nucleus against ~20 M B6/CAST SNPs (Xist masked); allelic ratio = B6 / (B6 + CAST)", 0),
-    ("≥ 30 SNP-overlapping chrX reads keeps ~86-89% of nuclei; autosomes sit at 0.53 (B6 mapping bias), chrX at ~0.95", 0),
+    ("scDblFinder doublets excluded before the allelic analysis (9.1% of nuclei flagged)", 0),
+    ("≥ 30 SNP-overlapping chrX reads keeps ~85-88% of nuclei; autosomes sit at 0.53 (B6 mapping bias), chrX at ~0.95", 0),
     ("CAST reads on chrX are expression from the inactive X: the Xist-deleted B6 X is active in every nucleus", 0),
 ], LEFT, 5.65, 12.3, 1.5, size=14)
 
 s = new_slide("Whole-chrX allelic ratio by cell type",
-    "Adult and aged only; Sham/TAC are kept for the aside. Every cell type is dominated by monoallelic nuclei (median AR 0.94-0.97) with a tail of biallelic nuclei below the 0.9 boundary. "
+    "Adult and aged only; Sham/TAC are kept for the aside. Every cell type is dominated by monoallelic nuclei (median AR 0.91-0.97) with a tail of biallelic nuclei below the 0.9 boundary. "
     "Beta-binomial dispersion tests flagged 78w vs 9w differences in endothelial cells, macrophages and pericytes, but with one animal per condition the simulated false-positive rate of that test is 8-81%, so read this as descriptive.")
 picture_or_placeholder(s, "F03_snRNA_chrX_AR_violin_by_celltype.png", LEFT, TOP, 12.35, H)
 
 s = new_slide("Biallelic nuclei per cell type",
-    "Fraction of nuclei with whole-chrX AR below 0.9. Adult to aged: endothelial 22% to 48%, pericytes/SMC 18% to 35%, fibroblasts 17% to 25%, ventricular CM 8% to 13%. "
-    "Endocardium and lymphatic EC do not move. One animal per age.")
+    "Fraction of nuclei with whole-chrX AR below 0.9, scDblFinder doublets excluded. Adult to aged: endothelial 21% to 44%, pericytes/SMC 16% to 33%, "
+    "fibroblasts 15% to 23%, ventricular CM 7% to 11%. Endocardium does not move (16% to 17%). Doublet removal drops 5.9% of nuclei at this cutoff and lowers "
+    "every escape estimate by 1-6 points; the age direction is unchanged. One animal per age.")
 picture_or_placeholder(s, "F04_snRNA_fraction_biallelic_nuclei.png", LEFT, TOP, 8.3, H)
 add_text(s, [
     ("Adult → aged", -1),
-    ("Endothelial 22% → 48%", 0), ("Pericytes / SMC 18% → 35%", 0), ("Fibroblasts 17% → 25%", 0), ("Ventricular CM 8% → 13%", 0),
-    ("Endocardium, lymphatic EC unchanged", 0),
+    ("Endothelial 21% → 44%", 0), ("Pericytes / SMC 16% → 33%", 0), ("Fibroblasts 15% → 23%", 0), ("Ventricular CM 7% → 11%", 0),
+    ("Endocardium unchanged 16% → 17%", 0),
     ("Lymphocytes: too few nuclei to read", 0),
     ("Caveat", -1),
     ("One animal per age: descriptive, not a test of age", 0),
+    ("Doublets removed (scDblFinder): 5.9% of nuclei", 0),
     ("Depth-dependent", 0),
 ], 9.0, TOP, 3.9, H, size=14)
 
