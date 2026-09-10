@@ -22,26 +22,61 @@ The new tree is `Allelome.PRO2_pseudobulk_celltype/`, 42 pseudobulks
 
 ## Run order
 
-All paths relative to `/dss/.../go93qiw2`; sbatch from the repo root.
+One command, from the repo root. Four stages chained with `--dependency`, so
+it is fire and forget:
 
 ```bash
-# 0. barcode -> cell type maps, doublets removed  (login node, seconds)
-cd $OCM_DIR                 # .../go93qiw2/OCM
+cd ~/Postdoc && git pull
+./slurm/submit_pseudobulk_celltype_chain.sh
+```
+
+| stage | job | roughly |
+| --- | --- | --- |
+| `ids` | `pseudobulk_celltype_R.slurm ids` | minutes |
+| `bams` | `pseudobulk_celltype_bams.slurm` | array 1-4, 1-3 h |
+| `allelome` | `pseudobulk_celltype_allelome.slurm` | array 1-4, the long one |
+| `analysis` | `pseudobulk_celltype_R.slurm analysis` | minutes |
+
+Watch it:
+
+```bash
+squeue -M cm4 -u $USER -o '%.10i %.28j %.8T %.10M %.10l %.6D %R'
+```
+
+Arguments are positional (`--export=NONE` everywhere):
+`submit_pseudobulk_celltype_chain.sh [merge|sinto] [RESULTS_ROOT] [TERMINAL_MB]`.
+
+Re-run a single stage without redoing the rest — the normal way to widen the
+terminal window after reading the coverage table:
+
+```bash
+STAGES=analysis ./slurm/submit_pseudobulk_celltype_chain.sh merge Allelic_ratio_results 10
+```
+
+`afterok`, not `afterany` — the opposite choice to
+`submit_sinto_tiles_chain.sh` and for the opposite reason. Nothing here
+resumes: a timed-out BAM build would leave the Allelome.PRO2 stage scoring a
+partial cell type and reporting a number that looks fine and is wrong.
+
+All four jobs are on `cm4`, including the two small single-threaded R stages.
+An LRZ `--dependency` does not cross clusters, so putting the R stages on
+`serial_std` would break the chain. `index_igv_bams.slurm` is the precedent
+for a small `cm4_tiny` job.
+
+The stages can still be run by hand if you want to inspect between them:
+
+```bash
+cd /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2/OCM
 Rscript $POSTDOC_ROOT/OCM_heart/pseudobulk_celltype_ids.R
-
-# 1. one pseudobulk BAM per (cohort, cell type)
-sbatch slurm/pseudobulk_celltype_bams.slurm merge
-
-# 2. Allelome.PRO2 over them, one array task per cohort
-sbatch slurm/pseudobulk_celltype_allelome.slurm
-
-# 3. tables, models, figures
-cd $OCM_DIR
+cd ~/Postdoc && sbatch slurm/pseudobulk_celltype_bams.slurm merge
+                sbatch slurm/pseudobulk_celltype_allelome.slurm
+cd /dss/.../OCM
 Rscript $POSTDOC_ROOT/OCM_heart/allelic_ratio/13_pseudobulk_celltype_ar.R
 ```
 
-Step 0 needs an R with `dplyr`; steps 0 and 3 use the `seurat_env` R, not the
-repo-wide `RNAseq` env, because step 3 sources `allelic_ratio/00_functions.R`.
+Both R stages need the `seurat_env` R, not the repo-wide `RNAseq` env, because
+stage 3 sources `allelic_ratio/00_functions.R`. The chain's `analysis` stage
+pre-flights `tidyr` before claiming its allocation.
 
 ## Doublets
 
