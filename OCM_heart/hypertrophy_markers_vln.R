@@ -114,12 +114,13 @@ pl <- lapply(MARKERS, function(g) {
 fig <- wrap_plots(pl, ncol = 3) +
   plot_annotation(
     title = "Hypertrophic markers in ventricular cardiomyocytes: Sham vs TAC",
+    # wrapped by hand: at size 11 in a 10 in figure anything past ~90
+    # characters runs off the right edge
     caption = paste0(
-      "Wilcoxon rank-sum over cells, BH-adjusted. r is the rank-biserial correlation: ",
-      "+1 means every TAC cell exceeds every Sham cell.\n",
-      "One animal per condition, so cells are pseudoreplicates - the p value scales with ",
-      "the number of cells sequenced, not with reproducibility. Read r, not p.\n",
-      "scDblFinder doublets excluded."),
+      "Wilcoxon rank-sum over cells, BH-adjusted. r = rank-biserial correlation:\n",
+      "+1 means every TAC cell exceeds every Sham cell; 0 means the two overlap completely.\n",
+      "One animal per condition, so cells are pseudoreplicates: p tracks how many cells were\n",
+      "sequenced, not reproducibility between animals. Read r, not p. Doublets excluded."),
     theme = theme(plot.title = element_text(face = "bold", size = 16),
                   plot.caption = element_text(size = 11, hjust = 0, colour = "grey30")))
 

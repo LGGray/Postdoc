@@ -337,14 +337,19 @@ add_text(s, [
 add_caption(s, "Left: ventricular cardiomyocytes only", LEFT, 5.3, 5.2, size=11)
 
 s = new_slide("Pressure overload influences XCI escape",
-    "Not part of the grant, but the same animals and pipeline, kept separate from the aging story. TAC induces the hypertrophic programme (Nppa, Nppb, Ankrd1, Myh7) in ventricular cardiomyocytes "
-    "and raises the fraction of biallelic ventricular CM nuclei from 10% to 13%; other cell types move little. Cardiac stress without aging can therefore also perturb XCI stability. One animal per condition. "
+    "Not part of the grant, but the same animals and pipeline, kept separate from the aging story. TAC induces the hypertrophic programme in ventricular cardiomyocytes: Acta1 is the strongest marker "
+    "(detected in 19% of Sham cells and 95% of TAC, rank-biserial r = +0.90), with Nppa (+0.45), Ankrd1 (+0.41) and Xirp2 (+0.36) up, and the adult isoforms Myh6 (-0.36) and Atp2a2 (-0.36) down. "
+    "Nppb (r = -0.00) and Myh7 (+0.01) do not move, so quote Acta1 and Nppa rather than the textbook Nppa/Nppb pair; the Myh6-to-Myh7 switch here is the Myh6 half only. "
+    "TAC also raises the fraction of biallelic ventricular CM nuclei from 10% to 13%; other cell types move little. Cardiac stress without aging can therefore also perturb XCI stability. "
+    "r is the rank-biserial correlation, not a p value: one animal per condition means the cells are pseudoreplicates and every p is < 2e-16 regardless. "
     "Sham/TAC versions of every snRNA-seq figure are in figures/sham_tac/ if anyone asks.")
 picture_or_placeholder(s, "snRNA_TAC_hypertrophy_markers.png", LEFT, TOP, 5.6, H)
 picture_or_placeholder(s, "sham_tac/F04_snRNA_fraction_biallelic_nuclei.png", 6.3, TOP, 6.55, 3.4)
 add_text(s, [
     ("Same pipeline, one Sham and one TAC animal; not part of the aging story", 0),
-    ("Nppa, Nppb, Ankrd1, Myh7 up in TAC ventricular CM: the surgery worked", 0),
+    ("Acta1 up in 19% → 95% of ventricular CM (r = +0.90); Nppa, Ankrd1, Xirp2 follow", 0),
+    ("Myh6 and Atp2a2 down (r = -0.36): the adult isoform programme is switching off", 0),
+    ("Nppb and Myh7 do not move here (r ≈ 0)", 0),
     ("Biallelic ventricular CM nuclei 10% (Sham) → 13% (TAC); other cell types move little", 0),
     ("Cardiac stress without aging can also perturb XCI stability", 0),
 ], 6.3, 5.4, 6.55, 1.8, size=13)
