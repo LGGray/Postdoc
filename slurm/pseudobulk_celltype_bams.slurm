@@ -7,12 +7,11 @@
 #SBATCH -e out_error/%x.%A_%a.%N.err
 #SBATCH --get-user-env
 #SBATCH --export=NONE
-#SBATCH --clusters=cm4
-#SBATCH --partition=cm4_tiny
-#SBATCH --qos=cm4_tiny
+#SBATCH --clusters=serial
+#SBATCH --partition=serial_std
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=18
+#SBATCH --cpus-per-task=16   # serial_std range is 1-16; sbatch REJECTS 17+
 #SBATCH --mem=96G
 #SBATCH --time=12:00:00
 #SBATCH --array=1-4
@@ -24,6 +23,10 @@
 #   sbatch slurm/pseudobulk_celltype_bams.slurm merge     <- default, recommended
 #   sbatch slurm/pseudobulk_celltype_bams.slurm sinto
 #   sbatch slurm/pseudobulk_celltype_bams.slurm merge 200   <- smaller merge batch
+#
+# serial_std, not cm4_tiny: samtools merge is I/O bound, so 16 threads and 18
+# are indistinguishable here, and every stage of this chain has to live on the
+# same cluster -- an LRZ --dependency does not cross clusters.
 #
 # Prerequisite (login node, seconds):
 #   cd $OCM && Rscript $POSTDOC_ROOT/OCM_heart/pseudobulk_celltype_ids.R

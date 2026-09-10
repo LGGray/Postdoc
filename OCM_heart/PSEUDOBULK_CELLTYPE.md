@@ -40,7 +40,7 @@ cd ~/Postdoc && git pull
 Watch it:
 
 ```bash
-squeue -M cm4 -u $USER -o '%.10i %.28j %.8T %.10M %.10l %.6D %R'
+squeue -M serial -u $USER -o '%.10i %.28j %.8T %.10M %.10l %.6D %R'
 ```
 
 Arguments are positional (`--export=NONE` everywhere):
@@ -58,22 +58,29 @@ STAGES=analysis ./slurm/submit_pseudobulk_celltype_chain.sh merge Allelic_ratio_
 resumes: a timed-out BAM build would leave the Allelome.PRO2 stage scoring a
 partial cell type and reporting a number that looks fine and is wrong.
 
-All four jobs are on `cm4`, including the two small single-threaded R stages.
-An LRZ `--dependency` does not cross clusters, so putting the R stages on
-`serial_std` would break the chain.
+All four jobs are on the **serial** cluster, and must stay on one cluster —
+an LRZ `--dependency` does not cross clusters, so a `cm4` BAM build with a
+`serial` Allelome.PRO2 stage would silently break the chain.
 
-Two `cm4_tiny` limits the headers are pinned to, from the
-[LRZ partition table](https://doku.lrz.de/job-processing-on-the-linux-cluster-10745970.html):
+They were on `cm4_tiny` first, and it was the wrong home twice over. Its
+documented range is **17–112 physical cores**, which is a *floor*: two
+single-threaded R stages had to ask for 17 cores to be accepted at all
+(`QOSMinCpuNotSatisfied` below that), and the Allelome.PRO2 array then sat
+`PD (Priority)` while `serial_std` places almost immediately — the same trade
+`submit_sinto_tiles_chain.sh` documents. Nothing in this pipeline needs more
+than the 11 parallel workers a cohort has cell types for, so `serial_std`'s
+**1–16 cores, no minimum** is the better fit:
 
-- **CPU range 17–112 physical cores.** 17 is a *floor*, and sbatch rejects
-  anything below it with `QOSMinCpuNotSatisfied` rather than rounding up. So
-  `pseudobulk_celltype_R.slurm` asks for 17 cores for a single-threaded job —
-  that is deliberate, not slack to be trimmed. Do not take a core count from a
-  neighbouring script: `index_igv_bams.slurm` asks for 4 and is itself below
-  the floor.
-- **Max 4 running jobs per user.** Both array stages are `--array=1-4`, which
-  sits exactly at the cap, so if you have other `cm4_tiny` jobs running some
-  array tasks will queue rather than start. That is throttling, not failure.
+| stage | cores | mem |
+| --- | --- | --- |
+| `ids` / `analysis` | 4 | 64G |
+| `bams` | 16 | 96G |
+| `allelome` | 16 | 150G |
+
+Both array stages are `--array=1-4`, so 4 × 16 = 64 cores, inside
+`serial_std`'s cap of 96 summed over a user's running jobs. `serial_long`
+is *not* an option here despite its 168 h: it caps a user at 100 GB across
+all running jobs, and `allelome` alone asks for 150G.
 
 The stages can still be run by hand if you want to inspect between them:
 

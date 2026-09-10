@@ -30,7 +30,7 @@ set -euo pipefail
 #   STAGES=analysis ./slurm/submit_pseudobulk_celltype_chain.sh merge Allelic_ratio_results 10
 #
 # Watch it with:
-#   squeue -M cm4 -u $USER -o '%.10i %.28j %.8T %.10M %.10l %.6D %R'
+#   squeue -M serial -u $USER -o '%.10i %.28j %.8T %.10M %.10l %.6D %R'
 
 MODE="${1:-merge}"
 RESULTS_ROOT="${2:-Allelic_ratio_results}"
@@ -73,7 +73,7 @@ echo "stages:       $STAGES"
 echo
 
 # --parsable gives "<jobid>" or "<jobid>;<cluster>"; a dependency wants only
-# the id, and these all submit to cm4, so sbatch appends the cluster.
+# the id, and these all submit to a named cluster, so sbatch appends it.
 submit() {
   local desc="$1"; shift
   local dep=()
@@ -89,8 +89,12 @@ submit() {
   prev="$jobid"
 }
 
-# A dependency cannot cross LRZ clusters, which is why pseudobulk_celltype_R
-# is on cm4 like the other two rather than on serial_std.
+# A dependency cannot cross LRZ clusters, so all four stages sit on serial.
+# They were on cm4_tiny first and it was the wrong home twice over: its 17-112
+# core range forced a 17-core floor onto two single-threaded R stages, and the
+# allelome array sat PD (Priority) while serial_std places almost at once.
+# Nothing here needs more than the 11 parallel workers a cohort has cell types
+# for, which fits serial_std's 16 cores.
 prev=""
 wants ids      && submit "ids"      "$R_JOB"   ids "$RESULTS_ROOT"
 wants bams     && submit "bams"     "$BAM_JOB" "$MODE"
@@ -106,4 +110,4 @@ echo
 echo "Submitted. The last stage writes:"
 echo "  OCM/$RESULTS_ROOT/pseudobulk_celltype/pseudobulk_celltype_chromosome_ends.pdf"
 echo
-echo "Cancel the lot with: scancel -M cm4 -u \$USER --name=pseudobulk_celltype_R,pseudobulk_celltype_bams,pseudobulk_celltype_allelome"
+echo "Cancel the lot with: scancel -M serial -u \$USER --name=pseudobulk_celltype_R,pseudobulk_celltype_bams,pseudobulk_celltype_allelome"

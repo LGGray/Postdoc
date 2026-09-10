@@ -7,18 +7,26 @@
 #SBATCH -e out_error/%x.%A_%a.%N.err
 #SBATCH --get-user-env
 #SBATCH --export=NONE
-#SBATCH --clusters=cm4
-#SBATCH --partition=cm4_tiny
-#SBATCH --qos=cm4_tiny
+#SBATCH --clusters=serial
+#SBATCH --partition=serial_std
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=16   # serial_std range is 1-16; sbatch REJECTS 17+
 #SBATCH --mem=150G
 #SBATCH --time=24:00:00
 #SBATCH --array=1-4
 #
 # Allelome.PRO2 on the per-cell-type pseudobulk BAMs, one array task per
 # cohort (9w / 78w / Sham / TAC), GNU parallel over the ~11 cell types.
+#
+# serial_std, not cm4_tiny. A cohort has at most 11 cell types and every
+# Allelome.PRO2 run is single-threaded, so the job needs -j 11 and no more:
+# serial_std's 1-16 core range is a better fit than cm4_tiny's 17-112, where
+# 32 was requested and half of it sat idle. serial_std also places
+# essentially immediately, whereas the cm4_tiny attempt sat PD (Priority) --
+# the same trade documented in submit_sinto_tiles_chain.sh. 150G fits well
+# inside serial_std's 1000 GiB node limit, and 4 array tasks x 16 cores = 64
+# is under the 96-core sum-over-running-jobs cap.
 #
 #   sbatch slurm/pseudobulk_celltype_allelome.slurm
 #

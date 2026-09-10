@@ -7,13 +7,12 @@
 #SBATCH -e out_error/%x.%j.%N.err
 #SBATCH --get-user-env
 #SBATCH --export=NONE
-#SBATCH --clusters=cm4
-#SBATCH --partition=cm4_tiny
-#SBATCH --qos=cm4_tiny
+#SBATCH --clusters=serial
+#SBATCH --partition=serial_std
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=17
-#SBATCH --mem=48G
+#SBATCH --cpus-per-task=4    # serial_std range is 1-16, no minimum
+#SBATCH --mem=64G
 #SBATCH --time=3:00:00
 #
 # The two R stages of the per-cell-type pseudobulk chain, so the whole thing
@@ -30,23 +29,16 @@
 #   $3  TERMINAL_MB    analysis only, default 5
 #   $4  N_PERM         analysis only, default 2000
 #
-# cm4, not serial_std, even though both stages are single-threaded and small:
-# an LRZ --dependency does not cross clusters, and the BAM build and the
-# Allelome.PRO2 fan-out are both on cm4. Putting these on serial would break
-# the chain, which is the whole point of the script.
+# serial_std. Both stages are single-threaded, and serial_std's 1-16 core
+# range has NO minimum, so a small job costs 4 cores rather than the 17 that
+# cm4_tiny's floor forces. Every stage of this chain must sit on the same
+# cluster in any case: an LRZ --dependency does not cross clusters.
 #
-# 17 cpus for a SINGLE-THREADED job is not a mistake and must not be trimmed.
-# cm4_tiny's documented CPU range is 17-112 physical cores -- 17 is a QOS
-# FLOOR, not a ceiling, and sbatch rejects anything below it outright with
-# "QOSMinCpuNotSatisfied" rather than rounding up. The partition table is at
+# If you ever move this back to cm4_tiny, --cpus-per-task must be >= 17.
+# That partition's documented range is 17-112 PHYSICAL cores and sbatch
+# rejects anything under it with "QOSMinCpuNotSatisfied" rather than rounding
+# up. The partition table is the authority, not a neighbouring script:
 # https://doku.lrz.de/job-processing-on-the-linux-cluster-10745970.html
-# (Do not take a core count from a neighbouring script here: 4 was copied from
-# index_igv_bams.slurm, which is itself below the floor and cannot ever have
-# been submitted successfully.)
-#
-# The alternative -- serial_std, whose 1-16 range actually fits a serial job --
-# costs the dependency chain, so the trade is 16 idle cores for a few minutes
-# against having to babysit four submissions.
 #
 # ids is seconds and needs only base R; analysis has to hold ~1.8 M gene rows
 # plus the permutation draws, hence the 48G, and it sources
