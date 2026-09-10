@@ -324,13 +324,13 @@ add_text(s, [
 ], 8.4, TOP, 4.45, H, size=14)
 
 s = new_slide("Xist expression is lower in biallelic nuclei",
-    "Core-escape-block analysis. Left: ventricular cardiomyocytes, Xist (SCT-normalised) in nuclei with a LOX-like allelic ratio versus the rest; lower in both ages (p = 0.02 adult, 1e-5 aged). "
+    "Core-escape-block analysis. Left: ventricular cardiomyocytes, Xist (SCT-normalised) in nuclei with a LOX-like allelic ratio versus the rest; lower in both ages (p = 0.012 adult, 1e-4 aged). "
     "Right: beta-binomial model of the core-escape-block allelic ratio on Xist per cell type; an odds ratio below 1 means more Xist goes with a lower B6 fraction, i.e. less inactive-X expression. "
     "Significant in ventricular CM in both ages; the other cell types trend the same way but are too thin. Loss of Xist coincides with inactive-X expression, which is the grant's premise.")
 picture_or_placeholder(s, "snRNA_Xist_by_LOX_VCM_adult_aged.png", LEFT, TOP, 5.2, 3.6)
 picture_or_placeholder(s, "F20_snRNA_Xist_vs_AR_forest.png", 5.9, TOP, 6.95, 3.6)
 add_text(s, [
-    ("Ventricular CM: nuclei with a LOX-like allelic ratio have lower Xist in both ages (p = 0.02 adult, 1e-5 aged)", 0),
+    ("Ventricular CM: nuclei with a LOX-like allelic ratio have lower Xist in both ages (p = 0.012 adult, 1e-4 aged)", 0),
     ("Beta-binomial per cell type: odds ratio < 1 per unit Xist, i.e. more Xist → more monoallelic; significant in ventricular CM in both ages, other cell types too thin", 0),
     ("Loss of Xist coincides with inactive-X expression, as the model predicts", 0),
 ], LEFT, 5.65, 12.3, 1.5, size=14)

@@ -23,12 +23,13 @@ dir.create(OUT, showWarnings = FALSE, recursive = TRUE)
 OCM <- file.path(CL, "OCM"); SPA <- file.path(CL, "adult_aged_spatial"); MUL <- file.path(CL, "adult_aged_multiome")
 
 # Which allelic-ratio results tree to read for the snRNA-seq section. The
-# doublet-free rerun (slurm/allelic_ratio_nodoublet.slurm) writes a parallel
-# tree, so the two can be drawn without clobbering each other:
-#   RESULTS_ROOT=Allelic_ratio_results_nodoublet Rscript make_figures.R
-# Tables that tree has not produced yet are skipped with a message rather than
-# silently falling back to the doublet-containing ones.
-RES <- Sys.getenv("RESULTS_ROOT", "Allelic_ratio_results")
+# default is the doublet-free tree written by slurm/allelic_ratio_nodoublet.slurm
+# (scDblFinder doublets excluded); the deck is drawn from it. To redraw the
+# older, doublet-containing figures for comparison:
+#   RESULTS_ROOT=Allelic_ratio_results Rscript make_figures.R
+# Tables a tree has not produced are skipped with a message rather than
+# silently falling back to the other one.
+RES <- Sys.getenv("RESULTS_ROOT", "Allelic_ratio_results_nodoublet")
 arp <- function(...) file.path(OCM, RES, ...)
 SKIPPED <- character()
 have <- function(...) {
@@ -38,7 +39,7 @@ have <- function(...) {
   message("SKIP: ", file.path(RES, rel), " does not exist")
   FALSE
 }
-if (RES != "Allelic_ratio_results")
+if (grepl("nodoublet", RES))
   message("NOTE: F00 reads cell_counts_per_celltype_and_condition.txt, which lives ",
           "outside ", RES, " and is NOT doublet-filtered.")
 
