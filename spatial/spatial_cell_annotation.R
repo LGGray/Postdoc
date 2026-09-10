@@ -122,8 +122,8 @@ MAX_MT    <- env_num("MAX_MT", 50)     # loose: cardiomyocytes are legitimately 
 #
 # 1. Non-myocyte sets compete: a bin takes the set with the highest z-scored
 #    module score if that score clears MIN_Z, beats the runner-up by
-#    MIN_MARGIN, AND the bin carries at least MIN_MARKER_UMIS raw counts on
-#    that set's genes. The count gate is not optional. A z-score is spiky for a
+#    MIN_MARGIN, AND the bin detects at least MIN_MARKER_UMIS DISTINCT genes
+#    of that set (counted as genes with a non-zero count, not as a UMI sum). The count gate is not optional. A z-score is spiky for a
 #    sparse set - one stray Cd3e transcript in a myocyte bin is several SDs
 #    above that set's mean - and without the gate a synthetic section came out
 #    24% Unassigned and 6% lymphocyte. Two counts on two different markers is
@@ -139,7 +139,7 @@ MAX_MT    <- env_num("MAX_MT", 50)     # loose: cardiomyocytes are legitimately 
 # Look at fig3 and marker_set_means.csv before retuning.
 MIN_Z           <- env_num("MIN_Z", 0.5)
 MIN_MARGIN      <- env_num("MIN_MARGIN", 0.25)
-MIN_MARKER_UMIS <- env_num("MIN_MARKER_UMIS", 2)
+MIN_MARKER_UMIS <- env_num("MIN_MARKER_UMIS", 2)   # distinct detected genes per set
 MIN_Z_BG        <- env_num("MIN_Z_BG", -0.5)
 BG_SETS <- c("Ventricular cardiomyocyte", "Atrial cardiomyocyte")
 
@@ -169,6 +169,25 @@ MARKERS <- list(
   `Schwann / neuronal`        = c("Plp1", "Mpz", "Kcna1", "Nrxn1")
 )
 MIN_MARKERS <- 2       # a set with one detected gene is that gene, not a type
+
+# Optional: replace the curated sets above with data-derived panels, as written
+# by OCM_heart/derive_marker_panels.R (columns set,gene). Sets present in the
+# CSV are replaced; sets absent from it keep their curated genes, which is how
+# Atrial cardiomyocyte, Adipocyte and Schwann / neuronal survive - the snRNA
+# reference has no counterpart for them.
+MARKER_CSV <- Sys.getenv("MARKER_CSV", "")
+if (nzchar(MARKER_CSV)) {
+  if (!file.exists(MARKER_CSV)) stop("MARKER_CSV does not exist: ", MARKER_CSV)
+  mc <- data.table::fread(MARKER_CSV)
+  if (!all(c("set", "gene") %in% names(mc)))
+    stop("MARKER_CSV needs `set` and `gene` columns: ", MARKER_CSV)
+  derived <- split(as.character(mc$gene), as.character(mc$set))
+  unknown <- setdiff(names(derived), names(MARKERS))
+  if (length(unknown))
+    stop("MARKER_CSV has sets that are not in MARKERS, so their colours and ",
+         "ordering are undefined: ", paste(unknown, collapse = ", "))
+  MARKERS[names(derived)] <- derived
+}
 
 # Neighbourhood radius in bins for the fig4 fraction maps. At 8um, r = 6 is a
 # 104um box, about the width of five myocytes: fine enough to keep vessels and
@@ -353,9 +372,13 @@ assign_labels <- function(zm, elig = NULL) {
   lab
 }
 
-# Raw counts on each set's genes per bin, for the eligibility gate.
+# Evidence for each set per bin, for the eligibility gate. Counted as DISTINCT
+# detected genes, not as a sum of UMIs: with the curated 4-7 gene panels the
+# two are nearly the same, but a 50-gene derived panel makes "2 UMIs" a much
+# weaker bar than it was, and two counts of one gene is that gene rather than
+# a cell type. Distinct genes does not inflate with panel size.
 raw <- GetAssayData(obj, assay = "Spatial", layer = "counts")
-set_umis <- vapply(set_names, function(nm) Matrix::colSums(raw[used_markers[[nm]], , drop = FALSE]),
+set_umis <- vapply(set_names, function(nm) Matrix::colSums(raw[used_markers[[nm]], , drop = FALSE] > 0),
                    numeric(ncol(obj)))
 rm(raw)
 eligible <- set_umis >= MIN_MARKER_UMIS
