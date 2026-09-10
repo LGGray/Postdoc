@@ -343,7 +343,7 @@ s = new_slide("Pressure overload influences XCI escape",
     "TAC also raises the fraction of biallelic ventricular CM nuclei from 10% to 13%; other cell types move little. Cardiac stress without aging can therefore also perturb XCI stability. "
     "r is the rank-biserial correlation, not a p value: one animal per condition means the cells are pseudoreplicates and every p is < 2e-16 regardless. "
     "Sham/TAC versions of every snRNA-seq figure are in figures/sham_tac/ if anyone asks.")
-picture_or_placeholder(s, "snRNA_TAC_hypertrophy_markers.png", LEFT, TOP, 5.6, H)
+picture_or_placeholder(s, "CM_hypertrophic_markers_violin.png", LEFT, TOP, 5.6, H)
 picture_or_placeholder(s, "sham_tac/F04_snRNA_fraction_biallelic_nuclei.png", 6.3, TOP, 6.55, 3.4)
 add_text(s, [
     ("Same pipeline, one Sham and one TAC animal; not part of the aging story", 0),
