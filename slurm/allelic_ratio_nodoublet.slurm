@@ -37,20 +37,25 @@ module load slurm_setup
 # Positional arguments instead:
 #
 #   sbatch slurm/allelic_ratio_nodoublet.slurm                    # full chain
-#   sbatch slurm/allelic_ratio_nodoublet.slurm "10 02 04"         # ingest + core
+#   sbatch slurm/allelic_ratio_nodoublet.slurm "12 02 04"         # ingest + core
 #   sbatch slurm/allelic_ratio_nodoublet.slurm "03 05 06 07 08 11"  # the rest
-#   sbatch slurm/allelic_ratio_nodoublet.slurm "10 02" 200        # cheap FPR pass
+#   sbatch slurm/allelic_ratio_nodoublet.slurm "12 02" 200        # cheap FPR pass
 #
 # $1  stages to run, in order. Default is the full dependency-ordered chain:
-#       10 ingest the tree      -> whole_chr_allelic_ratios.txt
-#       02 whole chrX           -> whole_chr_cell_metadata.txt  (needs 10)
+#       12 ingest the EXISTING table -> whole_chr_allelic_ratios.txt
+#          12, not 10: the read-level Allelome.PRO2 tree that 10 walks is no
+#          longer on disk. 12 filters the table 10 previously produced, and
+#          also corrects allelic_ratio from ar_a1 to ar_dom - see the header of
+#          12_filter_existing_table.R. Switch back to 10 if that tree is ever
+#          rebuilt with slurm/scAllelome.slurm; the per-cell BAMs are intact.
+#       02 whole chrX           -> whole_chr_cell_metadata.txt  (needs 12)
 #       04 core escape block    -> core_escape_block_*.txt
 #       03 per gene             (needs 02)
 #       05 LOX sensitivity      (needs 02 and 04)
-#       06 cutoff sweep         (needs 10)
+#       06 cutoff sweep         (needs 12)
 #       07 core escape sweep    (needs 04)
 #       08 LOX calling          (needs 04)
-#       11 autosomal control    (needs 10)
+#       11 autosomal control    (needs 12)
 # $2  FPR_N_REPS for 02's dispersion false-positive simulation. DEFAULT 0,
 #     i.e. skipped -- that simulation exists to quantify the n=1-per-condition
 #     caveat, and it already did: the dispersion LRTs run at 8-81% false
@@ -59,7 +64,7 @@ module load slurm_setup
 #     conclusion that does not depend on the doublets. The existing
 #     Allelic_ratio_results/cutoff_30/whole_chr_*_dispersion_FPR.txt stays the
 #     reference for that caveat. Pass 200 or 1000 here to run it anyway.
-STAGES="${1:-10 02 04 03 05 06 07 08 11}"
+STAGES="${1:-12 02 04 03 05 06 07 08 11}"
 FPR_N_REPS="${2:-0}"
 
 source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
@@ -94,6 +99,7 @@ echo "FPR_N_REPS:   $FPR_N_REPS"
 # submit_sinto_tiles_chain.sh, so the shell here is not assumed to be new.
 stage_script() {
   case "$1" in
+    12) echo 12_filter_existing_table.R ;;
     10) echo 10_build_ratio_table.R ;;
     02) echo 02_whole_chrX.R ;;
     03) echo 03_all_genes.R ;;
@@ -111,7 +117,7 @@ stage_script() {
 # surface three hours in, after 10 and 02 have already been paid for.
 for s in $STAGES; do
   if [ -z "$(stage_script "$s")" ]; then
-    echo "Unknown stage '$s'. Valid: 10 02 03 04 05 06 07 08 11" >&2
+    echo "Unknown stage '$s'. Valid: 12 10 02 03 04 05 06 07 08 11" >&2
     exit 1
   fi
 done

@@ -344,7 +344,33 @@ CEB_RATIOS_FILE <- file.path(RESULTS_ROOT, "core_escape_block_new_allelic_ratio_
 parse_allelome_cell <- function(paths) {
   d <- basename(dirname(paths))
   d <- sub("^[0-9]{4}_[0-9]{2}_[0-9]{2}_", "", d)   # drop the date stamp
-  sub("_[^_]*\\.bed_[0-9]+$", "", d)                # drop _<annotation>_<run no.>
+
+  # Anchor on the cellranger barcode, not on the annotation name.
+  #
+  # The rule here used to be sub("_[^_]*\\.bed_[0-9]+$", "", d), which assumes
+  # the annotation basename contains no underscore. BOTH trees on disk break
+  # that assumption:
+  #   ..._chr_annotation_mm39.bed_1      -> left "..._chr_annotation"
+  #   ..._annotation_us_mm39_chrX.bed_1  -> left "..._annotation_us_mm39"
+  # so every barcode came back with the annotation welded onto it and matched
+  # no cell in the Seurat object.
+  #
+  # Widening [^_]* to [^/]* is NOT the fix: sub() takes the leftmost match, so
+  # a greedy pattern starting at the first underscore returns just "9w".
+  # The barcode is the one component with a fixed shape - cellranger writes
+  # <16 bases>-<n> - so cut there and the annotation name stops mattering,
+  # which is the same reasoning that replaced the fixed field indices.
+  has_bc <- grepl("[ACGT]{16}-[0-9]+", d)
+  cell <- d
+  cell[has_bc] <- sub("^(.*[ACGT]{16}-[0-9]+).*$", "\\1", d[has_bc])
+  if (any(!has_bc)) {
+    warning(sum(!has_bc), " of ", length(d), " run directories carry no ",
+            "<16 bases>-<n> barcode (e.g. ", d[which(!has_bc)[1]], "); ",
+            "falling back to the .bed suffix strip for those. Check the parse ",
+            "before trusting the result.")
+    cell[!has_bc] <- sub("_[^_]*\\.bed_[0-9]+$", "", d[!has_bc])
+  }
+  cell
 }
 
 # The cell key the Seurat object uses, <sample>_<barcode>, from a locus table
