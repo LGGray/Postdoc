@@ -338,16 +338,32 @@ add_caption(s, "Left: ventricular cardiomyocytes only", LEFT, 5.3, 5.2, size=11)
 
 s = new_slide("Pressure overload influences XCI escape",
     "Not part of the grant, but the same animals and pipeline, kept separate from the aging story. TAC induces the hypertrophic programme (Nppa, Nppb, Ankrd1, Myh7) in ventricular cardiomyocytes "
-    "and raises the fraction of biallelic ventricular CM nuclei from 11% to 18%; other cell types move little. Cardiac stress without aging can therefore also perturb XCI stability. One animal per condition. "
+    "and raises the fraction of biallelic ventricular CM nuclei from 10% to 13%; other cell types move little. Cardiac stress without aging can therefore also perturb XCI stability. One animal per condition. "
     "Sham/TAC versions of every snRNA-seq figure are in figures/sham_tac/ if anyone asks.")
 picture_or_placeholder(s, "snRNA_TAC_hypertrophy_markers.png", LEFT, TOP, 5.6, H)
 picture_or_placeholder(s, "sham_tac/F04_snRNA_fraction_biallelic_nuclei.png", 6.3, TOP, 6.55, 3.4)
 add_text(s, [
     ("Same pipeline, one Sham and one TAC animal; not part of the aging story", 0),
     ("Nppa, Nppb, Ankrd1, Myh7 up in TAC ventricular CM: the surgery worked", 0),
-    ("Biallelic ventricular CM nuclei 11% (Sham) → 18% (TAC); other cell types move little", 0),
+    ("Biallelic ventricular CM nuclei 10% (Sham) → 13% (TAC); other cell types move little", 0),
     ("Cardiac stress without aging can also perturb XCI stability", 0),
 ], 6.3, 5.4, 6.55, 1.8, size=13)
+
+s = new_slide("Do aging and pressure overload move the same cell types?",
+    "Correlating the adult-to-aged fold change in inactive-X signal against the Sham-to-TAC fold change, per cell type (left) and per gene (right). "
+    "The answer is no. Over all nine cell types r = -0.71, but that is carried entirely by endocardium and T cells, which have fewer than 100 TAC nuclei; "
+    "on the five cell types with enough nuclei r = -0.05 (p = 0.93). Per gene, r = +0.09 over 96 genes and +0.03 on the 26 with a Sham CAST baseline above 2%. "
+    "The pale cloud on the right is genes whose Sham CAST is near zero: dividing by that baseline gives fold changes of +2 to +6 that mean nothing. "
+    "Restricting to a baseline above 5% moves the median TAC shift from +2.3 to +0.03. So both stresses perturb XCI, but not through a shared cell-type or gene programme - "
+    "at least not at n = 1 per condition, where neither axis is measured well enough to detect a modest shared component.")
+picture_or_placeholder(s, "F23_snRNA_aging_vs_TAC_foldchange.png", LEFT, TOP, 12.35, 5.0)
+add_text(s, [
+    ("No correlation on either axis: cell types r = -0.05, genes r = +0.03", -1),
+    ("The r = -0.71 over all nine cell types rests on endocardium and T cells, both < 100 TAC nuclei", 0),
+    ("Genes with near-zero Sham CAST give unstable fold changes (pale); the canonical escapees sit at the origin", 0),
+    ("Aging and pressure overload both perturb XCI, but not via a shared programme", 0),
+    ("One animal per condition: a modest shared component would not be detectable here", 0),
+], LEFT, 6.05, 12.35, 1.3, size=13)
 
 # ===========================================================================
 # AIM 2 - spatial
