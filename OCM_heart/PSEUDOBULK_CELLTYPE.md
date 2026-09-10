@@ -60,8 +60,20 @@ partial cell type and reporting a number that looks fine and is wrong.
 
 All four jobs are on `cm4`, including the two small single-threaded R stages.
 An LRZ `--dependency` does not cross clusters, so putting the R stages on
-`serial_std` would break the chain. `index_igv_bams.slurm` is the precedent
-for a small `cm4_tiny` job.
+`serial_std` would break the chain.
+
+Two `cm4_tiny` limits the headers are pinned to, from the
+[LRZ partition table](https://doku.lrz.de/job-processing-on-the-linux-cluster-10745970.html):
+
+- **CPU range 17–112 physical cores.** 17 is a *floor*, and sbatch rejects
+  anything below it with `QOSMinCpuNotSatisfied` rather than rounding up. So
+  `pseudobulk_celltype_R.slurm` asks for 17 cores for a single-threaded job —
+  that is deliberate, not slack to be trimmed. Do not take a core count from a
+  neighbouring script: `index_igv_bams.slurm` asks for 4 and is itself below
+  the floor.
+- **Max 4 running jobs per user.** Both array stages are `--array=1-4`, which
+  sits exactly at the cap, so if you have other `cm4_tiny` jobs running some
+  array tasks will queue rather than start. That is throttling, not failure.
 
 The stages can still be run by hand if you want to inspect between them:
 

@@ -12,7 +12,7 @@
 #SBATCH --qos=cm4_tiny
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=17
 #SBATCH --mem=48G
 #SBATCH --time=3:00:00
 #
@@ -33,8 +33,20 @@
 # cm4, not serial_std, even though both stages are single-threaded and small:
 # an LRZ --dependency does not cross clusters, and the BAM build and the
 # Allelome.PRO2 fan-out are both on cm4. Putting these on serial would break
-# the chain, which is the whole point of the script. index_igv_bams.slurm is
-# the precedent for a small cm4_tiny job.
+# the chain, which is the whole point of the script.
+#
+# 17 cpus for a SINGLE-THREADED job is not a mistake and must not be trimmed.
+# cm4_tiny's documented CPU range is 17-112 physical cores -- 17 is a QOS
+# FLOOR, not a ceiling, and sbatch rejects anything below it outright with
+# "QOSMinCpuNotSatisfied" rather than rounding up. The partition table is at
+# https://doku.lrz.de/job-processing-on-the-linux-cluster-10745970.html
+# (Do not take a core count from a neighbouring script here: 4 was copied from
+# index_igv_bams.slurm, which is itself below the floor and cannot ever have
+# been submitted successfully.)
+#
+# The alternative -- serial_std, whose 1-16 range actually fits a serial job --
+# costs the dependency chain, so the trade is 16 idle cores for a few minutes
+# against having to babysit four submissions.
 #
 # ids is seconds and needs only base R; analysis has to hold ~1.8 M gene rows
 # plus the permutation draws, hence the 48G, and it sources
