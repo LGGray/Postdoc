@@ -94,8 +94,11 @@ echo "TERMINAL_MB=$terminal_mb  N_PERM=$n_perm"
 Rscript "$POSTDOC_ROOT/OCM_heart/allelic_ratio/13_pseudobulk_celltype_ar.R" || exit 1
 
 out="$results_root/pseudobulk_celltype"
+tag="_term${terminal_mb%.0}Mb"
 echo
-echo "figures:  $PWD/$out/pseudobulk_celltype_chromosome_ends.pdf"
-echo "coverage: $PWD/$out/pseudobulk_end_contrast_coverage.txt"
-echo "  If chrX is mostly 'tested FALSE' there, resubmit just this stage with a"
-echo "  wider window:  sbatch slurm/pseudobulk_celltype_R.slurm analysis $results_root 10"
+echo "figures:  $PWD/$out/pseudobulk_celltype_chromosome_ends${tag}.pdf"
+echo "coverage: $PWD/$out/pseudobulk_end_contrast_coverage${tag}.txt"
+echo "  chrX has ~12 genes within 1 Mb of an end and ~60 within 5 Mb, so a 5 Mb"
+echo "  window declines most chrX pseudobulks while the autosomes are fine at it."
+echo "  Run the X wider - outputs are tagged by window, so nothing is overwritten:"
+echo "    sbatch slurm/pseudobulk_celltype_R.slurm analysis $results_root 10"

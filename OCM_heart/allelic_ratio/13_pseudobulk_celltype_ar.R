@@ -481,6 +481,13 @@ TERM_MB <- as.numeric(Sys.getenv("TERMINAL_MB", "5"))
 N_PERM  <- as.integer(Sys.getenv("N_PERM", "2000"))
 stopifnot(!is.na(TERM_MB), TERM_MB > 0, !is.na(N_PERM), N_PERM >= 99)
 
+# The window goes in the filename of everything that depends on it. chrX and
+# the autosomes do not want the same window -- the autosomes have 360 genes in
+# the terminal 1 Mb alone, while chrX has 12, so chrX has to be run wider --
+# and without this the second run would silently overwrite the first. The
+# per-gene tables are window-independent and keep their plain names.
+TERM_TAG <- paste0("_term", sub("\\.0$", "", format(TERM_MB, trim = TRUE)), "Mb")
+
 # The primary metric differs by chromosome class because the biology does:
 # on chrX every gene is monoallelic bar escapers, so escape fraction IS the
 # quantity; on the autosomes nothing is privileged, so ar_dom is.
@@ -612,7 +619,7 @@ coverage <- bind_rows(lapply(seq_len(nrow(contrast_keys)), function(i) {
                         row.names = NULL))
   }))
 }))
-write.table(coverage, file.path(OUT_DIR, "pseudobulk_end_contrast_coverage.txt"),
+write.table(coverage, file.path(OUT_DIR, paste0("pseudobulk_end_contrast_coverage", TERM_TAG, ".txt")),
             sep = "\t", quote = FALSE, row.names = FALSE)
 n_skip <- sum(!coverage$tested)
 if (n_skip) {
@@ -639,7 +646,7 @@ if (n_skip) {
 if (nrow(end_contrasts)) {
   end_contrasts <- end_contrasts %>%
     dplyr::arrange(chr_class, metric, end, dplyr::desc(abs(z)))
-  write.table(end_contrasts, file.path(OUT_DIR, "pseudobulk_end_vs_matched_interior.txt"),
+  write.table(end_contrasts, file.path(OUT_DIR, paste0("pseudobulk_end_vs_matched_interior", TERM_TAG, ".txt")),
               sep = "\t", quote = FALSE, row.names = FALSE)
   cat(sprintf("\n--- genes within %g Mb of a chromosome end vs depth- and SNP-matched interior genes ---\n",
               TERM_MB))
@@ -667,7 +674,7 @@ if (nrow(end_contrasts)) {
     ) %>%
     dplyr::mutate(sign_agreement = pmax(n_positive, n_celltypes - n_positive) / n_celltypes) %>%
     dplyr::arrange(metric, chr_class, end, dplyr::desc(sign_agreement))
-  write.table(consistency, file.path(OUT_DIR, "pseudobulk_end_sign_consistency.txt"),
+  write.table(consistency, file.path(OUT_DIR, paste0("pseudobulk_end_sign_consistency", TERM_TAG, ".txt")),
               sep = "\t", quote = FALSE, row.names = FALSE)
   cat("\n--- sign consistency across cell types (the replication check) ---\n")
   print(as.data.frame(consistency %>% dplyr::filter(metric == "ratio")),
@@ -705,7 +712,7 @@ if (any(ar$chr_class == "chrX")) {
 # ---------------------------------------------------------------------------
 # 7. Figures
 # ---------------------------------------------------------------------------
-pdf(file.path(OUT_DIR, "pseudobulk_celltype_chromosome_ends.pdf"),
+pdf(file.path(OUT_DIR, paste0("pseudobulk_celltype_chromosome_ends", TERM_TAG, ".pdf")),
     width = 12, height = 7)
 
 for (cc in c("autosome", "chrX")) {
@@ -831,10 +838,10 @@ cat("  pseudobulk_dist_bin_summary.txt               by distance to nearest end\
 cat("  pseudobulk_dist_bin_depth_matched.txt         same, depth-stratified\n")
 cat("  pseudobulk_end_type_summary.txt               proximal vs distal ends\n")
 cat("  pseudobulk_chrX_escape_by_dist.txt            chrX escape by distance\n")
-cat("  pseudobulk_end_vs_matched_interior.txt        terminal vs matched interior genes\n")
-cat("  pseudobulk_end_contrast_coverage.txt          which contrasts were testable at all\n")
-cat("  pseudobulk_end_sign_consistency.txt           does the sign repeat across cell types\n")
-cat("  pseudobulk_celltype_chromosome_ends.pdf       figures\n")
+cat(sprintf("  pseudobulk_end_vs_matched_interior%s.txt   terminal vs matched interior genes\n", TERM_TAG))
+cat(sprintf("  pseudobulk_end_contrast_coverage%s.txt     which contrasts were testable at all\n", TERM_TAG))
+cat(sprintf("  pseudobulk_end_sign_consistency%s.txt      does the sign repeat across cell types\n", TERM_TAG))
+cat(sprintf("  pseudobulk_celltype_chromosome_ends%s.pdf  figures\n", TERM_TAG))
 cat("\nn=1 animal per condition: cohort differences above are descriptive.\n")
 cat("The terminal-vs-interior contrasts are within-pseudobulk and matched on\n")
 cat("depth and SNP count. Read them as effect sizes; the permutation p ignores\n")

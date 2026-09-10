@@ -224,7 +224,29 @@ whether the same sign shows up in independent cell types. There is no FDR
 across the contrasts on purpose: they share genes and positions, so they are
 not independent tests and a q-value would be arithmetic without meaning.
 
-`pseudobulk_end_contrast_coverage.txt` says which contrasts were possible at
+### Pick the window per chromosome class
+
+Measured from `gene_level_snp_count.bed` against the mm39 chromosome lengths,
+before any scoring:
+
+| | genes ≤1 Mb from an end | ≤5 Mb | ≤10 Mb | SNPs/kb (interior) | zero-SNP genes |
+| --- | --- | --- | --- | --- | --- |
+| autosomes | 360 | ~2650 | ~5680 | 6.64 | 8.2% |
+| chrX | **12** | ~60 | ~218 | **1.77** | **22.3%** |
+
+So the autosomes are well powered at `TERMINAL_MB=5`, and chrX is not — it has
+a thirtieth of the terminal genes and a quarter of the B6/CAST divergence per
+kb, and 22% of its interior genes carry no informative SNP at all and can
+never be measured. **Run chrX at `TERMINAL_MB=10`.** Every window-dependent
+output is tagged `_term<N>Mb`, so the two runs coexist rather than the second
+overwriting the first.
+
+The terminal 1 Mb of the autosomes is itself modestly SNP-poorer (4.13 vs
+6.64 SNPs/kb, 11.4% vs 8.2% unmeasurable) — which is precisely the confounder
+the depth-and-SNP matching exists to absorb, and a reason not to read a raw
+positional trend without it.
+
+`pseudobulk_end_contrast_coverage_term<N>Mb.txt` says which contrasts were possible at
 all, and it matters here: a 5 Mb window at the end of the 169 Mb X holds few
 genes, and fewer pass the depth cutoff, so `matched_contrast()` declines any
 pseudobulk with under 10 terminal or 20 interior genes. An absent row is a
