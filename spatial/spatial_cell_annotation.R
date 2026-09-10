@@ -414,7 +414,28 @@ if (DO_TRANSFER && file.exists(REF_RDS)) {
   msg("\nLabel transfer from %s ...", REF_RDS)
   transfer_ran <- tryCatch({
     ref <- readRDS(REF_RDS)
-    ref$celltype <- as.character(Idents(ref))
+    # meta.data$celltype is the annotation; Idents() on heart_seurat_object_SCT.rds
+    # is a single level ("all"), so taking Idents() unconditionally transferred
+    # one constant label to every bin and the 2026-09-08 run recorded
+    # celltype_ref = "all" for all 238844 bins with score 1. Prefer the column,
+    # fall back to Idents only when it is absent - the same order
+    # OCM_heart/scDblFinder_rates.R uses.
+    ref$celltype <- if ("celltype" %in% colnames(ref@meta.data)) {
+      as.character(ref$celltype)
+    } else {
+      msg("  reference: no meta.data$celltype, falling back to Idents()")
+      as.character(Idents(ref))
+    }
+    keep_ref <- !is.na(ref$celltype) & nzchar(ref$celltype)
+    if (!all(keep_ref)) {
+      msg("  reference: dropping %d nuclei with no label", sum(!keep_ref))
+      ref <- ref[, keep_ref]
+    }
+    if (length(unique(ref$celltype)) < 2)
+      stop("reference carries ", length(unique(ref$celltype)), " label level(s) (",
+           paste(head(unique(ref$celltype), 3), collapse = ", "),
+           "): there is nothing to transfer. Check meta.data$celltype and Idents() on ",
+           REF_RDS)
     if (length(REF_DROP) && nzchar(REF_DROP[1])) {
       ref <- subset(ref, subset = !celltype %in% REF_DROP)
       msg("  reference: dropped %s", paste(REF_DROP, collapse = ", "))
@@ -450,6 +471,13 @@ if (DO_TRANSFER && file.exists(REF_RDS)) {
     if ("celltype_ref.score" %in% names(obj@meta.data))
       obj$celltype_ref_score <- obj$celltype_ref.score
     rm(ref, anchors, preds); gc(verbose = FALSE)
+    # Belt and braces: a transfer that assigns one label to every bin is a
+    # failure whatever caused it, and is worse than no transfer because the
+    # crosstab and fig6 look like output.
+    got <- unique(obj$celltype_ref[!is.na(obj$celltype_ref)])
+    if (length(got) < 2)
+      stop("transfer produced a single label (", paste(head(got, 1), collapse = ""),
+           ") for every bin - refusing to record it")
     msg("  transferred labels: %s",
         paste(names(sort(table(obj$celltype_ref), decreasing = TRUE)), collapse = ", "))
     TRUE
