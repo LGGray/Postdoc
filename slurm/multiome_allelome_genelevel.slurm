@@ -221,4 +221,16 @@ if [ "$n_fail" -eq "$n_bams" ]; then
   exit 1
 fi
 
+##### ---- drop the scratch intermediates ---- #####
+# Allelome.PRO2 leaves a trimmed BAM and a pileup behind for EVERY unit it
+# scores, and they are close to a fixed size per run regardless of how small the
+# input BAM is. The per-nucleus stage of multiome_allelome_run.slurm has no such
+# cleanup, and its output tree reached 6.7 TB to yield locus tables totalling a
+# few tens of MB. Sixteen pseudobulk units would be far smaller than that, but
+# the harvest above has already taken everything worth keeping, so there is no
+# reason to leave them. Guarded on the harvest having produced something.
+if [ "$n_fail" -lt "$n_bams" ]; then
+  rm -rf "$SCRDIR"
+fi
+
 echo "$ID done -> $FINAL"

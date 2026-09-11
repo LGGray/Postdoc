@@ -134,12 +134,26 @@ if (file.exists(snpf)) {
 # and inverting the first equation recovers the corrected ratio
 #     p = p_obs (1 - lambda) / (1 - p_obs lambda)
 # Check: lambda = 0 leaves p unchanged, and p_obs = p_auto returns exactly 0.5.
-auto <- whole %>% filter(chr %in% AUTOSOMES) %>% summarise(A1 = sum(A1), A2 = sum(A2))
+# The whole-sample BAM lives outside the sinto tree, so it can legitimately be
+# absent - the slurm job skips it with a warning rather than failing. Without a
+# fallback every number below would come out NaN from a 0/0, which is the worst
+# way to find out. The cell types are the same reads merely partitioned, so
+# pooling them gives the same bias estimate.
+bias_src <- if (nrow(whole)) whole else ct
+say("mapping bias estimated from: %s",
+    if (nrow(whole)) "the whole-sample pseudobulk" else "the cell types pooled (no whole-sample BAM)")
+
+auto <- bias_src %>% filter(chr %in% AUTOSOMES) %>% summarise(A1 = sum(A1), A2 = sum(A2))
 p_auto <- auto$A1 / (auto$A1 + auto$A2)
+if (!is.finite(p_auto) || p_auto <= 0 || p_auto >= 1) {
+  stop("autosomal B6 fraction is ", p_auto, " - no usable autosomal reads, so the ",
+       "mapping bias cannot be estimated. Check that the gene-level run used ",
+       "annotation_us_mm39_gene_level.bed and not a chrX-only annotation.")
+}
 LAMBDA <- 2 - 1 / p_auto
 debias <- function(p_obs) p_obs * (1 - LAMBDA) / (1 - p_obs * LAMBDA)
 
-xw <- whole %>% filter(chr == "chrX") %>% summarise(A1 = sum(A1), A2 = sum(A2))
+xw <- bias_src %>% filter(chr == "chrX") %>% summarise(A1 = sum(A1), A2 = sum(A2))
 p_x <- xw$A1 / (xw$A1 + xw$A2)
 
 say("")
