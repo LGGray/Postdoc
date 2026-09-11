@@ -121,6 +121,13 @@ ar <- pn %>% filter(chr == "chrX") %>%
             A1 = A1_reads, A2 = A2_reads, total_reads = total,
             ar_b6 = A1_reads / total, ar_b6_corr = debias(A1_reads / total)) %>%
   left_join(meta, by = c("sample", "barcode")) %>%
+  # as_sample() AGAIN, and it is not redundant. meta$sample arrives from
+  # read_csv as character, and a dplyr join between a factor and a character
+  # key resolves to character - silently, with the levels discarded. Everything
+  # downstream that reads the column's own order rather than a pinned scale
+  # (count(), the n= annotation below, facet_wrap, the exported TSVs) then sorts
+  # "78w" ahead of "9w" again. See SAMPLE_LEVELS in 00_helpers.R.
+  mutate(sample = as_sample(sample)) %>%
   filter(!is.na(celltype_provisional)) %>%
   mutate(celltype = short_labels(celltype_provisional))
 

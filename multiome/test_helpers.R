@@ -64,6 +64,25 @@ chk(identical(levels(as_sample(factor(c("78w", "9w")))), c("9w", "78w")),
     "a factor arriving in the wrong order is re-levelled")
 chk(is.na(as_sample("Sham")),                     "an unknown sample becomes NA, not a silent level")
 
+# The way the factor was actually lost in practice, and the reason 05 and 07
+# call as_sample() a SECOND time after joining the cell type labels: dplyr
+# resolves a factor key joined against a character key to character, silently
+# discarding the levels. sample_scale() then still draws the axis and legend in
+# the right order, but count(), facet_wrap() and the exported TSVs go back to
+# "78w" first because they read the column, not the scale.
+if (requireNamespace("dplyr", quietly = TRUE)) {
+  x <- data.frame(sample = as_sample(c("9w", "78w")), barcode = c("a", "b"))
+  y <- data.frame(sample = c("9w", "78w"), barcode = c("a", "b"),
+                  celltype = c("CM", "FB"), stringsAsFactors = FALSE)
+  j <- suppressWarnings(dplyr::left_join(x, y, by = c("sample", "barcode")))
+  chk(!is.factor(j$sample),
+      "a factor/character join drops the levels (the bug the second as_sample covers)")
+  chk(identical(levels(as_sample(j$sample)), SAMPLE_LEVELS),
+      "and as_sample() after the join restores them")
+} else {
+  cat("SKIP   join tests (dplyr not installed)\n")
+}
+
 # limits, not just values: that is what pins the order when the column reached
 # ggplot as plain character.
 if (requireNamespace("ggplot2", quietly = TRUE)) {

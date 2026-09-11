@@ -206,9 +206,15 @@ if (!is.null(pn)) {
     transmute(sample, barcode = group, A1 = A1_reads, A2 = A2_reads,
               n_inf = A1_reads + A2_reads, escape = escape_of(A1_reads, A2_reads))
   if (!is.null(meta)) {
+    # as_sample() AGAIN after the join: meta$sample is character from read_csv,
+    # and a dplyr join between a factor and a character key resolves to
+    # character, dropping the levels. facet_wrap(~sample) below reads the
+    # column's own order and never consults sample_scale(), so without this it
+    # facets 78w first. See SAMPLE_LEVELS in 00_helpers.R.
     pnx <- pnx %>% left_join(meta %>% select(sample, barcode, celltype_provisional),
                              by = c("sample", "barcode")) %>%
-      mutate(label = short_labels(ifelse(is.na(celltype_provisional),
+      mutate(sample = as_sample(sample),
+             label = short_labels(ifelse(is.na(celltype_provisional),
                                          "unlabelled", celltype_provisional)))
   } else pnx$label <- "all nuclei"
 
