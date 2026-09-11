@@ -35,7 +35,11 @@ suppressPackageStartupMessages({
 BASE <- "/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2"
 WORK <- file.path(BASE, "adult_aged_multiome")
 OUT  <- file.path(WORK, "figures_allelome")
-SCR  <- file.path(Sys.getenv("SCRATCH"), "multiome_allelome")
+# ALLELOME_TREE overrides the scratch location, for a tree that has been
+# copied to DSS ahead of a purge. Same Sys.getenv override convention as
+# POSTDOC_ROOT in OCM_heart/allelic_ratio/. Note --export=NONE: set this
+# INSIDE the job script, not in the submitting shell, or it will not arrive.
+SCR  <- Sys.getenv("ALLELOME_TREE", file.path(Sys.getenv("SCRATCH"), "multiome_allelome"))
 source(file.path(BASE, "Postdoc", "multiome", "00_helpers.R"))
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 
@@ -49,7 +53,12 @@ MIN_INFORMATIVE <- 20     # per-nucleus gate, applied at ANALYSIS time on the
                           # actual informative chrX count - not a UMI proxy
 
 say <- function(...) cat(sprintf(...), "\n", sep = "")
-if (Sys.getenv("SCRATCH") == "") stop("SCRATCH is not set")
+# A missing tree is not fatal: the cached TSVs are enough to re-plot, which is
+# the common case once scratch has been purged.
+if (!dir.exists(SCR)) {
+  message("no allelome tree at ", SCR,
+          " - relying on cached TSVs; set ALLELOME_TREE to rescan")
+}
 
 # ---------------------------------------------------------------------------
 # consolidate
