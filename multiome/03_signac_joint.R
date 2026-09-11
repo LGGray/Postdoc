@@ -26,10 +26,18 @@
 #   atac_fragments.tsv.gz                  -> canonical barcode  (verified:
 #                                             20/20 sampled match gex_barcode,
 #                                             0/20 match atac_barcode)
-#   ATAC BAM (CB tag)                      -> atac_barcode
-# So FeatureMatrix output joins to the RNA object directly and needs NO
-# translation, while the BAM route (sinto, Allelome.PRO2) still does. Getting
-# this backwards produces an empty matrix rather than an error.
+#   ATAC BAM (CB tag)                      -> canonical barcode, NOT
+#                                             atac_barcode (verified: 25/25
+#                                             distinct CB tags over three loci
+#                                             match gex_barcode, 0/25 match
+#                                             atac_barcode; CR holds the raw
+#                                             ATAC barcode and cellranger-arc
+#                                             has already translated it)
+# So all three are canonical and NOTHING needs translating. This entry read
+# `-> atac_barcode` until it was measured, and the sinto file exported on that
+# basis selected zero reads. Getting it backwards produces an empty matrix, or
+# an empty BAM, rather than an error - which is why the ATAC Allelome job
+# (slurm/multiome_allelome_atac.slurm) refuses to start without a live check.
 #
 # Run in seurat_env, after installing Signac:
 #   conda activate seurat_env
@@ -340,13 +348,16 @@ for (id in SAMPLES) {
   e <- exp %>% filter(sample == id) %>%
     inner_join(pass %>% select(barcode, gex_barcode, atac_barcode), by = "barcode") %>%
     mutate(group = gsub("[^A-Za-z0-9]+", "_", celltype_provisional))
-  # RNA BAM is gex_barcode-keyed, ATAC BAM is atac_barcode-keyed. The fragment
-  # file is neither of those problems - it is canonical - but the BAMs are what
-  # sinto and Allelome.PRO2 read.
+  # BOTH BAMs are canonical-barcode-keyed - see the barcode note in the header.
+  # The two files are therefore byte-identical, and that is the point: the _atac
+  # one used to be written from `atac_barcode` and selected zero reads. Keeping
+  # the filename so nothing that already references it breaks. Note the ATAC
+  # Allelome job still reads the _rna file by name: the _atac file sitting on
+  # DSS predates this fix, and will only become correct once 03 is re-run.
   write.table(e[, c("gex_barcode","group")],
               file.path(OUT, sprintf("sinto_%s_rna_bycelltype.txt", id)),
               sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
-  write.table(e[, c("atac_barcode","group")],
+  write.table(e[, c("gex_barcode","group")],
               file.path(OUT, sprintf("sinto_%s_atac_bycelltype.txt", id)),
               sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
   say("%s: per-celltype sinto files, %d nuclei, %d groups", id, nrow(e), length(unique(e$group)))
