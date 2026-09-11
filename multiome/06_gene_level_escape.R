@@ -257,7 +257,7 @@ print(
     geom_hline(yintercept = PRIOR_ESCAPE, linetype = "dashed", colour = "grey40") +
     geom_point(alpha = 0.6, size = 1.2) +
     label_layer(gx_pool %>% filter(gene %in% ESCAPE_GENES)) +
-    scale_colour_manual(values = setNames(OKABE_ITO[1:2], SAMPLES)) +
+    sample_scale("colour") +
     labs(x = "position on chrX (Mb)", y = "escape (CAST fraction, bias-corrected)",
          title = "Per-gene chrX escape along the chromosome",
          subtitle = sprintf("reads pooled over cell types; >= %d informative reads per gene; dashed = %.1f%% pooled prior",
@@ -297,7 +297,7 @@ if (nrow(esc)) {
                     position = position_dodge(0.5)) +
       geom_point(size = 2.4, position = position_dodge(0.5)) +
       coord_flip() + facet_wrap(~celltype) +
-      scale_colour_manual(values = setNames(OKABE_ITO[1:2], SAMPLES)) +
+      sample_scale("colour") +
       labs(x = NULL, y = "escape (CAST fraction, bias-corrected)",
            title = "Core escape genes, per cell type",
            subtitle = "bars are per-gene binomial 95% CI; n=1 animal per age, so the age contrast is descriptive") +

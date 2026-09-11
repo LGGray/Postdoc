@@ -172,7 +172,7 @@ violin <- function(yvar, ttl, sub) {
     geom_text(data = lab, aes(x = 1.5, y = 0.02, label = txt), inherit.aes = FALSE,
               size = 2.5, colour = "grey25", vjust = 0, lineheight = 0.95) +
     facet_wrap(~celltype, labeller = label_wrap_gen(width = 18)) +
-    scale_fill_manual(values = setNames(OKABE_ITO[1:2], SAMPLES)) +
+    sample_scale("fill") + sample_x() +
     scale_y_continuous(breaks = c(0, 0.3, 0.6, 0.9, 1.0)) +
     coord_cartesian(ylim = c(0, 1.02)) +
     labs(x = NULL, y = "Allelic ratio (B6 / total)", fill = NULL,
@@ -209,7 +209,7 @@ print(
     geom_col() +
     geom_text(aes(label = sprintf("n=%d", n)), vjust = -0.4, size = 2.6, colour = "grey25") +
     facet_wrap(~celltype, labeller = label_wrap_gen(14)) +
-    scale_fill_manual(values = setNames(OKABE_ITO[1:2], SAMPLES)) +
+    sample_scale("fill") + sample_x() +
     labs(x = NULL, y = sprintf("Nuclei below the monoallelic bound (%%)  [AR < %.2f]", MONO_AR),
          fill = NULL, title = "Fraction of nuclei escaping, per cell type",
          subtitle = "bias-corrected; n = 1 animal per age, descriptive only") +

@@ -189,6 +189,30 @@ short_labels <- function(x) {
 OKABE_ITO <- c("#0072B2", "#E69F00", "#009E73", "#CC79A7",
                "#56B4E9", "#D55E00", "#000000", "#F0E442")
 
+# The age comparison's scale, so the order is decided in ONE place and PINNED AT
+# THE PLOT BOUNDARY rather than inherited from whatever type the sample column
+# happens to have by the time it reaches ggplot. `limits` is the load-bearing
+# argument: it fixes the order even when the column arrives as plain character,
+# which a bind_rows against an untyped table or a pivot can cause silently and
+# which then sorts "78w" ahead of "9w". See SAMPLE_LEVELS above for why that
+# default is wrong rather than merely arbitrary.
+#
+# as_sample() is still needed alongside this: facet_wrap(~sample) reads the
+# factor's own levels and never consults a scale.
+sample_scale <- function(aes = c("colour", "fill")) {
+  aes <- match.arg(aes)
+  vals <- setNames(OKABE_ITO[seq_along(SAMPLE_LEVELS)], SAMPLE_LEVELS)
+  if (aes == "colour")
+    ggplot2::scale_colour_manual(values = vals, limits = SAMPLE_LEVELS,
+                                 breaks = SAMPLE_LEVELS, na.value = "grey80")
+  else
+    ggplot2::scale_fill_manual(values = vals, limits = SAMPLE_LEVELS,
+                               breaks = SAMPLE_LEVELS, na.value = "grey80")
+}
+
+# For a figure with sample on a discrete x axis. Same reasoning as above.
+sample_x <- function() ggplot2::scale_x_discrete(limits = SAMPLE_LEVELS)
+
 celltype_scale <- function(levels, aes = c("colour", "fill")) {
   aes <- match.arg(aes)
   levels <- unique(as.character(levels))

@@ -174,7 +174,7 @@ if (!is.null(ct)) {
                     position = position_dodge(0.4)) +
       geom_point(size = 2.6, position = position_dodge(0.4)) +
       coord_flip() +
-      scale_colour_manual(values = c("9w" = OKABE_ITO[1], "78w" = OKABE_ITO[2])) +
+      sample_scale("colour") +
       labs(x = NULL, y = "chrX escape (CAST fraction)",
            title = "Per-cell-type chrX escape",
            subtitle = sprintf("dashed = %.1f%% from snRNA/spatial; bars are Wilson 95%% CI; n=1 animal per age",
@@ -185,7 +185,7 @@ if (!is.null(ct)) {
     ggplot(ctx, aes(reorder(label, escape), escape, colour = sample, shape = region)) +
       geom_hline(yintercept = 0.5, linetype = "dotted", colour = "grey60") +
       geom_point(size = 2.6, position = position_dodge(0.4)) + coord_flip() +
-      scale_colour_manual(values = c("9w" = OKABE_ITO[1], "78w" = OKABE_ITO[2])) +
+      sample_scale("colour") +
       labs(x = NULL, y = "escape / CAST fraction",
            title = "chrX against the autosomal control",
            subtitle = "autosomes should sit at 0.5; their offset is the B6-reference mapping bias") +
@@ -236,7 +236,7 @@ if (!is.null(pn)) {
   p <- ggplot(keep, aes(escape, colour = sample)) +
     geom_density(linewidth = 0.9) +
     geom_vline(xintercept = PRIOR_ESCAPE, linetype = "dashed", colour = "grey40") +
-    scale_colour_manual(values = c("9w" = OKABE_ITO[1], "78w" = OKABE_ITO[2])) +
+    sample_scale("colour") +
     labs(x = "escape (CAST fraction)", y = "density",
          title = sprintf("Per-nucleus escape distribution (>= %d informative molecules)", MIN_INFORMATIVE),
          subtitle = "n=1 animal per age - the age contrast is descriptive only") +
@@ -249,7 +249,7 @@ if (!is.null(pn)) {
       geom_boxplot(outlier.size = 0.4, position = position_dodge(0.8)) +
       geom_hline(yintercept = PRIOR_ESCAPE, linetype = "dashed", colour = "grey40") +
       coord_flip() +
-      scale_fill_manual(values = c("9w" = OKABE_ITO[1], "78w" = OKABE_ITO[2])) +
+      sample_scale("fill") +
       labs(x = NULL, y = "escape (CAST fraction)",
            title = "Per-nucleus escape by cell type and age") + theme_minimal()
   )
@@ -262,7 +262,7 @@ if (!is.null(pn)) {
   print(
     ggplot(pna, aes(ratio, colour = sample)) + geom_density(linewidth = 0.9) +
       geom_vline(xintercept = 0.5, linetype = "dotted", colour = "grey60") +
-      scale_colour_manual(values = c("9w" = OKABE_ITO[1], "78w" = OKABE_ITO[2])) +
+      sample_scale("colour") +
       labs(x = sprintf("autosomal %s fraction", if (A1_IS == "B6") "CAST" else "B6"),
            y = "density", title = "Autosomal control, per nucleus",
            subtitle = "should centre on 0.5; any offset is the B6-reference mapping bias, not biology") +

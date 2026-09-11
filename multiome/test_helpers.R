@@ -51,5 +51,30 @@ cat("  ->", len_err, "\n")
 chk(length(OKABE_ITO) == 8, "8 fixed colours")
 chk(is.null(celltype_scale(paste0("t", 1:9))), "9 categories -> NULL, no invented hue")
 
+# ---- sample order ----
+# The default is WRONG rather than arbitrary here: sorted as text "78w" comes
+# before "9w", so anything left to ggplot presents aged before adult.
+chk(identical(SAMPLE_LEVELS, c("9w", "78w")),        "adult before aged")
+chk(identical(sort(c("9w", "78w")), c("78w", "9w")), "and plain sorting reverses it (the bug)")
+
+sx <- as_sample(c("78w", "9w", "78w"))
+chk(is.factor(sx),                                "as_sample returns a factor")
+chk(identical(levels(sx), c("9w", "78w")),        "levels in display order, not data order")
+chk(identical(levels(as_sample(factor(c("78w", "9w")))), c("9w", "78w")),
+    "a factor arriving in the wrong order is re-levelled")
+chk(is.na(as_sample("Sham")),                     "an unknown sample becomes NA, not a silent level")
+
+# limits, not just values: that is what pins the order when the column reached
+# ggplot as plain character.
+if (requireNamespace("ggplot2", quietly = TRUE)) {
+  for (a in c("colour", "fill")) {
+    sc <- sample_scale(a)
+    chk(identical(sc$limits, SAMPLE_LEVELS), paste0("sample_scale('", a, "') pins limits"))
+  }
+  chk(identical(sample_x()$limits, SAMPLE_LEVELS), "sample_x pins limits")
+} else {
+  cat("SKIP   sample_scale tests (ggplot2 not installed)\n")
+}
+
 cat("\n", if (fail == 0) "ALL PASS" else paste(fail, "FAILURES"), "\n")
 quit(status = if (fail == 0) 0 else 1)
