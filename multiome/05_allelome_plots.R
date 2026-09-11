@@ -74,7 +74,7 @@ load_tree <- function(tree) {
   cache <- file.path(OUT, sprintf("allelome_%s.tsv", tree))
   if (file.exists(cache) && !identical(Sys.getenv("REBUILD"), "1")) {
     say("using cached %s (REBUILD=1 to rescan)", basename(cache))
-    return(read_tsv(cache, show_col_types = FALSE))
+    return(read_tsv(cache, show_col_types = FALSE) %>% mutate(sample = as_sample(sample)))
   }
   rows <- list()
   for (id in SAMPLES) {
@@ -95,7 +95,7 @@ load_tree <- function(tree) {
   out <- bind_rows(rows) %>% mutate(total = A1_reads + A2_reads)
   write_tsv(out, cache)
   say("wrote %s (%d rows)", basename(cache), nrow(out))
-  out
+  mutate(out, sample = as_sample(sample))
 }
 
 ct <- load_tree("celltype")

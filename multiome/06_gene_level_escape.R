@@ -70,7 +70,7 @@ load_gene_level <- function(root = ROOT, samples = SAMPLES) {
   }
   if (!length(rows)) stop("no gene-level output under ", root,
                           " - run slurm/multiome_allelome_genelevel.slurm first")
-  bind_rows(rows)
+  bind_rows(rows) %>% mutate(sample = as_sample(sample))
 }
 
 dat <- load_gene_level()
@@ -318,7 +318,7 @@ if (file.exists(COMMON) && length(SAMPLES) == 2) {
   Sys.setenv(AP2_ROOT = ROOT, GROUPS = paste(SAMPLES, collapse = ","), FIG_OUT = OUT)
   source(COMMON)
   pbg <- gx %>%
-    transmute(sample = factor(sample, SAMPLES), celltype, gene, start,
+    transmute(sample = as_sample(sample), celltype, gene, start,
               A1, A2, total, ar = ar_b6_corr,
               distal = is_distal(start),
               region = factor(ifelse(is_distal(start), DISTAL_LAB, "internal"),

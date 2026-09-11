@@ -59,7 +59,7 @@ MIN_CELLS <- as.integer(Sys.getenv("MIN_CELLS", "20"))              # as 02_whol
 load_pernucleus <- function() {
   if (file.exists(CACHE) && !identical(Sys.getenv("REBUILD"), "1")) {
     say("using cached %s (REBUILD=1 to rescan)", basename(CACHE))
-    return(read_tsv(CACHE, show_col_types = FALSE))
+    return(read_tsv(CACHE, show_col_types = FALSE) %>% mutate(sample = as_sample(sample)))
   }
   rows <- list()
   for (id in SAMPLES) {
@@ -77,7 +77,7 @@ load_pernucleus <- function() {
     }
   }
   if (!length(rows)) stop("no per-nucleus output under ", TREE)
-  bind_rows(rows) %>% mutate(total = A1_reads + A2_reads)
+  bind_rows(rows) %>% mutate(total = A1_reads + A2_reads, sample = as_sample(sample))
 }
 
 pn <- load_pernucleus()
@@ -88,7 +88,7 @@ say("%d rows, %d nuclei", nrow(pn), dplyr::n_distinct(paste(pn$sample, pn$group)
 # is the way that happens: 05_allelome_plots.R writes it from whatever had been
 # scored at the time, and an interrupted run or a half-copied tree leaves it
 # short. Checked here rather than left to the reader to notice.
-missing <- setdiff(SAMPLES, unique(pn$sample))
+missing <- setdiff(SAMPLES, as.character(unique(pn$sample)))
 if (length(missing)) {
   stop("no per-nucleus data for: ", paste(missing, collapse = ", "),
        "\n  this figure compares ", paste(SAMPLES, collapse = " and "),
@@ -117,7 +117,7 @@ meta <- read_csv(LABELS, show_col_types = FALSE) %>%
   select(sample, barcode, celltype_provisional)
 
 ar <- pn %>% filter(chr == "chrX") %>%
-  transmute(sample = factor(sample, SAMPLES), barcode = group,
+  transmute(sample = as_sample(sample), barcode = group,
             A1 = A1_reads, A2 = A2_reads, total_reads = total,
             ar_b6 = A1_reads / total, ar_b6_corr = debias(A1_reads / total)) %>%
   left_join(meta, by = c("sample", "barcode")) %>%

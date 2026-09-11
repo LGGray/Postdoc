@@ -116,6 +116,18 @@ set_meta <- function(obj, name, values) {
 }
 
 # ---------------------------------------------------------------------------
+# Sample order
+# ---------------------------------------------------------------------------
+
+# Adult before aged, everywhere. This has to be declared because the default is
+# WRONG rather than merely arbitrary: sorted alphabetically "78w" comes before
+# "9w", since "7" precedes "9" as a character. So any axis, legend or facet left
+# to ggplot's own ordering silently presents aged first and reads as though the
+# comparison runs backwards. Route every sample column through as_sample().
+SAMPLE_LEVELS <- c("9w", "78w")
+as_sample <- function(x) factor(as.character(x), levels = SAMPLE_LEVELS)
+
+# ---------------------------------------------------------------------------
 # Plotting helpers
 # ---------------------------------------------------------------------------
 
