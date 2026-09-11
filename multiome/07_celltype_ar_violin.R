@@ -83,6 +83,23 @@ load_pernucleus <- function() {
 pn <- load_pernucleus()
 say("%d rows, %d nuclei", nrow(pn), dplyr::n_distinct(paste(pn$sample, pn$group)))
 
+# The whole point of this figure is the 9w/78w comparison per cell type, so a
+# table holding one sample must not quietly produce a one-violin plot. The cache
+# is the way that happens: 05_allelome_plots.R writes it from whatever had been
+# scored at the time, and an interrupted run or a half-copied tree leaves it
+# short. Checked here rather than left to the reader to notice.
+missing <- setdiff(SAMPLES, unique(pn$sample))
+if (length(missing)) {
+  stop("no per-nucleus data for: ", paste(missing, collapse = ", "),
+       "\n  this figure compares ", paste(SAMPLES, collapse = " and "),
+       " per cell type and cannot be drawn from one sample.",
+       "\n  the cache at ", CACHE, " may predate the full run;",
+       " re-run with REBUILD=1 to rescan the tree.")
+}
+say("nuclei per sample: %s",
+    paste(sprintf("%s=%d", names(table(pn$sample[pn$chr == "chrX"])),
+                  table(pn$sample[pn$chr == "chrX"])), collapse = ", "))
+
 # ---- mapping bias, from the autosomes of the same nuclei ----
 # Reads align to a B6 reference, so CAST reads align slightly worse and every
 # ratio is pulled toward B6. Derivation of the correction is in
