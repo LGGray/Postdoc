@@ -85,7 +85,21 @@
 #   tile_ratio_map_64um_<label>_distribution.pdf
 #   tile_ratio_map_64um_<label>.csv        same schema as tile_ratio_map_64um.csv
 #   tile_ratio_map_64um_<label>_provenance.tsv
+#   tile_ratio_map_64um_<label>_perchrom_<sample>.pdf
+#                                          one map per chromosome, chr1..19 and
+#                                          chrX on one grid, on the chrX ramp.
+#                                          One file per sample, so 9w and 78w
+#                                          can be opened side by side.
+#   tile_ratio_map_64um_<label>_perchrom_<sample>.csv
+#                                          the counts behind that grid
 # where <label> is pysam / pysam_reads / pysam_dup.
+#
+# The per-chromosome grid comes out of the same locus tables as every other
+# panel - in this route each is already one row per chromosome - so it needs no
+# recount, and MODE=plot regenerates it on its own. Its depth floor is
+# PERCHROM_MIN_N (default 10 informative units per tile per chromosome); one
+# chromosome on one tile is a fraction of the pooled autosomal depth, so without
+# a floor the grid draws its own sampling noise.
 
 module load slurm_setup
 

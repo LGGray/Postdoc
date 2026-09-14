@@ -124,6 +124,18 @@ FLIP_Y  <- FALSE
 # Chromosomes excluded from the autosomal control.
 AUTOSOMES <- paste0("chr", 1:19)
 
+# The per-chromosome grid (panel_perchrom) draws these, in this order, chrX
+# last so it sits at the end of the grid as the one panel that should differ.
+PLOT_CHROMS <- c(AUTOSOMES, "chrX")
+
+# Depth floor for the per-chromosome grid ONLY. The pooled autosomal control is
+# ~19 chromosomes deep; one chromosome on one tile is a small fraction of that,
+# so a ratio drawn without a floor is mostly the colour of its own sampling
+# noise - a 3-read tile lands in 0.00-0.10 or 0.90-1.00 and the grid fills with
+# spurious blue and red. Tiles below this are drawn grey, as unscored, not as a
+# ratio. It does not touch x_ratio, a_ratio, the z-scores or any call.
+PERCHROM_MIN_N <- as.integer(Sys.getenv("PERCHROM_MIN_N", "10"))
+
 # Per-tile autosomal ratios are overdispersed relative to binomial, so the null
 # band is the OBSERVED autosomal spread, not the binomial one. Estimated per
 # sample: 9w came out at 0.027 and 78w at 0.051 on comparable depth, so a single
@@ -227,7 +239,11 @@ lowres_scalef <- function(dir) {
   as.numeric(sub('.*:\\s*', '', m))
 }
 
-# One locus table -> one row: chrX counts, and every autosome pooled.
+# One locus table -> one row: chrX counts, and every autosome pooled, plus the
+# per-chromosome breakdown the grid needs. Returned as a two-element list rather
+# than one wide row because the second piece is long by construction: pooling it
+# here and un-pooling it later would mean reading every locus table twice, and
+# there are thousands of them.
 read_locus <- function(path) {
   lt <- tryCatch(fread(path, showProgress = FALSE), error = function(e) NULL)
   if (is.null(lt) || !nrow(lt)) return(NULL)
@@ -244,11 +260,17 @@ read_locus <- function(path) {
   # in every row, so this changes no current number. It removes the assumption,
   # not a bug: if the column ever counted all reads over a locus rather than
   # informative ones, every tile ratio here would have the wrong denominator.
-  data.table(
-    x_a1 = sum(x$a1_reads), x_a2 = sum(x$a2_reads),
-    x_n = sum(x$a1_reads) + sum(x$a2_reads),
-    a_a1 = sum(a$a1_reads), a_a2 = sum(a$a2_reads),
-    a_n = sum(a$a1_reads) + sum(a$a2_reads)
+  list(
+    wide = data.table(
+      x_a1 = sum(x$a1_reads), x_a2 = sum(x$a2_reads),
+      x_n = sum(x$a1_reads) + sum(x$a2_reads),
+      a_a1 = sum(a$a1_reads), a_a2 = sum(a$a2_reads),
+      a_n = sum(a$a1_reads) + sum(a$a2_reads)
+    ),
+    # Summed by chromosome for the same reason the two pooled columns are summed
+    # from a1+a2 and not from total_reads: one denominator rule everywhere.
+    long = lt[chr %in% PLOT_CHROMS,
+              .(c_a1 = sum(a1_reads), c_a2 = sum(a2_reads)), by = chr]
   )
 }
 
@@ -333,11 +355,16 @@ collect_sample <- function(smp) {
     msg("  no locus tables found for %s - skipping", smp); return(NULL)
   }
 
-  scored <- rbindlist(lapply(seq_along(lt_paths), function(i) {
+  parts <- lapply(seq_along(lt_paths), function(i) {
     r <- read_locus(lt_paths[[i]])
     if (is.null(r)) return(NULL)
-    r[, tile := names(lt_paths)[i]][]
-  }))
+    r$wide[, tile := names(lt_paths)[i]]
+    r$long[, tile := names(lt_paths)[i]]
+    r
+  })
+  parts  <- parts[!vapply(parts, is.null, logical(1))]
+  scored <- rbindlist(lapply(parts, `[[`, "wide"))
+  pc_raw <- rbindlist(lapply(parts, `[[`, "long"))
   msg("  %d locus tables, %d with a chrX row, of %d submitted tiles",
       length(lt_paths), nrow(scored), length(submitted_tiles))
   if (!nrow(scored)) return(NULL)
@@ -430,6 +457,10 @@ collect_sample <- function(smp) {
   # with that ratio would.
   d[, x_bin := cut(x_ratio, breaks = OCM_BREAKS, include.lowest = TRUE,
                    right = TRUE, labels = OCM_LABELS)]
+  # Same breaks again for the autosomal control, so panel_auto_ocm() can be laid
+  # beside panel_ratio_ocm() and the two read off one legend.
+  d[, a_bin := cut(a_ratio, breaks = OCM_BREAKS, include.lowest = TRUE,
+                   right = TRUE, labels = OCM_LABELS)]
   d[, call := fcase(
       is.na(x_ratio) &  submitted, "pending",
       is.na(x_ratio) & !submitted, "not submitted",
@@ -440,6 +471,41 @@ collect_sample <- function(smp) {
          he = he_png, auto_sd = auto_sd)]
   if (FLIP_X) d[, x := -x]
   if (FLIP_Y) d[, y := -y]
+
+  # ---- the per-chromosome long table, for panel_perchrom() ------------------
+  #
+  # Carried as an attribute rather than as a second return value because
+  # tile_ratio_map_floor.R sources this file and calls collect_sample() expecting
+  # one data.table back; changing that contract to add a figure would break it.
+  #
+  # Completed against every tile x every chromosome first. Without that, a tile
+  # with no chr7 row is simply absent from the chr7 facet, and the facets end up
+  # with different tile coverage - so the grid would show the shape of which
+  # chromosomes were captured where, on top of the ratios, with nothing to
+  # separate the two. Filled at zero, every facet draws the same section.
+  pc <- merge(CJ(tile = geom$tile, chr = PLOT_CHROMS, unique = TRUE),
+              pc_raw, by = c("tile", "chr"), all.x = TRUE)
+  pc[is.na(c_a1), `:=`(c_a1 = 0, c_a2 = 0)]
+  pc <- merge(pc, geom[, .(tile, x, y)], by = "tile")
+  pc[, c_n := c_a1 + c_a2]
+  # Same fold rule as the pooled columns above, so a folded run stays folded on
+  # every panel rather than folding some ratios and not others.
+  pc[, ratio := fifelse(c_n >= PERCHROM_MIN_N,
+                        if (FOLD_RATIO) pmax(c_a1, c_n - c_a1) / c_n else c_a1 / c_n,
+                        NA_real_)]
+  pc[, bin := cut(ratio, breaks = OCM_BREAKS, include.lowest = TRUE,
+                  right = TRUE, labels = OCM_LABELS)]
+  pc[, chr := factor(chr, levels = PLOT_CHROMS)]
+  pc[, `:=`(sample = smp, side = side, submitted = tile %in% submitted_tiles,
+            FLIPX = FLIP_X, FLIPY = FLIP_Y, he = NA_character_)]
+  if (FLIP_X) pc[, x := -x]
+  if (FLIP_Y) pc[, y := -y]
+  msg("  per-chromosome grid: %d tiles x %d chromosomes, median %d %s per tile-chromosome,",
+      uniqueN(pc$tile), uniqueN(pc$chr),
+      as.integer(median(pc$c_n)), UNIT_N)
+  msg("    %d (%.0f%%) at or above PERCHROM_MIN_N = %d and drawn as a ratio",
+      sum(!is.na(pc$ratio)), 100 * mean(!is.na(pc$ratio)), PERCHROM_MIN_N)
+  setattr(d, "per_chrom", pc[])
 
   d
 }
@@ -579,7 +645,76 @@ panel_auto <- function(d) {
                             sd(d$a_ratio, na.rm = TRUE),
                             as.integer(median(d$a_n, na.rm = TRUE)), UNIT_N),
          caption = paste("Any structure here is technical and invalidates the chrX panel over the same tiles.",
-                         "\nDeliberately NOT the OCM ramp: autosomal ratios all sit in 0.40-0.60, which is two of its bins, so it would show nothing."))
+                         "\nThis is the scale that can SHOW structure. panel_auto_ocm() is the same data on the chrX ramp,",
+                         "\nwhere the whole section collapses into two green bins - that is the comparison, this is the check."))
+}
+
+# The same autosomal ratios on the chrX OCM ramp. panel_auto() above stretches
+# blue-white-red over 0-1 with white at 0.5, so a control sitting at 0.515 still
+# picks up visible tint and reads as if something were there; this one bins it
+# exactly as the chrX map does, and the section comes out one flat green because
+# every autosomal tile falls in 0.40-0.50 or 0.50-0.60. Nothing to see is the
+# result, and it only reads as a result when it is drawn on the scale the chrX
+# panel was drawn on. Keep both: this one makes the argument, panel_auto() and
+# panel_auto_zoom() are what would catch a control that is not flat.
+panel_auto_ocm <- function(d, he = FALSE) {
+  n_ok <- sum(!is.na(d$a_bin))
+  tab  <- sort(table(d$a_bin[!is.na(d$a_bin)]), decreasing = TRUE)
+  top  <- head(tab[tab > 0], 2)
+  base_map(d, he) +
+    geom_tile(data = d[submitted & is.na(a_bin)],
+              width = d$side[1], height = d$side[1], fill = COL_NA, colour = NA) +
+    geom_tile(data = d[!is.na(a_bin)], aes(fill = a_bin),
+              width = d$side[1], height = d$side[1], colour = NA) +
+    scale_fill_manual(values = OCM_COLORS, limits = OCM_LABELS, drop = FALSE,
+                      na.value = COL_NA, name = "Allelic ratio") +
+    guides(fill = guide_legend(ncol = 1, reverse = TRUE)) +
+    labs(title = sprintf("%s - autosomal control per %d um tile (OCM bins) [%s]",
+                         d$sample[1], TILE_UM, SNP_LABEL),
+         subtitle = sprintf("Same tiles, same ramp, same legend as the chrX OCM panel. %s",
+                            paste(sprintf("%s: %.0f%%", names(top),
+                                          100 * as.numeric(top) / max(n_ok, 1)),
+                                  collapse = ", ")),
+         caption = paste("Read this against the chrX OCM panel and nothing else. One flat colour is the expected result:",
+                         "\nthe autosomes are biallelic in every tile, so on a ramp built for 0-1 they occupy two adjacent bins.",
+                         "\nDo NOT read the shade difference between those bins - panel_auto_zoom() is the scale for that."))
+}
+
+# One map per chromosome on the chrX ramp, as a grid. The argument it makes is
+# the same one panel_auto_ocm() makes, chromosome by chromosome instead of
+# pooled: nineteen green panels and one that is not is a far harder thing to
+# explain by mapping bias than a single pooled control, because a technical
+# effect that produced the chrX panel would have to spare all nineteen others.
+#
+# Read the strip labels before the colours. Each carries that chromosome's
+# median depth per tile, and depth varies several-fold across chromosomes -
+# a short, gene-poor chromosome gets fewer informative units, so its panel is
+# noisier at the same underlying ratio. A panel that looks speckled where its
+# neighbours look flat is usually reading its own n, not its own biology.
+panel_perchrom <- function(pc) {
+  med <- pc[, .(n = as.integer(median(c_n))), by = chr]
+  lab <- setNames(sprintf("%s  (n=%d)", med$chr, med$n), as.character(med$chr))
+  drawn <- pc[!is.na(bin)]
+  base_map(pc) +
+    geom_tile(data = pc[is.na(bin) & c_n > 0],
+              width = pc$side[1], height = pc$side[1], fill = COL_NA, colour = NA) +
+    geom_tile(data = drawn, aes(fill = bin),
+              width = pc$side[1], height = pc$side[1], colour = NA) +
+    facet_wrap(~ chr, ncol = 5, labeller = labeller(chr = lab)) +
+    scale_fill_manual(values = OCM_COLORS, limits = OCM_LABELS, drop = FALSE,
+                      na.value = COL_NA, name = "Allelic ratio") +
+    guides(fill = guide_legend(ncol = 1, reverse = TRUE)) +
+    labs(title = sprintf("%s - allelic ratio per %d um tile, by chromosome [%s]",
+                         pc$sample[1], TILE_UM, SNP_LABEL),
+         subtitle = sprintf(paste0("Every panel is the same section, the same tiles and the same ramp as the chrX map. ",
+                                   "Grey = fewer than %d informative %s\non that chromosome in that tile (%.0f%% of tile-chromosomes); faint = none at all."),
+                            PERCHROM_MIN_N, UNIT_N,
+                            100 * mean(is.na(pc$ratio) & pc$c_n > 0)),
+         caption = paste("The autosomes are the null and they are drawn here individually, not pooled: each is an independent",
+                         "\nreplicate of what a biallelic chromosome looks like in this tissue, at this depth, through this pipeline.",
+                         "\nDepth per tile-chromosome is a fraction of the pooled autosomal depth, so these panels are noisier than",
+                         "\nthe pooled control by construction - judge the CENTRE of each panel, not its speckle.",
+                         "\nn = 1 animal per age. This is one section: it shows a chromosome's behaviour, not an age difference."))
 }
 
 panel_auto_zoom <- function(d) {
@@ -796,6 +931,7 @@ if (!AS_LIBRARY) {
   msg("Tile size %d um, samples: %s, SNP mask: %s",
       TILE_UM, paste(SAMPLES, collapse = ", "), SNP_LABEL)
   all_d <- list()
+  all_pc <- list()
   pdf(OUT_PDF, width = 9, height = 8)
   for (s in SAMPLES) {
     msg("[%s]", s)
@@ -805,6 +941,7 @@ if (!AS_LIBRARY) {
     print(panel_ratio_ocm(d, he = TRUE))
     print(panel_ratio_ocm(d, he = FALSE))
     print(panel_ratio(d, he = FALSE))
+    print(panel_auto_ocm(d, he = FALSE))
     print(panel_auto(d))
     print(panel_auto_zoom(d))
     print(panel_depth(d))
@@ -821,8 +958,36 @@ if (!AS_LIBRARY) {
     msg("  spatial clustering of the calls:")
     for (lab in c("CAST-skewed", "Bl6-skewed", "mixed")) clustering_test(d, lab)
     all_d[[s]] <- d
+    all_pc[[s]] <- attr(d, "per_chrom")
   }
   invisible(dev.off())
+
+  # The per-chromosome grid gets a file per sample rather than more pages here.
+  # It is a twenty-panel figure at a different aspect ratio to everything above,
+  # and it answers a different question - "is chrX the only chromosome doing
+  # this" rather than "what does chrX do" - so it is the thing you open on its
+  # own, next to the other sample's copy of it.
+  for (s in names(all_pc)) {
+    pc <- all_pc[[s]]
+    if (is.null(pc) || !nrow(pc)) next
+    f <- sub("\\.pdf$", sprintf("_perchrom_%s.pdf", s), OUT_PDF)
+    pdf(f, width = 14, height = 11)
+    print(panel_perchrom(pc))
+    invisible(dev.off())
+    # The counts behind each panel, so a panel can be checked without re-running
+    # the collection pass. Written per sample for the same reason the PDF is.
+    fc <- sub("\\.pdf$", ".csv", f)
+    fwrite(pc[, .(sample, tile, chr, x, y, c_a1, c_a2, c_n, ratio, bin)], fc)
+    msg("Wrote %s\n       %s", f, fc)
+    # Pooled over tiles, which is the number the grid is a picture of. Printed
+    # because the eye cannot average a speckled panel and this is what decides
+    # whether a panel that LOOKS off actually is.
+    tot <- pc[, .(tiles_drawn = sum(!is.na(ratio)),
+                  median_n = as.integer(median(c_n)),
+                  pooled = sum(c_a1) / max(sum(c_a1) + sum(c_a2), 1)), by = chr]
+    msg("  [%s] pooled ratio per chromosome (the grid, averaged):", s)
+    print(tot)
+  }
 }
 
 ##### --------------------- distributions --------------------- #####
@@ -958,7 +1123,7 @@ if (!AS_LIBRARY && length(all_d)) {
   msg("Wrote %s", sub("\\.pdf$", "_distribution.pdf", OUT_PDF))
   csv <- sub("\\.pdf$", ".csv", OUT_PDF)
   fwrite(out[, .(sample, tile, x, y, n_bins, x_a1, x_a2, x_n, a_a1, a_a2, a_n,
-                 x_ratio, x_bin, a_ratio, z, call, submitted)], csv)
+                 x_ratio, x_bin, a_ratio, a_bin, z, call, submitted)], csv)
   # Provenance sidecar. Three "no-Xist" SNP beds are named in this repo and only
   # one is live, so a figure without its bed's fingerprint next to it cannot be
   # attributed later. NOT data.table(key = ...): `key` is data.table()'s own

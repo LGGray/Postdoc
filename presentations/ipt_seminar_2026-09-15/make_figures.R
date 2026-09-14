@@ -511,16 +511,27 @@ save_fig(p1 + p2 + plot_layout(widths = c(1, 1.6)), "F10_spatial_composition", 1
 prec <- bind_rows(lapply(c("9w","78w"), function(s)
   read_csv(file.path(SPA, "ase", s, "escape_precision.csv"), show_col_types = FALSE) %>% mutate(sample = s))) %>%
   mutate(sample = sample_factor(sample, c("9w","78w")))
-p1 <- prec %>% select(sample, size_um, frac_ge_10, frac_ge_20) %>%
-  pivot_longer(starts_with("frac"), names_to = "thr", values_to = "frac") %>%
-  mutate(thr = ifelse(thr == "frac_ge_10", ">= 10 UMIs", ">= 20 UMIs")) %>%
-  ggplot(aes(size_um, frac, colour = sample, linetype = thr)) +
+# The left panel used to plot the FRACTION of tiles clearing 10 or 20 UMIs:
+# four lines, two thresholds, and a y-axis that is a proportion of a threshold
+# rather than a quantity anyone has an intuition for. The depth itself is the
+# thing the tile size actually buys, so plot that: one line per sample, and the
+# two thresholds become horizontal reference lines instead of separate series.
+# Units are MOLECULES, not reads. The sweep is molecule-level, and it should
+# stay that way: reads of one molecule are not independent observations of its
+# allele, so a read count would overstate the precision a tile really has.
+p1 <- prec %>% filter(median_umi > 0) %>%
+  ggplot(aes(size_um, median_umi, colour = sample)) +
+  geom_hline(yintercept = c(10, 20), colour = "grey75", linetype = 2) +
+  annotate("text", x = 2.3, y = c(10, 20), label = c("10 UMIs", "20 UMIs"),
+           vjust = -0.5, hjust = 0, size = 3, colour = "grey40") +
   geom_vline(xintercept = 64, colour = "grey60", linetype = 3) +
-  geom_line(linewidth = 1) + geom_point() +
+  geom_line(linewidth = 1) + geom_point(size = 2) +
   scale_x_log10(breaks = c(2,8,16,32,64,128,256,512)) +
+  scale_y_log10(breaks = c(1,3,10,30,100,300,1000)) +
   scale_colour_manual(values = SAMPLE_COL, labels = SAMPLE_LAB, name = NULL) +
-  scale_linetype(name = "chrX informative\nUMIs per tile") +
-  labs(x = "Tile size (um)", y = "Fraction of tissue tiles", title = "Coverage: tiles reaching usable allelic depth")
+  labs(x = "Tile size (um)", y = "Median informative chrX molecules per tile",
+       title = "Depth: what one tile actually collects",
+       subtitle = "Tile area grows with the square of its side, so each doubling gives ~4x the molecules.\nAt 64 um the median tile holds 30 (adult) and 15 (aged).")
 p2 <- prec %>% filter(!is.na(se_escape)) %>%
   select(sample, size_um, se_escape, mde) %>%
   pivot_longer(c(se_escape, mde), names_to = "stat", values_to = "v") %>%
@@ -531,9 +542,156 @@ p2 <- prec %>% filter(!is.na(se_escape)) %>%
   scale_x_log10(breaks = c(16,32,64,128,256,512)) +
   scale_colour_manual(values = SAMPLE_COL, labels = SAMPLE_LAB, name = NULL) +
   scale_linetype(name = NULL) +
+  # Colour is already in the left panel's guide; without this the collected
+  # legend shows Adult/Aged twice.
+  guides(colour = "none") +
   labs(x = "Tile size (um)", y = "Per-tile precision (escape fraction)", title = "Precision: what a single tile can resolve")
 save_fig((p1 | p2) + plot_layout(guides = "collect") & theme(legend.position = "bottom", legend.box = "horizontal", legend.text = element_text(size = 10)),
          "F11_spatial_tile_precision", 13, 6)
+
+# F11b - tile size vs READ depth, standalone -----------------------------------
+# Reads rather than molecules, from the duplicate-inclusive data.
+#
+# TWO SOURCES, IN ORDER OF PREFERENCE.
+#
+# 1. ase_dup/<sample>/escape_precision.csv, if it exists. That is the full sweep
+#    from 2 um up, produced by
+#        sbatch slurm/spatial_ase_sweep.slurm "" "" 64 dup
+#    which counts at the 2 um bin level with --count-unit read --keep-duplicates,
+#    so every tile size is an exact aggregate of the same counting pass.
+#    NAMING TRAP: that file's column is still called `median_umi` in dup mode,
+#    but it holds READS (ase_tile_sweep.R:932 writes the column name regardless
+#    of the unit; only UNIT_LAB changes). It is renamed on read here.
+#
+# 2. Failing that, aggregate the 64 um pysam dup tiles upward. ase_pysam_dup_64um
+#    is tiled at 64 um and is the only tree with drop_duplicates = False, so this
+#    fallback CANNOT go below 64 um. Larger sizes are exact: a 64 um tile index
+#    is array_row %/% 32, so a 128 um tile is trow %/% 2, and only whole
+#    multiples of 64 are used, so no tile is ever split.
+#
+# The y-axis is per TILE. Total chrX reads over the section is invariant to tile
+# size - aggregating does not create reads - so a plot of the total would be a
+# flat line at 1.89 M (9w) and 1.65 M (78w).
+#
+# For SIZING decisions read n_eff, not this. Reads of one molecule are one
+# allele call repeated and cannot make a tile more precise; spatial_ase_sweep.slurm's
+# header is explicit that dup mode's median count must not be used to choose a
+# tile size. This figure is descriptive: how much sequence a tile collects.
+dup_prec <- file.path(SPA, "ase_dup", c("9w", "78w"), "escape_precision.csv")
+if (all(file.exists(dup_prec))) {
+  depth <- bind_rows(lapply(c("9w", "78w"), function(s)
+    read_csv(file.path(SPA, "ase_dup", s, "escape_precision.csv"), show_col_types = FALSE) %>%
+      transmute(size_um, n_tiles = n_tissue_tiles, median_reads = median_umi, sample = s)))
+  depth_src <- "full 2 um sweep (ase_dup)"
+} else {
+  message("NOTE: no ase_dup sweep yet - F11b falls back to aggregating the 64 um ",
+          "pysam dup tiles, so it starts at 64 um. Run:\n",
+          "  sbatch slurm/spatial_ase_sweep.slurm \"\" \"\" 64 dup")
+  TILE_SIZES <- c(64, 128, 192, 256, 384, 512)
+  depth <- bind_rows(lapply(c("9w", "78w"), function(s) {
+    b <- read_tsv(file.path(SPA, "ase_pysam_dup_64um", s, "tile_chrom_counts.tsv"),
+                  show_col_types = FALSE) %>%
+      filter(chrom == "chrX") %>%
+      group_by(trow, tcol) %>%
+      summarise(reads = sum(a1_reads) + sum(a2_reads), .groups = "drop")
+    bind_rows(lapply(TILE_SIZES, function(sz) {
+      f <- sz %/% 64
+      b %>% mutate(R = trow %/% f, C = tcol %/% f) %>%
+        group_by(R, C) %>% summarise(reads = sum(reads), .groups = "drop") %>%
+        summarise(size_um = sz, n_tiles = n(), median_reads = median(reads))
+    })) %>% mutate(sample = s)
+  }))
+  depth_src <- "64 um pysam dup tiles aggregated upward"
+}
+# The zeros are a RESULT, not missing data: at 2, 4 and 8 um the median tissue
+# tile carries no informative chrX read at all. They cannot be drawn on a log
+# axis, so they are stated in the subtitle instead - dropping them silently
+# would hide the strongest argument for why the tiles have to be large.
+depth_all  <- depth %>% mutate(sample = sample_factor(sample, c("9w", "78w")))
+# Every size is plotted, zeros included. A log axis cannot show 0, so the y
+# scale is pseudo-log: linear within +/-1 of zero, log10 above it. That keeps
+# the 2-8 um points on the figure, where they carry the argument, instead of
+# relegating them to a caption.
+depth      <- depth_all
+zero_sizes <- depth_all %>% filter(median_reads == 0) %>% pull(size_um) %>% unique() %>% sort()
+at64 <- depth %>% filter(size_um == 64) %>% arrange(sample) %>% pull(median_reads)
+
+p <- ggplot(depth, aes(size_um, median_reads, colour = sample)) +
+  geom_line(linewidth = 1) + geom_point(size = 2.5) +
+  scale_x_log10(breaks = c(2, 4, 8, 16, 32, 64, 128, 256, 512)) +
+  scale_y_continuous(trans = scales::pseudo_log_trans(sigma = 1, base = 10),
+                     breaks = c(0, 10, 100, 1000, 10000), labels = comma) +
+  scale_colour_manual(values = SAMPLE_COL, labels = SAMPLE_LAB, name = NULL) +
+  labs(x = "Tile size (um)", y = "Median chrX reads per tile",
+       title = "Bigger tiles collect more reads",
+       subtitle = sprintf(paste0(
+         "Tile area grows with the square of its side, so each doubling gives ~4x the reads.\n",
+         "At 64 um the median tile holds %s (adult) and %s (aged) informative chrX reads.\n",
+         "At %s um the median tile has NONE - which is why tiles must be large."),
+         comma(at64[1]), comma(at64[2]), paste(zero_sizes, collapse = ", ")),
+       caption = paste0(
+         "Source: ", depth_src, ". Per tile, not total: the section's total chrX reads do not change with tile size.\n",
+         "y axis is pseudo-log (linear near 0, log10 above) so the zero-coverage tile sizes can be shown.\n",
+         "Reads are not independent observations - at this duplication a 64 um tile's reads carry ~33 (adult) / ~12 (aged)\n",
+         "independent molecules. Choose a tile size on n_eff, not on this.")) +
+  theme(legend.position = "bottom", plot.caption = element_text(size = 9, colour = "grey40"))
+save_fig(p, "F11b_spatial_tile_depth_reads", 8.5, 6)
+
+# F11c - why 64 um: coverage bought vs resolution paid --------------------------
+# The companion to F11b. F11b alone argues "bigger is always better", because
+# depth per tile only ever goes up. This is the other half: what a bigger tile
+# COSTS, and the fact that the coverage it buys saturates.
+#
+# SOURCE IS THE UMI SWEEP, NOT ase_dup. Sizing must be done on independent
+# observations. spatial_ase_sweep.slurm's header is explicit that dup mode's
+# counts must not be used to choose a tile size, and that umi_dup - not dup - is
+# the mode that answers the tile-size question once duplicates are kept. Until
+# umi_dup has been run, ase/ is the defensible source, and it is the one the
+# 92% / 72% numbers already on the slide came from.
+#
+# THERE IS NO OPTIMUM IN THE DATA, and the figure must not imply one. 64 um is
+# where ADULT coverage saturates; aged is still climbing at 96-128 um. Both
+# sections have to share one tiling to be comparable, so 64 um is a defensible
+# compromise, not an optimum. NEXT_ANALYSIS task 8 asks for exactly this
+# framing: coverage-based, with the numbers stated.
+cov <- bind_rows(lapply(c("9w", "78w"), function(s)
+  read_csv(file.path(SPA, "ase", s, "escape_precision.csv"), show_col_types = FALSE) %>%
+    transmute(size_um, n_tiles = n_tissue_tiles, frac = frac_ge_10, sample = s))) %>%
+  filter(size_um >= 16) %>%
+  mutate(sample = sample_factor(sample, c("9w", "78w")))
+
+# Tile counts on the x labels, so the price of a bigger tile is read off the
+# same axis as the coverage it buys. Counts are the adult section's; the aged
+# section is within 10% at every size.
+tile_n <- cov %>% filter(sample == "9w") %>% select(size_um, n_tiles)
+lab_n <- function(v) {
+  # round() before match(): scale_x_log10 hands the labeller its breaks back
+  # through 10^x, so 32 arrives as 31.99999... and an exact match() silently
+  # returns NA. Only the sizes that happen to round-trip cleanly (16, 256) got
+  # a label before this - an erratic half-labelled axis rather than an error.
+  n <- tile_n$n_tiles[match(round(as.numeric(v)), round(tile_n$size_um))]
+  paste0(round(as.numeric(v)), "\n",
+         ifelse(is.na(n), "", ifelse(n >= 1000, paste0(round(n / 1000, 1), "k"), n)))
+}
+
+p <- ggplot(cov, aes(size_um, 100 * frac, colour = sample)) +
+  geom_vline(xintercept = 64, colour = "grey60", linetype = 3) +
+  geom_line(linewidth = 1) + geom_point(size = 2.5) +
+  scale_x_log10(breaks = c(16, 32, 64, 128, 256, 512), labels = lab_n) +
+  scale_y_continuous(limits = c(0, 100)) +
+  scale_colour_manual(values = SAMPLE_COL, labels = SAMPLE_LAB, name = NULL) +
+  labs(x = "Tile size (um)  /  number of tiles", y = "% of tissue tiles that are measurable",
+       title = "Why 64 um: coverage saturates, resolution does not",
+       subtitle = paste0(
+         "Measurable = at least 10 informative chrX molecules, enough to tell 0.8 from 0.5.\n",
+         "32 -> 64 um: adult coverage 27% -> 92%, aged 5% -> 72%. 64 -> 128 um: only 92% -> 94% (adult),\n",
+         "for a quarter as many tiles. Adult saturates at 64 um; aged is still climbing at 96-128 um."),
+       caption = paste0(
+         "Source: UMI sweep (ase/). Sizing is done on molecules, not reads - reads of one molecule are one allele call repeated.\n",
+         "Both sections must share one tiling to be comparable, so 64 um is a compromise, not an optimum: the sweep found no\n",
+         "intrinsic scale to read off. Tile counts are the adult section's; aged is within 10% at every size.")) +
+  theme(legend.position = "bottom", plot.caption = element_text(size = 9, colour = "grey40"))
+save_fig(p, "F11c_spatial_tile_choice", 8.5, 6)
 
 # F12 - 64 um tile maps: chrX vs autosomes ------------------------------------
 # Tiles are placed on their row/column indices (64 um each), which is exact;
