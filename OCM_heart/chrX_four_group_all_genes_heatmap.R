@@ -95,14 +95,23 @@ edges <- geom_vline(xintercept = c(b_p, b_q), colour = "#B5540F", linetype = 2, 
 tile_border <- if (n_gene <= 300) list(colour = "white", linewidth = 0.25) else list(colour = NA)
 pMain <- ggplot(pbg, aes(gene, celltype, fill = ar)) +
   do.call(geom_tile, tile_border) + edges +
-  facet_wrap(~sample, ncol = 1, labeller = labeller(sample = SAMPLE_LAB)) +
-  ar_fill_cont() + x_scale + scale_y_discrete(limits = rev, drop = FALSE) +
+  # facet_grid rather than facet_wrap, and drop = TRUE, so a group only shows
+  # the cell types it actually has: 9w has no stressed CM and no Epicardial
+  # nuclei at all, and those two rows were drawn empty in the adult panel and
+  # read as missing data rather than as an absent cell type. space = "free_y"
+  # keeps the tiles the same height in every panel despite the row counts
+  # differing, which scales = "free_y" alone would not.
+  facet_grid(rows = vars(sample), scales = "free_y", space = "free_y",
+             switch = "y", labeller = labeller(sample = SAMPLE_LAB)) +
+  ar_fill_cont() + x_scale + scale_y_discrete(limits = rev, drop = TRUE) +
   labs(x = NULL, y = NULL,
        title = "chrX allelic ratio per gene and cell type: adult, Sham, TAC, aged",
-       subtitle = sprintf("All %d chrX genes, no read, gene-set or cell-type filter. Blank = no SNP-overlapping read in that cell type. Green/blue = expression from both X, red = monoallelic",
+       subtitle = sprintf("All %d chrX genes, no read, gene-set or cell-type filter. Blank = no SNP-overlapping read for that gene in that cell type; a cell type absent from a group is not drawn at all. Green/blue = expression from both X, red = monoallelic",
                           n_gene)) +
   theme(panel.grid = element_blank(), legend.position = "right",
-        axis.text.y = element_text(size = 8), axis.ticks.x = element_blank()) +
+        axis.text.y = element_text(size = 8), axis.ticks.x = element_blank(),
+        strip.placement = "outside",
+        strip.text.y.left = element_text(angle = 0, face = "bold", size = 13)) +
   x_theme
 
 # ---- depth track -----------------------------------------------------------
