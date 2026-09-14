@@ -103,7 +103,22 @@ IN_ROOT <- Sys.getenv("IN_ROOT", file.path(BASE, "ase_pysam_dup_64um"))
 EXTRA_ROOT <- Sys.getenv("EXTRA_ROOT", "")
 SAMPLES <- strsplit(Sys.getenv("SAMPLES", "9w,78w"), ",")[[1]]
 TILE_UM <- as.integer(Sys.getenv("TILE_UM", "64"))
-OUT_PREFIX <- Sys.getenv("OUT_PREFIX", "tile_gene_ar_panel")
+# An explicit gene list, drawn as ONE page in the order given instead of one
+# page per panel group. The panel pages exist to read a group against its
+# controls, which is a different question from "these four genes, side by side"
+# - and a hand-picked set usually spans several groups, so as group pages it
+# arrives as three sparse pages with the off-panel genes missing entirely.
+# Empty (the default) changes nothing: the panel is drawn exactly as before.
+GENES     <- Sys.getenv("GENES", "")
+GENE_LIST <- if (nzchar(GENES)) trimws(strsplit(GENES, ",")[[1]]) else character(0)
+GENE_LIST <- GENE_LIST[nzchar(GENE_LIST)]
+
+# Never the panel's own filename when a subset was asked for: the full-panel
+# CSV and PDF are the reference output and a four-gene run must not land on top
+# of them.
+OUT_PREFIX <- Sys.getenv("OUT_PREFIX",
+                         if (length(GENE_LIST)) "tile_gene_ar_panel_selected"
+                         else "tile_gene_ar_panel")
 OUT_DIR    <- Sys.getenv("OUT_DIR", IN_ROOT)
 
 # Which levels get a page. "reads" is the duplicate-inclusive statistic in the
@@ -157,7 +172,10 @@ source_panel <- function() {
 msg("panel from %s", source_panel())
 
 ##### ----------------------- LOAD ----------------------- #####
-want <- PANEL$gene
+# The panel by default; the requested list when there is one. Off-panel genes
+# simply carry NA group and NA expect through the meta merge below, which is
+# what makes them drawable without inventing an expectation for them.
+want <- if (length(GENE_LIST)) GENE_LIST else PANEL$gene
 read_genes <- function(s) {
   f <- file.path(IN_ROOT, s, "tile_gene_counts.tsv")
   if (!file.exists(f) && file.exists(paste0(f, ".gz"))) f <- paste0(f, ".gz")
@@ -280,7 +298,20 @@ meta <- PANEL_META(sub_ok)
 pool <- merge(pool, meta, by = "gene", all.x = TRUE)
 dat  <- merge(dat,  meta, by = "gene", all.x = TRUE)
 
-ord <- PANEL_GENES(have = pool$gene, subs = sub_ok)
+# PANEL_GENES() orders by the panel and drops anything not on it, so a requested
+# list keeps its own order instead - the order it was asked in is the order it
+# should be read in, and an off-panel gene must not vanish.
+ord <- if (length(GENE_LIST)) {
+  GENE_LIST[GENE_LIST %chin% pool$gene]
+} else {
+  PANEL_GENES(have = pool$gene, subs = sub_ok)
+}
+if (length(GENE_LIST)) {
+  absent <- setdiff(GENE_LIST, pool$gene)
+  if (length(absent))
+    msg("WARNING: no counts for %s - not in the annotation under that name, or no informative unit in any tile",
+        paste(absent, collapse = ", "))
+}
 
 ##### ---------------------- OUTPUT ---------------------- #####
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
@@ -307,22 +338,29 @@ print(csv[, .(group, gene, sample, tiles, n_umi, ar_umi, n_reads, ar_reads,
               med_tile_umi, frac_tile_mono, expect)])
 
 # --- one page per level per group -------------------------------------------
-draw <- function(level, grp) {
+# grp names a panel group and is what the group pages pass. `genes` overrides it
+# with an explicit set on one page; `title` then names that page, since "grp" is
+# not a group any more. A gene belongs to exactly one group in meta, so once gs
+# is fixed the old `group == grp` filters on dat and pool were redundant with
+# `gene %chin% gs` - dropping them is what lets one page hold several groups.
+draw <- function(level, grp, genes = NULL, title = NULL) {
   a1 <- paste0("a1_", level); nn <- paste0("n_", level)
   min_n <- max(MIN_TILE_N[[level]], MIN_DEPTH)
   unit  <- if (level == "umi") "molecules" else "reads (PCR duplicates kept)"
   unit_s <- if (level == "umi") "molecules" else "dup reads"   # legend title
 
-  gs <- ord[ord %chin% meta[group == grp, gene]]
-  gs <- gs[gs %chin% pool[group == grp, gene]]
+  gs <- if (!is.null(genes)) genes[genes %chin% pool$gene] else {
+    g0 <- ord[ord %chin% meta[group == grp, gene]]
+    g0[g0 %chin% pool[group == grp, gene]]
+  }
   if (!length(gs)) return(NULL)
 
-  d <- dat[group == grp & gene %chin% gs & get(nn) >= min_n]
+  d <- dat[gene %chin% gs & get(nn) >= min_n]
   d[, N := get(nn)]                    # aes() cannot use get(); name it here
   d[, AR := get(a1) / N]
   d[, gene := factor(gene, levels = gs)]
 
-  pl <- pool[group == grp & gene %chin% gs]
+  pl <- pool[gene %chin% gs]
   pl[, `:=`(gene = factor(gene, levels = gs),
             AR = get(paste0("ar_", level)),
             lo = get(paste0("lo_", level)), hi = get(paste0("hi_", level)))]
@@ -377,7 +415,8 @@ draw <- function(level, grp) {
                           trans = "sqrt") +
     scale_x_discrete(labels = labs_v, drop = FALSE) +
     scale_y_continuous(limits = c(0, 1), breaks = seq(0, 1, 0.25)) +
-    labs(title = sprintf("%s: allelic ratio per %d um tile, %s", grp, TILE_UM, unit),
+    labs(title = sprintf("%s: allelic ratio per %d um tile, %s",
+                         if (is.null(title)) grp else title, TILE_UM, unit),
          subtitle = paste0(
            "AR = B6 / total. B6 is maternal AND the active X, so on chrX low AR = escape, ",
            "and on the imprinted loci AR ~ 1 = maternal, AR ~ 0 = paternal.\n",
@@ -407,12 +446,15 @@ draw <- function(level, grp) {
 # escape sits in a few tiles would look different from one whose escape is
 # spread evenly. The two ages are drawn as stacked rows over a shared x axis, so
 # a gene is read down the column.
-draw_comp <- function(grp) {
-  gs <- ord[ord %chin% meta[group == grp, gene]]
-  gs <- gs[gs %chin% pool[group == grp, gene]]
+# Same `genes`/`title` override as draw(), for the same reason.
+draw_comp <- function(grp, genes = NULL, title = NULL) {
+  gs <- if (!is.null(genes)) genes[genes %chin% pool$gene] else {
+    g0 <- ord[ord %chin% meta[group == grp, gene]]
+    g0[g0 %chin% pool[group == grp, gene]]
+  }
   if (!length(gs)) return(NULL)
 
-  d <- dat[group == grp & gene %chin% gs & n_umi > 0]
+  d <- dat[gene %chin% gs & n_umi > 0]
   if (!nrow(d)) return(NULL)
   d[, cls := fifelse(a2_umi == 0, "all B6 (AR = 1)",
               fifelse(a1_umi == 0, "all CAST (AR = 0)", "mixed (0 < AR < 1)"))]
@@ -435,7 +477,7 @@ draw_comp <- function(grp) {
     scale_y_continuous(labels = function(x) paste0(100 * x, "%"),
                        breaks = seq(0, 1, 0.25), limits = c(0, 1.08)) +
     labs(title = sprintf("%s: what each %d um tile could say, %s",
-                         grp, TILE_UM, "molecule level"),
+                         if (is.null(title)) grp else title, TILE_UM, "molecule level"),
          subtitle = paste0(
            "Every tile with at least one informative molecule, classified. Numbers above the bars are tile counts.\n",
            "Outside Smpx a tile holds about ONE molecule of these genes, so its ratio can only be 0 or 1 - the dot plots' two stacks are this bar, and the blue fraction is the escape estimate.\n",
@@ -453,14 +495,29 @@ draw_comp <- function(grp) {
 f_pdf <- file.path(OUT_DIR, paste0(OUT_PREFIX, ".pdf"))
 pdf(f_pdf, width = 13, height = 6, onefile = TRUE)
 pages <- 0L
-for (lv in LEVELS) for (grp in levels(PANEL$group)) {
-  p <- draw(lv, grp)
+SEL_TITLE <- paste(ord, collapse = ", ")
+if (length(GENE_LIST)) {
+  # One violin page per level, the genes in the order asked for, groups ignored.
+  for (lv in LEVELS) {
+    p <- draw(lv, NULL, genes = ord, title = SEL_TITLE)
+    if (!is.null(p)) { print(p); pages <- pages + 1L }
+  }
+  # The companion page, not an extra: where a tile holds one molecule the violin
+  # is two stacks and this is the same information as a count, which is the
+  # honest way to read it.
+  p <- draw_comp(NULL, genes = ord, title = SEL_TITLE)
   if (!is.null(p)) { print(p); pages <- pages + 1L }
-}
-for (grp in levels(PANEL$group)) {
-  p <- draw_comp(grp)
-  if (!is.null(p)) { print(p); pages <- pages + 1L }
+} else {
+  for (lv in LEVELS) for (grp in levels(PANEL$group)) {
+    p <- draw(lv, grp)
+    if (!is.null(p)) { print(p); pages <- pages + 1L }
+  }
+  for (grp in levels(PANEL$group)) {
+    p <- draw_comp(grp)
+    if (!is.null(p)) { print(p); pages <- pages + 1L }
+  }
 }
 invisible(dev.off())
 msg("Wrote %s (%d pages: %s x %s)", f_pdf, pages,
-    paste(LEVELS, collapse = "/"), paste(levels(PANEL$group), collapse = "/"))
+    paste(LEVELS, collapse = "/"),
+    if (length(GENE_LIST)) "selected genes" else paste(levels(PANEL$group), collapse = "/"))
