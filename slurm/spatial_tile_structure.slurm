@@ -60,7 +60,12 @@ case "$COUNT_UNIT" in
 esac
 
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
-REPO=$HOME/Postdoc
+# $BASE/Postdoc, NOT $HOME/Postdoc. Every other slurm script here does the same,
+# and it is not a style choice: the checkout the jobs read is the one on the DSS
+# project filesystem. $HOME is /dss/dsshome1, which the compute nodes do not
+# read, so a job pointed there dies with "cannot open file" on a script that is
+# plainly present when you ls it from the login node.
+REPO=$BASE/Postdoc
 SPATIAL_BASE="$BASE/adult_aged_spatial"
 
 if [ ! -d "$SPATIAL_BASE/$TREE" ]; then
