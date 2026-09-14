@@ -1,17 +1,19 @@
 #!/bin/bash
+#SBATCH --mail-user=lachlan.gray@tum.de
+#SBATCH --mail-type=END,FAIL
 #SBATCH -J spatial_tile_structure
-#SBATCH -o logs/spatial_tile_structure.%j.out
-#SBATCH -e logs/spatial_tile_structure.%j.err
-#SBATCH -D ./
-#SBATCH --clusters=serial
-#SBATCH --partition=serial_std
+#SBATCH -D /dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
+#SBATCH -o out_error/%x.%j.%N.out
+#SBATCH -e out_error/%x.%j.%N.err
 #SBATCH --get-user-env
 #SBATCH --export=NONE
+#SBATCH --clusters=serial
+#SBATCH --partition=serial_std
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=32G
 #SBATCH --time=02:00:00
-#SBATCH --mail-type=END,FAIL
-#SBATCH --mail-user=lachlan.gray@tum.de
 
 # Quantify spatial structure in the per-tile chrX allelic ratio:
 # global Moran's I with a permutation null, the same statistic after
@@ -67,11 +69,12 @@ if [ ! -d "$SPATIAL_BASE/$TREE" ]; then
   exit 1
 fi
 
-mkdir -p logs
-
+# The conda profile path is hardcoded, as in every other script here: under
+# --export=NONE conda is not on PATH, so `conda info --base` cannot be used to
+# find it.
+source /dss/lrzsys/sys/spack/release/24.4.0/opt/x86_64/miniconda3/24.7.1-gcc-t6x7erm/etc/profile.d/conda.sh
 # seurat_env, NOT the repo-wide RNAseq env: this needs the same data.table and
 # ggplot2 the rest of spatial/ uses, and the Matrix 1.8.0 dev tree on .libPaths.
-source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate seurat_env
 
 echo "tree       $TREE"
