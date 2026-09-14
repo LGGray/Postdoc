@@ -480,7 +480,27 @@ msg("Drawing %d genes -> %s", length(unique(cnt$gene)), OUT_PDF)
 dir.create(dirname(OUT_PDF), showWarnings = FALSE, recursive = TRUE)
 pdf(OUT_PDF, width = 11, height = 9)
 pages <- 0L
-for (g_ in PANEL_GENES(have = cnt[, unique(gene)])) {
+# PANEL_GENES() returns the panel order INTERSECTED with what is present, so a
+# gene named in GENES that is not on the panel - Myh6, say - is read, counted,
+# and then silently dropped here, giving three pages for four genes with nothing
+# in the log to say why. An explicitly requested gene must not vanish without a
+# word: anything left over is appended after the panel, in the order it was
+# asked for, and named. It carries no `expect` tag, because the panel is where
+# an expectation comes from and a gene off the panel has none.
+draw_order <- PANEL_GENES(have = cnt[, unique(gene)])
+if (nzchar(GENES)) {
+  absent <- setdiff(want, cnt[, unique(gene)])
+  if (length(absent))
+    msg("WARNING: no counts at all for %s - not in the annotation under that name, or no informative unit in any tile",
+        paste(absent, collapse = ", "))
+  extra <- setdiff(intersect(want, cnt[, unique(gene)]), draw_order)
+  if (length(extra)) {
+    msg("Off-panel, drawn after the panel genes with no expectation: %s",
+        paste(extra, collapse = ", "))
+    draw_order <- c(draw_order, extra)
+  }
+}
+for (g_ in draw_order) {
   r <- one_gene(g_)
   ex <- meta[gene == g_, expect]
   # 0.5 is a BIALLELIC expectation, not an imprinting direction. Sent through
@@ -508,8 +528,19 @@ for (g_ in PANEL_GENES(have = cnt[, unique(gene)])) {
       "Independent molecules, so this is evidence."
     else
       "NOTE: duplicates of one molecule all carry the same allele, so a tile with one molecule amplified this many times passes - the cutoff thins the map without qualifying what survives. Use LEVEL=umi, or MIN_DEPTH=24 here, for a cutoff that means ~2 molecules.")
+  # The allele wording has to follow the chromosome. "active X / inactive X" is
+  # a statement about XCI and is simply false on chr12, chr14 or chr19; what is
+  # true on every chromosome is which PARENT the allele came from, so autosomes
+  # get that instead. Same fact either way - a1 = B6 = maternal - worded so it
+  # cannot be read as an XCI claim about an autosomal gene.
+  chr_ <- cnt[gene == g_, chrom[1]]
+  allele_txt <- if (identical(chr_, "chrX"))
+    "dark red = B6 (active X), dark blue = CAST (inactive X)"
+  else
+    sprintf("dark red = B6 (maternal), dark blue = CAST (paternal)%s",
+            if (is.na(chr_)) "" else sprintf(" - %s, so XCI does not apply", chr_))
   foot <- paste0(
-    "Allelic ratio per ", TILE_UM, " um tile, dark red = B6 (active X), dark blue = CAST (inactive X). ",
+    "Allelic ratio per ", TILE_UM, " um tile, ", allele_txt, ". ",
     "Pale tiles are in-tissue but carry no informative molecule of this gene, or fewer than the cutoff.\n",
     cut_txt, "\n",
     if (r$cov)
