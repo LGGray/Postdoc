@@ -83,10 +83,26 @@ echo "min chrX   $MIN_X"
 echo "perms      $NPERM"
 echo "samples    $SAMPLES"
 
+RSCRIPT_PATH="$REPO/spatial/tile_spatial_structure.R"
+# Checked explicitly, because Rscript's own "cannot open file" goes to stdout
+# with a zero-length .err and is easy to miss in a log that then says "Done".
+if [ ! -f "$RSCRIPT_PATH" ]; then
+  echo "ERROR: $RSCRIPT_PATH not found." >&2
+  echo "The cluster checkout is behind - run 'git pull' in $REPO and resubmit." >&2
+  exit 1
+fi
+
 BASE="$SPATIAL_BASE" TREE="$TREE" SAMPLES="$SAMPLES" \
   COUNT_UNIT="$COUNT_UNIT" MIN_X="$MIN_X" NPERM="$NPERM" \
   DUP_FACTOR="$DUP_FACTOR" \
   TAG="${COUNT_UNIT}_min${MIN_X}" \
-  Rscript "$REPO/spatial/tile_spatial_structure.R"
+  Rscript "$RSCRIPT_PATH"
+# Rscript's exit status, not the echo's. Without this the job reports success
+# and prints an output path that nothing was written to.
+RC=$?
+if [ $RC -ne 0 ]; then
+  echo "Rscript failed with exit code $RC - no outputs written." >&2
+  exit $RC
+fi
 
 echo "Done. CSVs and PDF in $SPATIAL_BASE/$TREE/"
