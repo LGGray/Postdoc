@@ -51,6 +51,7 @@
 suppressPackageStartupMessages({
   library(data.table)
   library(ggplot2)
+  library(patchwork)
 })
 
 ##### ---------------------------- CONFIG ---------------------------- #####
@@ -426,17 +427,66 @@ if (length(correlo)) {
       theme_bw() + theme(plot.caption = element_text(size = 7, hjust = 0)))
 }
 
+# Colours lifted from tile_ratio_map.R so panel A reads as the same map the
+# audience has already seen, rather than a second colour language for one figure.
+COL_CAST <- "#184f95"; COL_MID <- "#f0efec"; COL_BL6 <- "#b02a2a"
+
+map_theme <- theme_bw() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        panel.grid = element_blank(), legend.key.size = grid::unit(0.35, "cm"),
+        plot.subtitle = element_text(size = 8))
+
 for (smp in names(per_tile)) {
   d <- per_tile[[smp]]
-  print(
-    ggplot(d, aes(tcol, -trow, fill = lisa_q < 0.05)) +
-      geom_tile() + coord_equal() +
-      scale_fill_manual(values = c(`TRUE` = "#b02a2a", `FALSE` = "grey88"),
-                        name = "LISA FDR < 5%") +
-      labs(title = sprintf("%s - where the local structure is", smp),
-           subtitle = sprintf("%d of %d tiles locally coherent",
-                              sum(d$lisa_q < 0.05), nrow(d)),
-           x = NULL, y = NULL) + theme_bw())
+  # The three-panel argument, left to right: this is what the map looks like,
+  # this is what survives a null, this is how organised it is in space.
+  pA <- ggplot(d, aes(tcol, -trow, fill = x_ratio)) +
+    geom_tile() + coord_equal() +
+    scale_fill_gradient2(low = COL_CAST, mid = COL_MID, high = COL_BL6,
+                         midpoint = sum(d$x_a1) / sum(d$x_n),
+                         name = "B6 fraction") +
+    labs(title = "A. chrX allelic ratio", x = NULL, y = NULL,
+         subtitle = "Midpoint is this sample's own pooled ratio,\nso colour = departure from its own mean") +
+    map_theme
+  # Panel B is the acceptance criterion of NEXT_ANALYSIS task 7: against a
+  # beta-binomial null centred on the sample's own pooled ratio, the map should
+  # come out almost entirely undistinguished. If it does not, the null is wrong.
+  d[, bb_call := factor(fifelse(q_bb >= 0.05, "not distinguishable",
+                        fifelse(x_ratio > sum(d$x_a1) / sum(d$x_n),
+                                "B6-skewed", "CAST-skewed")),
+                        c("not distinguishable", "B6-skewed", "CAST-skewed"))]
+  pB <- ggplot(d, aes(tcol, -trow, fill = bb_call)) +
+    geom_tile() + coord_equal() +
+    scale_fill_manual(values = c("not distinguishable" = "grey88",
+                                 "B6-skewed" = COL_BL6, "CAST-skewed" = COL_CAST),
+                      drop = FALSE, name = NULL) +
+    labs(title = "B. Survives a beta-binomial null", x = NULL, y = NULL,
+         subtitle = sprintf("%d of %d tiles (%.1f%%) differ from the sample mean at FDR 5%%",
+                            sum(d$q_bb < 0.05), nrow(d), 100 * mean(d$q_bb < 0.05))) +
+    map_theme
+  # Panel C: the local Moran statistic itself, continuous. Drawn continuous
+  # rather than thresholded because thresholding it here paints the whole
+  # section one colour and looks like a broken figure rather than a result.
+  lim <- stats::quantile(abs(d$lisa), 0.98, na.rm = TRUE)
+  pC <- ggplot(d, aes(tcol, -trow, fill = pmax(pmin(lisa, lim), -lim))) +
+    geom_tile() + coord_equal() +
+    scale_fill_gradient2(low = "#2c7fb8", mid = "grey93", high = "#d95f0e",
+                         midpoint = 0, name = "local I") +
+    labs(title = "C. Local Moran's I", x = NULL, y = NULL,
+         subtitle = sprintf("Global I = %+.3f (p = %.3f); %d tiles at FDR 5%%",
+                            summ[sample == smp & variable == "chrX_ratio"]$value,
+                            summ[sample == smp & variable == "chrX_ratio"]$perm_p,
+                            sum(d$lisa_q < 0.05))) +
+    map_theme
+  print((pA | pB | pC) +
+    patchwork::plot_annotation(
+      title = sprintf("%s - does the visible structure survive a null?", smp),
+      caption = paste(
+        "A looks structured because the colour scale is stretched over noise. B is the test: at FDR 5% almost no tile differs",
+        "\nfrom the sample's own pooled ratio. C shows the weak, diffuse spatial organisation the global statistic detects.",
+        "\nNot a test for XCI patches - the CAST X is inactive in every cell, so there are no clonal domains here.",
+        "\nn = 1 per age: this is one animal and one section, not an age comparison."),
+      theme = theme(plot.caption = element_text(size = 7, hjust = 0))))
   print(
     ggplot(d, aes(x_n, x_ratio)) +
       geom_point(size = 0.4, alpha = 0.3) +
