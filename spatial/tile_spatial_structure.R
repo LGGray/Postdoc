@@ -169,6 +169,76 @@ local_moran <- function(e, v, nperm = 499) {
   data.table(lisa = Ii, lisa_p = p, lisa_q = p.adjust(p, "BH"), n_nb = deg)
 }
 
+##### -------------------------- GEOMETRY ---------------------------- #####
+# The maps have to come out in the SAME orientation as tile_ratio_map.R's, or
+# the audience is asked to re-orient between two figures of the same section.
+#
+# Plotting (tcol, -trow) is not that orientation. The array axes are not the
+# image axes: tile_ratio_map.R:370-375 fits x and y on BOTH array_col and
+# array_row, i.e. an affine map with a rotation in it. So a tile-index plot
+# comes out rotated relative to every other map of the same slide.
+#
+# The fix is to use the same coordinates it does - the mean full-resolution
+# pixel position of the bins in each tile - with coord_fixed() and
+# scale_y_reverse(). The lowres scale factor is deliberately NOT applied: it is
+# a uniform scaling, so it changes the units and nothing about the orientation,
+# and skipping it removes a dependency on scalefactors_json.json.
+#
+# Falls back to the tile grid with a loud message if tissue_positions is not
+# readable, so a missing file costs the orientation, not the figure.
+BIN_DIR_NAME <- Sys.getenv("BIN", "square_002um")
+
+read_positions <- function(dir) {
+  LEGACY <- c("barcode", "in_tissue", "array_row", "array_col",
+              "pxl_row_in_fullres", "pxl_col_in_fullres")
+  for (cs in file.path(dir, "spatial",
+                       c("tissue_positions.tsv", "tissue_positions.csv",
+                         "tissue_positions_list.csv"))) {
+    if (!file.exists(cs)) next
+    p <- as.data.table(fread(cs)); setnames(p, tolower(names(p)))
+    # tissue_positions_list.csv has no header: fread invents V1..V6 and every
+    # lookup below would miss silently. Name them.
+    if (all(grepl("^v[0-9]+$", names(p))) && ncol(p) >= length(LEGACY))
+      setnames(p, seq_along(LEGACY), LEGACY)
+    return(p)
+  }
+  pq <- file.path(dir, "spatial", "tissue_positions.parquet")
+  if (file.exists(pq) && requireNamespace("arrow", quietly = TRUE)) {
+    p <- as.data.table(arrow::read_parquet(pq)); setnames(p, tolower(names(p)))
+    return(p)
+  }
+  NULL
+}
+
+# Per-tile pixel centroid, plus the tile side in the same units so geom_tile
+# draws touching squares rather than guessing a width.
+tile_geometry <- function(smp) {
+  dir <- file.path(BASE, smp, "outs", "binned_outputs", BIN_DIR_NAME)
+  pos <- tryCatch(read_positions(dir), error = function(e) NULL)
+  if (is.null(pos) || !all(c("array_row", "array_col",
+                             "pxl_row_in_fullres", "pxl_col_in_fullres") %in% names(pos))) {
+    msg("  no usable tissue_positions under %s", dir)
+    msg("  -> maps fall back to the tile grid and will NOT match tile_ratio_map.R")
+    return(NULL)
+  }
+  it <- grep("^in_tissue", names(pos), value = TRUE)[1]
+  if (!is.na(it)) pos <- pos[get(it) == 1]
+  # arrow can return integer64, which %/% and mean() mishandle.
+  pos[, `:=`(array_row = as.numeric(array_row), array_col = as.numeric(array_col),
+             px = as.numeric(pxl_col_in_fullres), py = as.numeric(pxl_row_in_fullres))]
+  k <- TILE_UM / 2                                   # bins per tile side
+  pos[, `:=`(trow = as.integer(array_row %/% k), tcol = as.integer(array_col %/% k))]
+  g <- pos[, .(x = mean(px), y = mean(py)), by = .(trow, tcol)]
+  # Side from the array->pixel slopes, so it is right even where a tile is only
+  # partly covered by tissue. Same construction as tile_ratio_map.R:370-375.
+  sx <- stats::coef(stats::lm(px ~ array_col + array_row, data = pos))
+  sy <- stats::coef(stats::lm(py ~ array_col + array_row, data = pos))
+  side <- k * mean(c(sqrt(sx[["array_col"]]^2 + sy[["array_col"]]^2),
+                     sqrt(sx[["array_row"]]^2 + sy[["array_row"]]^2)))
+  msg("  geometry: %d tiles positioned, tile side %.1f px", nrow(g), side)
+  g[, side := side][]
+}
+
 ##### ---------------------------- LOAD ------------------------------ #####
 # tile_chrom_counts.tsv names the read columns a1_reads/a2_reads and the
 # molecule ones a1_umi/a2_umi - plural on one, singular on the other. COUNT_UNIT
@@ -262,6 +332,17 @@ for (smp in SAMPLES) {
     value = phi, perm_p = NA_real_, z = NA_real_, n_tiles = nrow(d))
 
   d <- cbind(d, local_moran(e, d$x_ratio))
+  g <- tile_geometry(smp)
+  if (!is.null(g)) {
+    d <- merge(d, g, by = c("trow", "tcol"), all.x = TRUE)
+    if (anyNA(d$x))
+      msg("  note: %d tiles have no pixel centroid and are dropped from the maps",
+          sum(is.na(d$x)))
+  } else {
+    # Fallback only. Flagged on the figure itself so a rotated panel cannot be
+    # mistaken for the real orientation.
+    d[, `:=`(x = as.numeric(tcol), y = -as.numeric(trow), side = 1)]
+  }
   # Two different questions, and the second is usually the informative one here.
   # Surviving BH over ~4000 tiles needs a CONCENTRATED signal (hotspots). A
   # global I that is significant while nothing survives BH means the structure
@@ -436,12 +517,23 @@ map_theme <- theme_bw() +
         panel.grid = element_blank(), legend.key.size = grid::unit(0.35, "cm"),
         plot.subtitle = element_text(size = 8))
 
+# coord_fixed() + scale_y_reverse() is exactly what tile_ratio_map.R's base_map()
+# does, and is what makes these panels overlay its figures.
+map_coord <- list(coord_fixed(), scale_y_reverse())
+
 for (smp in names(per_tile)) {
-  d <- per_tile[[smp]]
+  d  <- per_tile[[smp]]
+  # Every derived column must exist BEFORE the map subset: dm is a copy, so a
+  # column added to d afterwards is simply absent from the panels.
+  d[, bb_call := factor(fifelse(q_bb >= 0.05, "not distinguishable",
+                        fifelse(x_ratio > sum(d$x_a1) / sum(d$x_n),
+                                "B6-skewed", "CAST-skewed")),
+                        c("not distinguishable", "B6-skewed", "CAST-skewed"))]
+  dm <- d[!is.na(x) & !is.na(y)]
   # The three-panel argument, left to right: this is what the map looks like,
   # this is what survives a null, this is how organised it is in space.
-  pA <- ggplot(d, aes(tcol, -trow, fill = x_ratio)) +
-    geom_tile() + coord_equal() +
+  pA <- ggplot(dm, aes(x, y, fill = x_ratio)) +
+    geom_tile(width = dm$side[1], height = dm$side[1]) + map_coord +
     scale_fill_gradient2(low = COL_CAST, mid = COL_MID, high = COL_BL6,
                          midpoint = sum(d$x_a1) / sum(d$x_n),
                          name = "B6 fraction") +
@@ -451,12 +543,8 @@ for (smp in names(per_tile)) {
   # Panel B is the acceptance criterion of NEXT_ANALYSIS task 7: against a
   # beta-binomial null centred on the sample's own pooled ratio, the map should
   # come out almost entirely undistinguished. If it does not, the null is wrong.
-  d[, bb_call := factor(fifelse(q_bb >= 0.05, "not distinguishable",
-                        fifelse(x_ratio > sum(d$x_a1) / sum(d$x_n),
-                                "B6-skewed", "CAST-skewed")),
-                        c("not distinguishable", "B6-skewed", "CAST-skewed"))]
-  pB <- ggplot(d, aes(tcol, -trow, fill = bb_call)) +
-    geom_tile() + coord_equal() +
+  pB <- ggplot(dm, aes(x, y, fill = bb_call)) +
+    geom_tile(width = dm$side[1], height = dm$side[1]) + map_coord +
     scale_fill_manual(values = c("not distinguishable" = "grey88",
                                  "B6-skewed" = COL_BL6, "CAST-skewed" = COL_CAST),
                       drop = FALSE, name = NULL) +
@@ -468,8 +556,8 @@ for (smp in names(per_tile)) {
   # rather than thresholded because thresholding it here paints the whole
   # section one colour and looks like a broken figure rather than a result.
   lim <- stats::quantile(abs(d$lisa), 0.98, na.rm = TRUE)
-  pC <- ggplot(d, aes(tcol, -trow, fill = pmax(pmin(lisa, lim), -lim))) +
-    geom_tile() + coord_equal() +
+  pC <- ggplot(dm, aes(x, y, fill = pmax(pmin(lisa, lim), -lim))) +
+    geom_tile(width = dm$side[1], height = dm$side[1]) + map_coord +
     scale_fill_gradient2(low = "#2c7fb8", mid = "grey93", high = "#d95f0e",
                          midpoint = 0, name = "local I") +
     labs(title = "C. Local Moran's I", x = NULL, y = NULL,
