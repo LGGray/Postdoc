@@ -52,6 +52,22 @@ case "$SNP_LABEL" in
 esac
 SNP_BED_LABEL="${4:-$BED_DEFAULT}"
 
+# Arg 5: fold the ratio to max(A1,A2)/n (the ar_dom convention of
+# OCM_heart/allelic_ratio) instead of A1/n. Positional like everything else,
+# because --export=NONE means FOLD_RATIO=1 sbatch would not reach the job.
+# It extends SUF so a folded run lands BESIDE the directional one rather than
+# overwriting its PDF - OUT_PDF below is built from SUF and is the reason this
+# cannot be a plain environment variable.
+# The folded maps are a diagnostic, not a result: see the FOLD_RATIO note in
+# spatial/tile_ratio_map.R for why folding is cheap on snRNA chrX (p~0.87) and
+# expensive here (read-level pooled 0.60-0.72, where the fold adds a
+# depth-dependent floor to a map whose depth varies across the section).
+FOLD_RATIO="${5:-}"
+case "$(echo "$FOLD_RATIO" | tr '[:upper:]' '[:lower:]')" in
+  ""|0|false|no) FOLD_RATIO=""              ;;
+  *)             FOLD_RATIO=1; SUF="${SUF}_folded" ;;
+esac
+
 BASE=/dss/dssfs03/tumdss/pn72lo/pn72lo-dss-0010/go93qiw2
 REPO=$BASE/Postdoc
 
@@ -77,7 +93,7 @@ Rscript -e 'for (p in c("arrow","png")) if (!requireNamespace(p, quietly=TRUE))
   2>&1 | sed 's/^/  /'
 
 TILE_UM="$TILE_UM" SAMPLES="$SAMPLES" SNP_LABEL="$SNP_LABEL" \
-  SNP_BED_LABEL="$SNP_BED_LABEL" \
+  SNP_BED_LABEL="$SNP_BED_LABEL" FOLD_RATIO="$FOLD_RATIO" \
   OUT_PDF="$BASE/adult_aged_spatial/ase/tile_ratio_map_${TILE_UM}um${SUF}.pdf" \
   Rscript "$REPO/spatial/tile_ratio_map.R"
 

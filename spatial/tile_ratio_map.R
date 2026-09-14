@@ -39,6 +39,27 @@ ANNOT_BASE <- "chr_annotation_mm39.bed"
 SNP_LABEL <- Sys.getenv("SNP_LABEL", "no_Xist")
 SUF     <- if (SNP_LABEL == "no_Xist") "" else paste0("_", SNP_LABEL)
 
+# FOLD_RATIO=1 plots max(A1,A2)/n instead of A1/n, the ar_dom convention of
+# OCM_heart/allelic_ratio (00_functions.R:465). It is a LOOK, never a number.
+#
+# WHY IT IS SAFE IN THE SINGLE-CELL DATA AND NOT HERE. Folding costs nothing
+# when the true ratio is far from 0.5: on snRNA chrX (p~0.87) E[ar_dom] - p is
+# < 0.0005 at every depth. The tile maps are read-level and pooled chrX sits at
+# 0.60-0.72, where the same fold adds +0.02 at n_eff=20 and +0.10 at n_eff=5.
+# That bias is a function of DEPTH, and tile depth varies across the section,
+# so folding paints a depth map in the colours of an escape map. With
+# duplicates kept it is worse: n_eff = units / duplication factor, the factor
+# is 2.5-3.8x and is NOT uniform across the slide (ase_tile_sweep.R:972).
+#
+# So both arms are folded, never chrX alone. The autosomal panel is the null;
+# folded, it shows the manufactured floor directly, and any chrX structure that
+# is not also in the autosomal panel is the part worth looking at. Folding chrX
+# while leaving the autosomes directional would compare against the wrong null
+# and is the one thing this switch must not let you do.
+FOLD_RATIO <- nzchar(Sys.getenv("FOLD_RATIO")) &&
+              !tolower(Sys.getenv("FOLD_RATIO")) %in% c("0", "false", "no")
+if (FOLD_RATIO) SUF <- paste0(SUF, "_folded")
+
 # Sourced for its loaders and panels rather than run for its figures. Set by
 # tile_ratio_map_floor.R, which needs collect_sample() and every panel_* but
 # draws its own pages from them. Unset - the normal case - and this file
@@ -361,8 +382,14 @@ collect_sample <- function(smp) {
   # centroids cannot answer it as cleanly as the integer grid can.
   d[, `:=`(trow = as.integer(sub(".*_r([0-9]+)_c[0-9]+$", "\\1", tile)),
            tcol = as.integer(sub(".*_r[0-9]+_c([0-9]+)$", "\\1", tile)))]
-  d[, `:=`(x_ratio = fifelse(x_n > 0, x_a1 / x_n, NA_real_),
-           a_ratio = fifelse(a_n > 0, a_a1 / a_n, NA_real_))]
+  if (FOLD_RATIO) {
+    # Both arms, per the note on FOLD_RATIO in CONFIG.
+    d[, `:=`(x_ratio = fifelse(x_n > 0, pmax(x_a1, x_n - x_a1) / x_n, NA_real_),
+             a_ratio = fifelse(a_n > 0, pmax(a_a1, a_n - a_a1) / a_n, NA_real_))]
+  } else {
+    d[, `:=`(x_ratio = fifelse(x_n > 0, x_a1 / x_n, NA_real_),
+             a_ratio = fifelse(a_n > 0, a_a1 / a_n, NA_real_))]
+  }
   sc <- d[!is.na(a_ratio) & a_n > 0]
   if (nrow(sc) >= MIN_TILES_FOR_SD) {
     # Observed variance in the autosomal ratio, less the binomial variance it
@@ -389,6 +416,15 @@ collect_sample <- function(smp) {
   d[, se := sqrt(a_ratio * (1 - a_ratio) / x_n +
                  a_ratio * (1 - a_ratio) / a_n + auto_sd^2)]
   d[, z := (x_ratio - a_ratio) / se]
+  if (FOLD_RATIO) {
+    # se is a binomial SE on a directional proportion. Folded, the sampling
+    # distribution is a folded binomial: its mean is shifted up and its variance
+    # is smaller than p(1-p)/n near 0.5. So z, and every call derived from it,
+    # is not valid here. The panels still draw so the map can be looked at; the
+    # calls must not be read off them.
+    msg("  FOLD_RATIO: z-scores and Bl6-/CAST-skewed CALLS are NOT valid on folded")
+    msg("  ratios (binomial SE on a folded variable). Read the ratio panels only.")
+  }
   # Binned exactly as OCM_heart/allelic_ratio does it: same breaks, same
   # include.lowest/right, same labels, so a tile falls in the same bin a cell
   # with that ratio would.
@@ -496,7 +532,7 @@ panel_ratio <- function(d, he = FALSE) {
     scale_fill_gradient2(low = COL_CAST, mid = COL_MID, high = COL_BL6,
                          midpoint = 0.5, limits = c(0, 1),
                          breaks = c(0, 0.25, 0.5, 0.75, 1),
-                         name = "Bl6 (A1)\nfraction") +
+                         name = if (FOLD_RATIO) "dominant\nfraction" else "Bl6 (A1)\nfraction") +
     labs(title = sprintf("%s - chrX allelic ratio per %d um tile [%s]",
                          d$sample[1], TILE_UM, SNP_LABEL),
          subtitle = scored_line(n_ok, n_sub),
@@ -534,8 +570,12 @@ panel_auto <- function(d) {
                          midpoint = 0.5, limits = c(0, 1),
                          breaks = c(0, 0.25, 0.5, 0.75, 1),
                          name = "Bl6 (A1)\nfraction") +
-    labs(title = sprintf("%s - autosomal control, same tiles, same scale", d$sample[1]),
-         subtitle = sprintf("Should be flat near-white throughout. Observed sd %.3f on a median of %d %s.",
+    labs(title = sprintf("%s - autosomal control, same tiles, same scale%s", d$sample[1],
+                         if (FOLD_RATIO) " (FOLDED - this IS the manufactured floor)" else ""),
+         subtitle = sprintf(paste0(if (FOLD_RATIO)
+                              "Folded, so this is NOT expected near 0.5: it shows the depth-driven floor folding creates. "
+                            else "Should be flat near-white throughout. ",
+                            "Observed sd %.3f on a median of %d %s."),
                             sd(d$a_ratio, na.rm = TRUE),
                             as.integer(median(d$a_n, na.rm = TRUE)), UNIT_N),
          caption = paste("Any structure here is technical and invalidates the chrX panel over the same tiles.",
