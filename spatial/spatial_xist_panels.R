@@ -212,7 +212,20 @@ if (length(SAMPLES) > length(SAMPLE_COLS))
   stop("Only ", length(SAMPLE_COLS), " sample colours defined - add more to SAMPLE_COLS")
 sample_cols <- setNames(SAMPLE_COLS[seq_along(SAMPLES)], SAMPLES)
 
-GENOTYPE <- "B6 x CAST F1, Xist deleted on the B6 allele - all Xist signal is from the CAST (inactive) X."
+# Stamped on every panel below. The second half of the original sentence - that
+# all of the signal comes from the CAST X - is a fact about Xist ONLY, because
+# Xist is the gene deleted on the B6 allele. On any other gene it is a false
+# claim about that gene's allelic origin, and on an autosomal one (Malat1 chr19,
+# Meg3 chr12, Myh6 chr14) it is nonsense. The Xist wording is kept verbatim so
+# the figures already produced for it are unchanged; every other gene gets the
+# genotype without the inference, plus the reminder that nothing here is
+# allelic in the first place - these are total UMIs, both alleles pooled.
+GENOTYPE <- if (identical(GENE, "Xist")) {
+  "B6 x CAST F1, Xist deleted on the B6 allele - all Xist signal is from the CAST (inactive) X."
+} else {
+  sprintf(paste("B6 x CAST F1, Xist deleted on the B6 allele.",
+                "Total %s UMIs, both alleles pooled - nothing here is allelic."), GENE)
+}
 gl <- tolower(GENE)
 
 # fig1: one map per sample on a shared scale, so the two ages are comparable by
