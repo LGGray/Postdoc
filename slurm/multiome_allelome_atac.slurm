@@ -174,7 +174,10 @@ run_stage () {
   # DISTINCT GROUPS, not lines: the per-celltype file is one line per nucleus
   # with a group column, so wc -l would demand 1422 BAMs where sinto makes 7.
   local n_want; n_want=$(cut -f2 "$CELLS" | sort -u | wc -l)
-  local n_have; n_have=$(ls "$BAMDIR"/*.bam 2>/dev/null | wc -l)
+  # find, NOT ls "$BAMDIR"/*.bam. nullglob is set above, so on an empty BAMDIR
+  # that glob vanishes and `ls` falls back to listing the CWD - which returned
+  # 51 and made stage B skip sinto and produce nothing, silently.
+  local n_have; n_have=$(find "$BAMDIR" -maxdepth 1 -name '*.bam' 2>/dev/null | wc -l)
   if [ "$n_have" -lt "$n_want" ]; then
     echo "[$TAG] $(date +%T) $ID: sinto split into $n_want groups ($n_have BAMs already present)"
     conda activate sinto
@@ -207,7 +210,7 @@ run_stage () {
   if [ "$todo_n" -gt 0 ]; then
     echo "[$TAG] $(date +%T) $ID: scoring"
     parallel -j "$nproc" :::: "$tlist"
-    echo "[$TAG] $(date +%T) $ID: done, $(ls -d "$OUTDIR"/*/ 2>/dev/null | wc -l) output dirs"
+    echo "[$TAG] $(date +%T) $ID: done, $(find "$OUTDIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l) output dirs"
   fi
 }
 
