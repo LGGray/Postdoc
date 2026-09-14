@@ -73,6 +73,14 @@ MIN_X   <- as.integer(Sys.getenv("MIN_X", "20"))
 DUP_FACTOR <- as.numeric(Sys.getenv("DUP_FACTOR",
                                     if (COUNT_UNIT == "read") "3" else "1"))
 NPERM   <- as.integer(Sys.getenv("NPERM", "999"))
+# Correlogram: Moran's I at Chebyshev ring distance 1..MAX_LAG. Tile side in um
+# converts a lag to a physical distance; it is NOT read from the tree name
+# because a tree can be re-tiled without being renamed.
+TILE_UM   <- as.numeric(Sys.getenv("TILE_UM", "64"))
+MAX_LAG   <- as.integer(Sys.getenv("MAX_LAG", "12"))
+# Fewer permutations per lag than for the global statistic: MAX_LAG x 3 fields
+# of them, and a correlogram is read as a shape, not off one lag's p-value.
+NPERM_LAG <- as.integer(Sys.getenv("NPERM_LAG", "199"))
 SEED    <- as.integer(Sys.getenv("SEED", "1"))
 OUT_DIR <- Sys.getenv("OUT_DIR", file.path(BASE, TREE))
 TAG     <- Sys.getenv("TAG", paste0(COUNT_UNIT, "_min", MIN_X))
@@ -96,6 +104,25 @@ build_edges <- function(trow, tcol) {
     j <- idx[paste(trow + offs$dr[k], tcol + offs$dc[k], sep = "_")]
     ok <- !is.na(j)
     ii <- c(ii, which(ok)); jj <- c(jj, as.integer(j[ok]))
+  }
+  list(i = ii, j = jj, W = length(ii))
+}
+
+# Edges between tiles at Chebyshev ring distance exactly d, i.e. the ring of
+# tiles d steps out. d = 1 reproduces build_edges(). Rings rather than cumulative
+# discs, because a correlogram has to show where I FALLS TO the null, and a
+# cumulative statistic cannot fall - it only dilutes.
+ring_edges <- function(trow, tcol, d) {
+  key  <- as.numeric(trow) * 1e5 + as.numeric(tcol)
+  ord  <- order(key); skey <- key[ord]
+  offs <- expand.grid(dr = -d:d, dc = -d:d)
+  offs <- offs[pmax(abs(offs$dr), abs(offs$dc)) == d, , drop = FALSE]
+  ii <- integer(0); jj <- integer(0)
+  for (k in seq_len(nrow(offs))) {
+    m  <- match(as.numeric(trow + offs$dr[k]) * 1e5 +
+                as.numeric(tcol + offs$dc[k]), skey)
+    ok <- !is.na(m)
+    ii <- c(ii, which(ok)); jj <- c(jj, ord[m[ok]])
   }
   list(i = ii, j = jj, W = length(ii))
 }
@@ -167,7 +194,7 @@ load_sample <- function(smp) {
 }
 
 ##### ---------------------------- RUN ------------------------------- #####
-summ <- list(); per_tile <- list()
+summ <- list(); per_tile <- list(); correlo <- list()
 for (smp in SAMPLES) {
   d <- load_sample(smp); if (is.null(d) || !nrow(d)) next
   msg("\n=== %s : %d tiles with >= %d chrX %ss ===", smp, nrow(d), MIN_X, COUNT_UNIT)
@@ -250,6 +277,94 @@ for (smp in SAMPLES) {
   summ[[length(summ) + 1]] <- data.table(
     sample = smp, variable = "lisa_p05_enrichment", statistic = "ratio_to_null",
     value = enr, perm_p = NA_real_, z = NA_real_, n_tiles = nrow(d))
+
+  # ---- correlogram: I at ring distance 1..MAX_LAG -------------------------
+  #
+  # WHAT THE DECAY LENGTH IS AND IS NOT. It is NOT a patch size. The CAST X is
+  # inactive in every cell of this cross, so there are no clonal XCI domains for
+  # a correlogram to measure, and NEXT_ANALYSIS.md already rules out reading a
+  # scale off rho(s) for the same reason. What it does separate is short-range
+  # from long-range structure, which have different causes:
+  #   lag 1-2 (<= ~130 um)  tile-boundary bleed, segmentation, local depth
+  #                         correlation -> technical.
+  #   lag 5-10 (0.3-0.6 mm) regional/anatomical -> most plausibly cell-type
+  #                         composition, which is not controlled here.
+  #
+  # Three fields, because the shape is only interpretable against the other two:
+  #   x_ratio        the field of interest
+  #   resid          the same field with depth and the autosomal ratio removed;
+  #                  if the decay survives this it is not a coverage gradient
+  #   a_ratio        the negative control; it should sit on the null at EVERY
+  #                  lag, and if it does not, no lag of the chrX curve is safe
+  #
+  # A global gradient across the section produces slow decay with no
+  # characteristic scale, which is not patchiness either - the flat C(d) excess
+  # already on record is exactly that. Read the shape: a knee is a scale, a
+  # straight slow decline is a gradient.
+  resid2 <- stats::residuals(fit2)
+  cg <- rbindlist(lapply(seq_len(MAX_LAG), function(lag) {
+    re <- ring_edges(d$trow, d$tcol, lag)
+    if (re$W < 50) return(NULL)
+    rbindlist(lapply(list(x_ratio = d$x_ratio, resid = resid2, a_ratio = d$a_ratio),
+      function(v) { r <- morans_I(re, v, NPERM_LAG)
+                    data.table(I = r$I, perm_p = r$p, z = r$z) }), idcol = "field")[
+      , `:=`(sample = smp, lag = lag, dist_um = lag * TILE_UM, n_pairs = re$W)]
+  }))
+  if (nrow(cg)) {
+    msg("  correlogram (chrX ratio), %s:", "I at ring distance")
+    for (k in seq_len(nrow(cg[field == "x_ratio"]))) {
+      r <- cg[field == "x_ratio"][k]
+      msg("    lag %2d (%4.0f um)  I = %+.4f  p = %.3f  (%d pairs)",
+          r$lag, r$dist_um, r$I, r$perm_p, r$n_pairs)
+    }
+    # 12 lags x 3 fields per sample. An isolated lag at p ~ 0.01 is what that many
+    # tests produce on a null field, so the shape of the curve is the evidence and
+    # a single flagged lag is not. BH within each field makes that explicit.
+    cg[, perm_q := p.adjust(perm_p, "BH"), by = field]
+    xr_cg <- cg[field == "x_ratio"]
+    first_ns <- xr_cg[perm_p >= 0.05, min(lag)]
+
+    # The decay length, reported because it is the number people ask for, and
+    # caveated because the curve has no knee. An exponential fit to a monotone
+    # decline always returns a length; that length is a description of a
+    # GRADIENT, not evidence of a characteristic scale. A real scale would show
+    # as a knee - a plateau then a drop - and would survive changing MAX_LAG.
+    pos <- xr_cg[I > 0]
+    if (nrow(pos) >= 4) {
+      ef <- stats::lm(log(I) ~ lag, data = pos)
+      b  <- unname(stats::coef(ef)[2]); r2 <- summary(ef)$r.squared
+      if (b < 0 && r2 >= 0.5) {
+        msg("  e-folding length %.0f um (R2 = %.2f on log I ~ lag). A LENGTH, not a scale:",
+            -TILE_UM / b, r2)
+        msg("    with no knee in the curve this describes a gradient's steepness only.")
+      } else if (b < 0) {
+        msg("  no usable decay length: log I ~ lag fits at R2 = %.2f, so the curve", r2)
+        msg("    is not an exponential decline and the number would be meaningless.")
+      }
+    }
+    if (is.finite(first_ns)) {
+      msg("  -> chrX I first reaches the null at lag %d (%.0f um).",
+          first_ns, first_ns * TILE_UM)
+      msg("     That is a correlation length, NOT a patch size - there is no")
+      msg("     mosaic in this cross. See the note above this block.")
+    } else {
+      msg("  -> chrX I is still above the null at lag %d (%.0f um): no decay",
+          MAX_LAG, MAX_LAG * TILE_UM)
+      msg("     within the range tested. A gradient, not a scale. Raise MAX_LAG.")
+    }
+    ac <- cg[field == "a_ratio" & perm_q < 0.05]
+    if (nrow(ac)) {
+      msg("  WARNING: the autosomal control is non-null after BH at lag(s) %s.",
+          paste(ac$lag, collapse = ", "))
+      msg("    The control carries no monoallelic biology, so structure in it is")
+      msg("    technical and the chrX curve is not safe to read at those lags.")
+    } else if (nrow(cg[field == "a_ratio" & perm_p < 0.05])) {
+      msg("  (autosomal control has isolated raw p < 0.05 lag(s) %s, none surviving",
+          paste(cg[field == "a_ratio" & perm_p < 0.05]$lag, collapse = ", "))
+      msg("   BH across lags - consistent with multiple testing, control is clean.)")
+    }
+    correlo[[smp]] <- cg
+  }
   per_tile[[smp]] <- d
 }
 
@@ -258,12 +373,18 @@ summ <- rbindlist(summ); tiles <- rbindlist(per_tile, fill = TRUE)
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 fwrite(summ,  file.path(OUT_DIR, sprintf("tile_spatial_structure_%s.csv", TAG)))
 fwrite(tiles, file.path(OUT_DIR, sprintf("tile_spatial_structure_tiles_%s.csv", TAG)))
+if (length(correlo))
+  fwrite(rbindlist(correlo),
+         file.path(OUT_DIR, sprintf("tile_spatial_correlogram_%s.csv", TAG)))
 
 ##### ---------------------------- PLOTS ----------------------------- #####
 pdf(file.path(OUT_DIR, sprintf("tile_spatial_structure_%s.pdf", TAG)),
     width = 11, height = 5.5)
 gi <- summ[statistic == "morans_I"]
 gi[, variable := factor(variable, unique(variable))]
+# Facet in the order SAMPLES was given (9w then 78w), not alphabetically -
+# "78w" sorts before "9w" as a string and puts aged on the left.
+gi[, sample := factor(sample, SAMPLES[SAMPLES %in% unique(sample)])]
 print(
   ggplot(gi, aes(variable, value, fill = perm_p < 0.05)) +
     geom_col() + facet_wrap(~sample) + coord_flip() +
@@ -276,6 +397,34 @@ print(
                          "\nIf chrX_ratio survives 'ratio | depth' it is not a coverage artefact.",
                          "\nThis is NOT a test for XCI patches - the CAST X is inactive in every cell."),
          x = NULL, y = "Moran's I") + theme_bw())
+
+if (length(correlo)) {
+  cgall <- rbindlist(correlo)
+  cgall[, sample := factor(sample, SAMPLES[SAMPLES %in% unique(sample)])]
+  cgall[, field := factor(field, c("x_ratio", "resid", "a_ratio"),
+                          c("chrX ratio", "chrX ratio | depth + autosomal",
+                            "autosomal ratio (control)"))]
+  print(
+    ggplot(cgall, aes(dist_um, I, colour = field)) +
+      geom_hline(yintercept = 0, linetype = 2, colour = "grey40") +
+      geom_line() +
+      geom_point(aes(shape = perm_p < 0.05), size = 2) +
+      scale_shape_manual(values = c(`TRUE` = 16, `FALSE` = 1),
+                         name = "perm p < 0.05") +
+      scale_colour_manual(values = c("#b02a2a", "#1b6ca8", "grey55"), name = NULL) +
+      facet_wrap(~sample) +
+      labs(title = "Correlogram: Moran's I by ring distance",
+           subtitle = sprintf("Tile side %.0f um; ring lag 1..%d; %d permutations per lag",
+                              TILE_UM, MAX_LAG, NPERM_LAG),
+           caption = paste(
+             "Where the curve meets the dashed null is a CORRELATION LENGTH, not a patch size:",
+             "\nthe CAST X is inactive in every cell, so there are no clonal XCI domains to size.",
+             "\nDecay by lag 1-2 is technical (tile bleed, local depth); persistence to lag 5-10 is regional,",
+             "\nmost plausibly cell-type composition. A straight slow decline with no knee is a gradient, not a scale.",
+             "\nThe control must sit on the null at EVERY lag, or no lag of the chrX curve is safe."),
+           x = "ring distance (um)", y = "Moran's I") +
+      theme_bw() + theme(plot.caption = element_text(size = 7, hjust = 0)))
+}
 
 for (smp in names(per_tile)) {
   d <- per_tile[[smp]]
