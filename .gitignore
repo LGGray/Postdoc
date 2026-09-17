@@ -35,3 +35,8 @@ lncRNA_prediction/modified_coords.txt
 **/.DS_Store
 
 graphify-out/cache/
+# Regenerable scanpy/anndata intermediates. annotated_bins.h5ad alone is 300 MB,
+# over GitHub's 100 MB hard limit, and heart_hd_segmented.py rebuilds it in ~75s.
+**/*.h5ad
+**/__pycache__/
+donato_talk/
