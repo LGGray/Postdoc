@@ -10,9 +10,12 @@
 #SBATCH --clusters=serial
 #SBATCH --partition=serial_std
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16   # serial_std caps at 16; sbatch REJECTS more rather than trimming it
-#SBATCH --mem=64G
-#SBATCH --time=24:00:00      # serial_std hard cap is 24h
+#SBATCH --cpus-per-task=8    # serial_std caps at 16, but 8 is the real need: haplotag is
+                             # single-threaded per contig and 8 workers already cover the
+                             # makespan, which is bound by chr1 alone
+#SBATCH --mem=24G
+#SBATCH --time=8:00:00       # serial_std hard cap is 24h; the run is ~2-4h, and a smaller
+                             # ask backfills far sooner
 
 # Allele-specific ChIP-seq tracks for IGV.
 #
@@ -61,8 +64,9 @@ VCF=$ROOT/mouse_SNP/SNPfile_C57BL6_NJ_CAST_EiJ.vcf.gz
 OUT=$WORK/igv
 TMP=${SCRATCH:-$WORK}/whatshap_${MARK}_${SLURM_JOB_ID:-manual}
 
-NPROC=${SLURM_CPUS_PER_TASK:-16}
-JOBS=8                                                  # haplotag processes in flight
+NPROC=${SLURM_CPUS_PER_TASK:-8}
+JOBS=$(( NPROC < 8 ? NPROC : 8 ))                       # haplotag processes in flight; more
+                                                        # than 8 buys little with 20 contigs
 THRD_PER_JOB=$(( NPROC / JOBS )); THRD_PER_JOB=$(( THRD_PER_JOB > 0 ? THRD_PER_JOB : 1 ))
 
 mkdir -p "$OUT" "$TMP"
@@ -147,7 +151,7 @@ whatshap split \
   "$BAM" "$TMP/haplotag_list.tsv"
 
 for allele in B6 CAST; do
-  samtools sort -@ "$NPROC" -m 2G -o "$OUT/${MARK}_${allele}.bam" "$TMP/${MARK}_${allele}.bam"
+  samtools sort -@ "$NPROC" -m 1G -o "$OUT/${MARK}_${allele}.bam" "$TMP/${MARK}_${allele}.bam"
   samtools index -@ "$NPROC" "$OUT/${MARK}_${allele}.bam"
   rm -f "$TMP/${MARK}_${allele}.bam"
 done
