@@ -130,7 +130,13 @@ THRD_PER_JOB=$(( NPROC / JOBS )); THRD_PER_JOB=$(( THRD_PER_JOB > 0 ? THRD_PER_J
 
 mkdir -p "$OUT" "$TMP"
 
+# conda's activate.d hooks reference unset variables (ADDR2LINE and friends in
+# activate-binutils_linux-64.sh), so -u has to come off across the activation and go
+# back on only if it was on to begin with.
+case $- in *u*) _restore_u=1 ;; *) _restore_u=0 ;; esac
+set +u
 conda activate RNAseq
+if [[ $_restore_u == 1 ]]; then set -u; fi
 for tool in whatshap samtools bgzip tabix bamCoverage; do
   command -v "$tool" >/dev/null || echo "MISSING TOOL: $tool is not in the RNAseq env" >&2
 done
