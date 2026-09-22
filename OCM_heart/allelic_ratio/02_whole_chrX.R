@@ -118,56 +118,68 @@ bin_labels <- c(
   "0.95–1.00"
 )
 
-subset_heart_flt$allelic_bin <- cut(
-  subset_heart_flt$allelic_ratio,
+# The UMAP is coloured by the FOLDED ratio, ar_dom = max(A1, A2) / total, so
+# that 0.5 reads as biallelic and 1.0 as monoallelic whichever allele won. The
+# directional allelic_ratio puts biallelic in the middle of the scale, where it
+# is the hardest bin to pick out, which is the whole point of the plot.
+#
+# ar_dom is DISPLAY ONLY and is deliberately not written back over
+# allelic_ratio: the dispersion LRTs, frac_escaping and the
+# whole_chr_cell_metadata.txt handoff that 03 and 05 read all depend on the
+# column keeping the meaning it has in ALLELIC_RATIOS_FILE. Computing it from
+# the read counts rather than from allelic_ratio makes this correct whether
+# that file is the directional Allelome.PRO2 output or the ar_dom table written
+# by 10_build_ratio_table.R -- see 10_build_ratio_table.R:64-68.
+subset_heart_flt$ar_dom <- pmax(subset_heart_flt$A1_reads, subset_heart_flt$A2_reads) /
+  subset_heart_flt$total_reads
+
+# One facetted plot rather than four DimPlots: each DimPlot carried its own
+# discrete colour scale, so plot_layout(guides = "collect") could not merge
+# them and the old figure repeated the same 11-key legend four times.
+ar_umap_tbl <- data.frame(
+  Embeddings(subset_heart_flt, reduction = "umap")[, 1:2],
+  sample = subset_heart_flt$sample,
+  ar_dom = subset_heart_flt$ar_dom
+)
+colnames(ar_umap_tbl)[1:2] <- c("UMAP_1", "UMAP_2")
+ar_umap_tbl$sample <- factor(ar_umap_tbl$sample, levels = names(SAMPLE_COL))
+ar_umap_tbl$allelic_bin <- cut(
+  ar_umap_tbl$ar_dom,
   breaks = my_breaks,
   include.lowest = TRUE,
   right = TRUE,
   labels = bin_labels
 )
 
-
-# plot each sample seperately
-p_9w <- DimPlot(
-  subset(subset_heart_flt, subset = sample == "9w"),
-  reduction = "umap",
-  group.by = "allelic_bin"
-) + ggtitle("9w")
-
-p_78w <- DimPlot(
-  subset(subset_heart_flt, subset = sample == "78w"),
-  reduction = "umap",
-  group.by = "allelic_bin"
-) + ggtitle("78w")
-
-p_Sham <- DimPlot(
-  subset(subset_heart_flt, subset = sample == "Sham"),
-  reduction = "umap",
-  group.by = "allelic_bin"
-) + ggtitle("Sham")
-
-p_TAC <- DimPlot(
-  subset(subset_heart_flt, subset = sample == "TAC"),
-  reduction = "umap",
-  group.by = "allelic_bin"
-) + ggtitle("TAC")
-
-# Plot all samples together with patchwork
+# drop = FALSE keeps the empty 0.00-0.50 keys in the legend on purpose: the
+# folded scale cannot reach them, and showing that the data all sits in the top
+# half of the range is the point.
 library(patchwork)
-p_all_samples <- (p_9w | p_78w) / (p_Sham | p_TAC) &
-  scale_color_manual(
-    values   = my_colors,
+p_all_samples <- ggplot(ar_umap_tbl, aes(UMAP_1, UMAP_2, colour = allelic_bin)) +
+  geom_point(size = 0.5, alpha = 0.9) +
+  scale_colour_manual(
+    values   = setNames(my_colors, bin_labels),
     drop     = FALSE,
-    na.value = "grey70"
-  ) &
-  patchwork::plot_layout(guides = "collect") &
-  theme(legend.position = "right")
+    na.value = "grey70",
+    name     = "chrX allelic ratio\n(dominant allele)",
+    guide    = guide_legend(override.aes = list(size = 3))
+  ) +
+  facet_wrap(~sample, nrow = 2) +
+  coord_equal() +
+  labs(title = "Whole-chrX allelic ratio per nucleus on the UMAP",
+       subtitle = sprintf(paste("Folded to the dominant allele, so 0.5 is biallelic",
+                                "and 1.0 monoallelic; nuclei with >= %d",
+                                "SNP-overlapping chrX reads"),
+                          MIN_TOTAL_READS)) +
+  theme_bw() +
+  theme(axis.text = element_blank(), axis.ticks = element_blank(),
+        plot.subtitle = element_text(size = 8, colour = "grey30"))
 
 ggsave(
   filename = file.path(CUTOFF_DIR, "allelic_ratio_umap_plot_split_by_sample.pdf"),
   plot = p_all_samples,
   width = 10,
-  height = 7
+  height = 8
 )
 
 
@@ -334,63 +346,37 @@ dev.off()
 
 violin_tbl <- metadata_whole_chr  %>%
   mutate(
-    sample = factor(sample, levels = c("9w", "78w", "Sham", "TAC")),
+    sample = factor(sample, levels = names(SAMPLE_COL)),
     sample_idx = as.numeric(sample)
   )
 
-violin_ymax <- violin_tbl %>%
-  group_by(celltype) %>%
-  summarise(y_top = max(allelic_ratio, na.rm = TRUE), .groups = "drop")
-
-violin_ann <- bind_rows(
-  adult_vs_aged_lrt %>%
-    transmute(celltype, comp = "aa", x1 = 1, x2 = 2, star = fdr_to_stars(FDR)),
-  Sham_vs_TAC_lrt %>%
-    transmute(celltype, comp = "st", x1 = 3, x2 = 4, star = fdr_to_stars(FDR))
-) %>%
-  inner_join(violin_ymax, by = "celltype") %>%
-  mutate(comp = factor(comp, levels = c("aa", "st"))) %>%
-  group_by(celltype) %>%
-  arrange(comp, .by_group = TRUE) %>%
-  mutate(
-    y = pmin(1.10, y_top + 0.04 + (row_number() - 1) * 0.07),
-    y_tick = y - 0.02,
-    x_mid = (x1 + x2) / 2
-  ) %>%
-  ungroup()
-
+# The significance brackets that used to sit on top of these violins are gone.
+# There is one animal per condition, so the dispersion LRT treats nuclei as
+# replicates; whole_chr_*_dispersion_FPR.txt puts the false positive rate at
+# 8-81% depending on the cell type. The LRT tables are still written above,
+# where the FPR calibration sits next to them - stars on a figure travel
+# without it. Read these violins descriptively.
+# Plotted on ar_dom, not allelic_ratio, for the same reason as the UMAP above,
+# plus one that is specific to this figure: with trim = FALSE the kernel is
+# drawn out to whatever `bounds` allows, so bounds = c(0, 1) on folded data
+# grew a long thin tail down to zero in every panel even though no nucleus sits
+# below 0.5. Folding first makes c(0.5, 1) the honest bound on either tree.
+#
+# ALLELIC_RATIOS_FILE is directional in Allelic_ratio_results but is already
+# ar_dom in Allelic_ratio_results_nodoublet, where 10_build_ratio_table.R wrote
+# it; on that tree this is a no-op on the values and only fixes the axis.
 pdf(file.path(CUTOFF_DIR, 'whole_chr_allelic_ratio_celltype_violin_plot_facet_wrap.pdf'))
-ggplot(violin_tbl, aes(x = sample_idx, y = allelic_ratio, fill = sample)) +
-  geom_violin(trim = FALSE, scale = "width", bounds = c(0, 1)) +
-  geom_segment(data = violin_ann,
-               aes(x = x1, xend = x2, y = y, yend = y),
-               inherit.aes = FALSE,
-               color = "black",
-               linewidth = 0.3) +
-  geom_segment(data = violin_ann,
-               aes(x = x1, xend = x1, y = y_tick, yend = y),
-               inherit.aes = FALSE,
-               color = "black",
-               linewidth = 0.3) +
-  geom_segment(data = violin_ann,
-               aes(x = x2, xend = x2, y = y_tick, yend = y),
-               inherit.aes = FALSE,
-               color = "black",
-               linewidth = 0.3) +
-  geom_text(data = violin_ann,
-            aes(x = x_mid, y = y + 0.01, label = star),
-            inherit.aes = FALSE,
-            color = "black",
-            size = 3.2,
-            vjust = 0) +
+ggplot(violin_tbl, aes(x = sample_idx, y = ar_dom, fill = sample)) +
+  geom_violin(trim = FALSE, scale = "width", bounds = c(0.5, 1)) +
+  geom_hline(yintercept = MONO_AR, linetype = 2, linewidth = 0.3, colour = "grey40") +
   facet_wrap(~celltype, labeller = label_wrap_gen(width = 18)) +
   scale_x_continuous(breaks = 1:4, labels = levels(violin_tbl$sample)) +
-  scale_y_continuous(breaks = c(0, 0.3, 0.6, 0.9, 1.0)) +
-  coord_cartesian(ylim = c(0, 1.12), clip = "off") +
-  labs(y = "Allelic ratio", x = NULL) +
+  scale_y_continuous(breaks = c(0.5, 0.6, 0.7, 0.8, 0.9, 1.0)) +
+  scale_fill_manual(values = SAMPLE_COL, drop = FALSE) +
+  coord_cartesian(ylim = c(0.5, 1), clip = "off") +
+  labs(y = "Allelic ratio (dominant allele)", x = NULL) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1),
-        plot.margin = margin(5.5, 18, 5.5, 5.5),
         legend.position = "none")
 dev.off()
 

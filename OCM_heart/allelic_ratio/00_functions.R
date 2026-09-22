@@ -177,6 +177,17 @@ stopifnot(!is.na(MIN_TOTAL_READS), MIN_TOTAL_READS >= 1)
 # which matches the right = TRUE binning in spatial/tile_ratio_map.R.
 MONO_AR <- 0.90
 
+# Condition palette, defined ONCE for the same reason as MONO_AR above: every
+# script here fills by sample, and they used to fall back on the ggplot2 hue
+# defaults, which collide with the allelic-ratio scale. Sampled from the Nature
+# Reviews escape-gene figure, ordered so each arm runs light -> dark: the age
+# arm is tan (9w) -> navy (78w), the surgical arm is grey (Sham) -> steel (TAC).
+# Matches OCM_heart/visualising_data.R.
+SAMPLE_COL <- c("9w"   = "#E0C99A",
+                "78w"  = "#1B3C4F",
+                "Sham" = "#DBDDDF",
+                "TAC"  = "#8399A5")
+
 # Which Allelome.PRO2 tree the results were built from. Everything below hangs
 # off this, so pointing 02-08 at the deduplicated tree is one variable, not a
 # fork of 982 lines:
