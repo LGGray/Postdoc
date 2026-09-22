@@ -1,4 +1,5 @@
 library(Seurat)
+library(ggplot2)
 library(ddqcR)
 library(glmGamPoi)
 library(SingleCellExperiment)
@@ -459,8 +460,21 @@ celltype <- c('Fibroblasts', 'Ventricular Cardiomyocytes', 'Endothelial cells',
 names(celltype) <- levels(heart)
 heart <- RenameIdents(heart, celltype)
 
+# Nuclei counts go in the title so the UMAP carries its own n. sample is a
+# factor with levels 9w, 78w, Sham, TAC, so table() comes back in that order.
+n_by_sample <- table(heart$sample)
+umap_title <- sprintf("%s nuclei", format(ncol(heart), big.mark = ","))
+umap_subtitle <- paste(sprintf("%s %s", names(n_by_sample),
+                               formatC(as.integer(n_by_sample), big.mark = ",",
+                                       format = "d")),
+                       collapse = "  |  ")
+
 pdf("Heart_UMAP_celltypes.pdf")
-DimPlot(heart, reduction = "umap", label = TRUE, raster = FALSE) + theme(legend.position = "none")
+DimPlot(heart, reduction = "umap", label = TRUE, repel = TRUE, raster = FALSE) +
+  labs(title = umap_title, subtitle = umap_subtitle) +
+  theme(legend.position = "none",
+        plot.title = element_text(hjust = 0.5, size = 12),
+        plot.subtitle = element_text(hjust = 0.5, size = 9, colour = "grey30"))
 dev.off()
 
 saveRDS(heart, file = "heart_seurat_object_SCT.rds")

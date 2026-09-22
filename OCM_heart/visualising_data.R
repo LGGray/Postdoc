@@ -2,6 +2,17 @@ library(Seurat)
 library(ggplot2)
 library(patchwork)
 
+# Four-group palette, sampled from the Nature Reviews escape-gene figure
+# (light grey / tan / steel blue / navy). Deliberately not the ggplot2 hue
+# defaults, and ordered so each arm runs light -> dark: the age arm is tan
+# (9w) -> navy (78w), the surgical arm is grey (Sham) -> steel (TAC).
+# Repeated inline rather than sourced because this script is run from the data
+# directory, the same reason hypertrophy_markers_vln.R carries its own copy.
+SAMPLE_COL <- c('9w'   = '#E0C99A',
+                '78w'  = '#1B3C4F',
+                'Sham' = '#DBDDDF',
+                'TAC'  = '#8399A5')
+
 heart <- readRDS('heart_seurat_object_SCT.rds')
 heart$celltype <- Idents(heart)
 
@@ -15,8 +26,12 @@ if (!'percent.mt' %in% colnames(heart[[]])) {
 qc_features <- c('nCount_RNA', 'nFeature_RNA', 'percent.mt')
 qc_titles <- c('UMI count', 'Number of features', 'Mitochondrial %')
 
+# group.by is 'sample', so the violin fills take SAMPLE_COL in level order.
+qc_cols <- SAMPLE_COL[levels(droplevels(factor(heart[[group_var, drop = TRUE]])))]
+
 violins <- lapply(seq_along(qc_features), function(i) {
-  VlnPlot(heart, features = qc_features[i], group.by = group_var, pt.size = 0) +
+  VlnPlot(heart, features = qc_features[i], group.by = group_var, pt.size = 0,
+          cols = qc_cols) +
     ggtitle(qc_titles[i]) +
     labs(x = NULL, y = NULL) +
     NoLegend() +
@@ -115,7 +130,7 @@ hyper_markers <- intersect(hyper_markers, rownames(cm))
 
 # per-gene violins, Sham vs TAC, ventricular cardiomyocytes only
 cm_vln <- VlnPlot(vcm, features = hyper_markers, group.by = 'sample',
-                  pt.size = 0, ncol = 3, cols = c('#f4a582', '#2b8a8a')) &
+                  pt.size = 0, ncol = 3, cols = SAMPLE_COL[c('Sham', 'TAC')]) &
   labs(x = NULL) &
   NoLegend()
 cm_vln <- cm_vln + plot_annotation(title = 'Ventricular cardiomyocytes: Sham vs TAC')
@@ -174,7 +189,7 @@ fib <- subset(heart, subset = celltype == 'Fibroblasts' & sample %in% c('Sham', 
 fib$sample <- factor(fib$sample, levels = c('Sham', 'TAC'))
 
 fib_vln <- VlnPlot(fib, features = fibro_markers, group.by = 'sample',
-                   pt.size = 0, ncol = 3, cols = c('#f4a582', '#2b8a8a')) &
+                   pt.size = 0, ncol = 3, cols = SAMPLE_COL[c('Sham', 'TAC')]) &
   labs(x = NULL) &
   NoLegend()
 fib_vln <- fib_vln + plot_annotation(title = 'Fibroblasts: Sham vs TAC')
