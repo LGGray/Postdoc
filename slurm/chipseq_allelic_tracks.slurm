@@ -23,11 +23,11 @@
 #     -> whatshap haplotag  (B6/CAST SNPs as a pseudo-phased VCF, one chromosome per core)
 #     -> whatshap split     -> <MARK>_B6.bam   (H1 = REF = B6   = maternal)
 #                           -> <MARK>_CAST.bam (H2 = ALT = CAST = paternal)
-#     -> bamCoverage        -> <MARK>_B6.bw    (blue)
-#                           -> <MARK>_CAST.bw  (red), same scale factor
+#     -> bamCoverage        -> <MARK>_B6.bw    (red)
+#                           -> <MARK>_CAST.bw  (blue), same scale factor
 #
 # The session XML overlays the two into one IGV row (a MergedTracks element, which IGV
-# draws at 50% alpha): blue where B6 dominates, red where CAST does, purple where they
+# draws at 50% alpha): red where B6 dominates, blue where CAST does, purple where they
 # match. Both bigWigs are therefore POSITIVE - do not negate CAST, or the overlay puts
 # one allele off the bottom of the panel.
 #
@@ -252,16 +252,16 @@ cat > "$OUT/${MARK}_allelic_session.xml" <<XML
   </Resources>
   <Panel name="DataPanel">
     <Track clazz="org.broad.igv.track.MergedTracks" id="${MARK}_allelic" attributeKey="${MARK} allelic"
-           name="${MARK}  B6 blue / CAST red" alpha="0.5" autoScale="false"
+           name="${MARK}  B6 red / CAST blue" alpha="0.5" autoScale="false"
            renderer="BAR_CHART" height="90" visible="true">
       <DataRange minimum="0.0" baseline="0.0" maximum="${MAXV}.0" type="LINEAR"/>
       <Track clazz="org.broad.igv.track.DataSourceTrack" id="${MARK}_B6.bw" attributeKey="${MARK}_B6.bw"
-             name="B6 (maternal, Xa)" color="0,90,181" autoScale="false"
+             name="B6 (maternal, Xa)" color="188,34,13" autoScale="false"
              renderer="BAR_CHART" windowFunction="mean" visible="true">
         <DataRange minimum="0.0" baseline="0.0" maximum="${MAXV}.0" type="LINEAR"/>
       </Track>
       <Track clazz="org.broad.igv.track.DataSourceTrack" id="${MARK}_CAST.bw" attributeKey="${MARK}_CAST.bw"
-             name="CAST (paternal, Xi)" color="220,50,32" autoScale="false"
+             name="CAST (paternal, Xi)" color="48,74,153" autoScale="false"
              renderer="BAR_CHART" windowFunction="mean" visible="true">
         <DataRange minimum="0.0" baseline="0.0" maximum="${MAXV}.0" type="LINEAR"/>
       </Track>

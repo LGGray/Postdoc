@@ -39,12 +39,12 @@
 #   He_Sham  He_TACSham28d_RNA_XistBxC_-+_XX_{1,2,3}  XistBxC -+ Xist deleted on B6
 #   He_TAC   He_TAC28d_RNA_XistBxC_-+_XX_{1,2,3}      XistBxC -+ Xist deleted on B6
 #
-# So the red (CAST) bar means two different things:
+# So the blue (CAST) bar means two different things:
 #
 #   Sham/TAC   XCI is skewed - CAST is the inactive X in every cell, so CAST signal on
 #              chrX is escape, exactly as in the H3K27ac track.
 #   9w/78w     XCI is random - each cell silenced a different X, and a whole heart is a
-#              mosaic. chrX sits near 50:50 whatever the escape level is, so a red bar
+#              mosaic. chrX sits near 50:50 whatever the escape level is, so a blue bar
 #              here is NOT escape and the two pairs must not be read off against each
 #              other. Xist itself is the giveaway: skewed in Sham/TAC, biallelic-looking
 #              in 9w/78w.
@@ -298,16 +298,16 @@ XML
     IFS='|' read -r c _ g <<< "$entry"
     cat <<XML
     <Track clazz="org.broad.igv.track.MergedTracks" id="${c}_allelic" attributeKey="${c}"
-           name="${c}  [${g}]  B6 blue / CAST red" alpha="0.5" autoScale="false"
+           name="${c}  [${g}]  B6 red / CAST blue" alpha="0.5" autoScale="false"
            renderer="BAR_CHART" height="70" visible="true">
       <DataRange minimum="0.0" baseline="0.0" maximum="${MAXV}.0" type="LINEAR"/>
       <Track clazz="org.broad.igv.track.DataSourceTrack" id="${c}_B6.bw" attributeKey="${c}_B6.bw"
-             name="${c} B6" color="0,90,181" autoScale="false"
+             name="${c} B6" color="188,34,13" autoScale="false"
              renderer="BAR_CHART" windowFunction="mean" visible="true">
         <DataRange minimum="0.0" baseline="0.0" maximum="${MAXV}.0" type="LINEAR"/>
       </Track>
       <Track clazz="org.broad.igv.track.DataSourceTrack" id="${c}_CAST.bw" attributeKey="${c}_CAST.bw"
-             name="${c} CAST" color="220,50,32" autoScale="false"
+             name="${c} CAST" color="48,74,153" autoScale="false"
              renderer="BAR_CHART" windowFunction="mean" visible="true">
         <DataRange minimum="0.0" baseline="0.0" maximum="${MAXV}.0" type="LINEAR"/>
       </Track>

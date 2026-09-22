@@ -169,12 +169,12 @@ XML
            renderer="BAR_CHART" height="80" visible="true">
       <DataRange minimum="0.0" baseline="0.0" maximum="${max}" type="LINEAR"/>
       <Track clazz="org.broad.igv.track.DataSourceTrack" id="${lab}_B6.bw" attributeKey="${lab}_B6.bw"
-             name="${lab} B6" color="0,90,181" autoScale="false"
+             name="${lab} B6" color="188,34,13" autoScale="false"
              renderer="BAR_CHART" windowFunction="mean" visible="true">
         <DataRange minimum="0.0" baseline="0.0" maximum="${max}" type="LINEAR"/>
       </Track>
       <Track clazz="org.broad.igv.track.DataSourceTrack" id="${lab}_CAST.bw" attributeKey="${lab}_CAST.bw"
-             name="${lab} CAST" color="220,50,32" autoScale="false"
+             name="${lab} CAST" color="48,74,153" autoScale="false"
              renderer="BAR_CHART" windowFunction="mean" visible="true">
         <DataRange minimum="0.0" baseline="0.0" maximum="${max}" type="LINEAR"/>
       </Track>
