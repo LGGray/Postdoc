@@ -152,15 +152,12 @@ lev <- levels(sel$gene)
 # actually falls inside that facet's gene range - a facet holding no distal
 # gene would otherwise get a line pinned against its edge.
 q_start <- CHRX_LEN - DISTAL_Q_MB * 1e6
-bounds <- sel %>%
-  distinct(class, gene, start) %>%
-  arrange(class, start) %>%
-  group_by(class) %>%
-  summarise(n = n(),
-            b_p = sum(start <= DISTAL_P_MB * 1e6) + 0.5,
-            b_q = sum(start <  q_start) + 0.5, .groups = "drop") %>%
-  tidyr::pivot_longer(c(b_p, b_q), values_to = "xint") %>%
-  filter(xint > 0.5, xint < n + 0.5)
+gene_pos <- sel %>% distinct(gene, start) %>% arrange(start)
+bounds <- tibble::tibble(
+  xint = c(sum(gene_pos$start <= DISTAL_P_MB * 1e6),
+           sum(gene_pos$start <  q_start)) + 0.5
+) %>%
+  filter(xint > 0.5, xint < nrow(gene_pos) + 0.5)
 
 # strwrap, because the caption is laid out against the plot width and a long
 # line is silently clipped at the device edge rather than wrapped.
@@ -168,7 +165,7 @@ wrap <- function(x, width = 155) paste(strwrap(x, width = width), collapse = "\n
 CAPTION <- paste(
   wrap(sprintf("Tiles are one gene x cell type x group pseudobulk at >= %d SNP-overlapping reads; blank = below that cutoff, not necessarily silent. AR is the B6 (active X) fraction, so low = biallelic = escape, and the boundary used throughout the repo is %.2f.",
                ESC_MIN_READS, ESCAPE_AR)),
-  wrap(sprintf("Genes are selected on escape rather than on coverage: %d escaping in >= %.0f%% of >= %d measured tiles, plus %d escaping in every measured group of at least one cell type (>= %d groups). %d of the %d genes in ESCAPE_GENES are recovered.",
+  wrap(sprintf("Genes are selected on escape rather than on coverage: %d escaping in >= %.0f%% of >= %d measured tiles, plus %d escaping in every measured group of at least one cell type (>= %d groups), named in purple. %d of the %d genes in ESCAPE_GENES are recovered.",
                length(consistent), 100 * ESC_MIN_FRAC, ESC_MIN_TILES,
                length(restricted), ESC_CT_MIN_GROUPS,
                length(intersect(c(consistent, restricted), ESCAPE_GENES)),
@@ -177,7 +174,7 @@ CAPTION <- paste(
     wrap(sprintf("CAUTION: %s below AR %.2f, i.e. expressed from CAST only. CAST is the inactive X in every nucleus here, so that is a mapping or annotation artefact, not escape.",
                  paste(sprintf("%s sits", cast_only$gene), collapse = " and "),
                  BIALLELIC_FLOOR)),
-  wrap(sprintf("Genes run left to right by chrX coordinate within each panel; dashed lines mark the distal window, the first %g Mb plus the last %g Mb of the chromosome.",
+  wrap(sprintf("Genes run left to right by chrX coordinate; dashed lines mark the distal window, the first %g Mb plus the last %g Mb of the chromosome.",
                DISTAL_P_MB, DISTAL_Q_MB)),
   "One animal per group, so the four rows differ descriptively only.",
   sep = "\n")
@@ -188,23 +185,22 @@ p <- ggplot(sel, aes(gene, celltype, fill = ar)) +
   geom_vline(data = bounds, aes(xintercept = xint),
              inherit.aes = FALSE, colour = "#B5540F",
              linetype = 2, linewidth = 0.5) +
-  # scales = "free_x" + space = "free_x" so the two arms share a tile width
-  # despite holding very different numbers of genes; free_y so a group only
-  # shows the cell types it actually has.
-  facet_grid(rows = vars(sample), cols = vars(class),
-             scales = "free", space = "free",
-             switch = "y",
-             labeller = labeller(sample = SAMPLE_LAB, class = CLASS_LAB)) +
+  # One block, not one panel per selection arm. Splitting the arms broke the
+  # gene axis into two independent coordinate runs, which is exactly the
+  # misreading the position ordering was meant to fix; which arm a gene came
+  # from is carried by its label colour instead. free_y so a group only shows
+  # the cell types it actually has, space = "free_y" to keep tile height equal.
+  facet_grid(rows = vars(sample), scales = "free_y", space = "free_y",
+             switch = "y", labeller = labeller(sample = SAMPLE_LAB)) +
   ar_fill_cont() +
   scale_x_discrete(drop = TRUE) +
   scale_y_discrete(limits = rev, drop = TRUE) +
   labs(x = NULL, y = NULL,
        title = "chrX escape per gene and cell type: adult, Sham, TAC, aged",
-       subtitle = wrap(sprintf("%d of %d measured chrX genes, ordered by chrX position within each panel; one column per gene, so spacing is order, not Mb. Bold = previously reported escaper, dashed = distal window boundary",
+       subtitle = wrap(sprintf("%d of %d measured chrX genes, ordered by chrX position; one column per gene, so spacing is order, not Mb. Bold = previously reported escaper, purple = cell-type restricted, dashed = distal window boundary",
                                length(lev), n_distinct(pbg$gene)), 125),
        caption = CAPTION) +
   theme(panel.grid = element_blank(),
-        panel.spacing.x = unit(8, "pt"),
         legend.position = "right",
         axis.text.y = element_text(size = 9),
         axis.ticks.x = element_blank(),
@@ -212,7 +208,7 @@ p <- ggplot(sel, aes(gene, celltype, fill = ar)) +
         strip.text.y.left = element_text(angle = 0, face = "bold", size = 13),
         axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 9,
                                    face = ifelse(lev %in% ESCAPE_GENES, "bold", "plain"),
-                                   colour = "grey25"))
+                                   colour = ifelse(lev %in% restricted, "#7B3294", "grey25")))
 
 save_fig(p, "AP2_chrX_four_group_escape_heatmap",
          max(9, 0.34 * length(lev) + 4), 9)
