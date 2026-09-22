@@ -34,7 +34,26 @@ COMMON <- Sys.getenv("AP2_COMMON", file.path(CL, "Postdoc", "OCM_heart", "ap2_ps
 SAMPLES   <- strsplit(Sys.getenv("GROUPS", "9w,78w"), ",")[[1]]
 MIN_READS <- as.integer(Sys.getenv("MIN_READS", "20"))   # SNP-overlapping reads per gene
 MIN_SNP   <- as.integer(Sys.getenv("MIN_SNP", "1"))      # informative SNPs per gene
-PRIOR_ESCAPE <- 0.127     # snRNA/spatial estimate the pooled result should reproduce
+# The escape figure the multiome is checked against. NOT 0.127.
+#
+# 12.7% was the chromosome-wide snRNA/spatial number and ANALYSIS_PLAN.md step
+# 4 still quotes it as the gate. spatial/NEXT_ANALYSIS.md:386-411 retracts it:
+# splitting the same molecules by whether they sit inside an annotated gene
+# body shows non-genic chrX is 16% of chrX and carries 60% of its CAST signal,
+# sitting at the autosomal value, with chrX:11.5-11.6Mb alone - no annotated
+# gene - contributing 42% of all chrX CAST molecules at 9w. Seven further genes
+# score above 45% CAST, which is impossible for escape (that would be the
+# inactive X out-expressing the active one). The three nested figures are:
+#
+#     0.127   chrX whole, chromosome-wide          <- retracted, do not quote
+#     0.061   chrX inside annotated gene bodies
+#     0.029   the above, artefact loci excluded    <- the biological estimate
+#
+# Leading hypothesis for the artefacts is that the SNP bed is C57BL/6NJ x CAST
+# while the reference is GRCm39 = C57BL/6J, so a genuine B6 read scores as CAST
+# wherever 6NJ is non-reference. The same loci (Gm14719, Llph-ps2, Gm53059)
+# reappear in this multiome data, which is independent support for that.
+PRIOR_ESCAPE <- as.numeric(Sys.getenv("PRIOR_ESCAPE", "0.029"))
 AUTOSOMES <- paste0("chr", 1:19)
 ANNOT     <- "annotation_us_mm39_gene_level.bed"
 dir.create(OUT, recursive = TRUE, showWarnings = FALSE)

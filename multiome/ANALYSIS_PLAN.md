@@ -199,7 +199,13 @@ silenced. So the CAST X is the inactive X in **100% of nuclei** - fully
 skewed, non-mosaic, no patch structure. That is what makes the readouts clean:
 
 - **RNA**: CAST fraction on chrX *is* the escape level. Prior snRNA/spatial
-  work in this project puts it near 12.7%, and flat between 9w and 78w.
+  work in this project put it near 12.7%, **and that figure is retracted** -
+  see `spatial/NEXT_ANALYSIS.md:386-411`. It was chromosome-wide and mostly two
+  artefacts: non-genic chrX is 16% of the chromosome but carries 60% of its
+  CAST signal at the autosomal value, and seven genes score above the 50% that
+  escape cannot exceed. The nested figures are 12.7% chromosome-wide, 6.1%
+  inside gene bodies, **2.9% once the artefact loci are dropped**. Use 2.9%.
+  Flat between 9w and 78w in the spatial data.
 - **ATAC**: CAST fraction over chrX peaks is accessibility *of the inactive
   X*. This is the axis multiome adds and RNA alone cannot give. Expect a low
   genome-wide CAST fraction on chrX with focal accessibility at escape genes.
@@ -337,15 +343,47 @@ density calculation already exists in the project.
    mapping-bias baseline under identical filters and SNP set. Autosomes should
    sit at 0.5; the offset is the correction chrX needs, which supersedes
    borrowing OCM's estimate from `11_autosomal_control.R`.
-   **Gate:** does chrX reproduce the ~12.7% from the snRNA/spatial work? If
-   not, stop and find out why before building anything on top.
+   **Gate: PASSED, against the revised figure rather than the one originally
+   written here.** The gate was "does chrX reproduce ~12.7%", and it does not -
+   but 12.7% is retracted (see the genetic-system section above). Against the
+   corrected 2.9%, the gene-level pseudobulk gives **2.9% (9w) and 4.0% (78w)**
+   bias-corrected, and 2.7%/3.8% with the artefact loci dropped. The 9w number
+   lands within 0.15 pp of the spatial estimate on a different platform,
+   chemistry and aligner, which is the strongest validation the escape
+   measurement has. The per-gene ranking is independently sensible - Kdm6a,
+   Ddx3x, Kdm5c, Jpx, Eif2s3x, Pbdc1, Ftx - and the same artefact loci
+   (Gm14719, Llph-ps2, Gm53059) reappear, which is cross-platform support for
+   the B6NJ-vs-B6J SNP-bed hypothesis.
 5. Joint WNN cell typing, against the cardiac labels in
    `OCM_heart/Seurat_preprocessing.R`. Everything per-celltype blocks on this,
    because `sinto filterbarcodes` needs a barcode->group `cell_index.txt`.
 6. Per-celltype Allelome.PRO2 via `sinto`, reusing the `scAllelome_*.slurm`
    GNU-parallel pattern - but those target cm4_tiny at 110 cpus and will need
    the serial_std 16-cpu treatment.
-7. Allelic ATAC. New work: peaks as the annotation rather than genes, `-q 30`
-   not `-q 255`, and no UMIs so deduplication is positional only.
+7. Allelic ATAC. New work: `-q 30` not `-q 255`, and no UMIs so deduplication
+   is positional only. `slurm/multiome_allelome_atac.slurm` ran this at
+   **chromosome level, not peak level**, deliberately - the same annotation the
+   GEX run used, so the two are comparable against one denominator. DONE for
+   both samples, per cell type and per nucleus.
+   **Note it writes to `$SCRATCH` and has NO copy-back stage**, so its output
+   has to be rsynced to `adult_aged_multiome/multiome_allelome_atac/` by hand
+   before `08_atac_allelome.R` can read it.
+   Result: Xi accessibility is **0.29-0.49** across cell types (bias-corrected,
+   where 0.5 = Xi as accessible as Xa) against RNA escape of 0.025-0.075 in the
+   same cells - a 4.5-20x gap. The inactive X is far more accessible than it is
+   transcribed, which is the axis RNA alone cannot give. Peaks are the
+   follow-up and need a union peak set: 9w called 52,231 peaks and 78w 71,694,
+   so a per-peak age contrast cannot use each sample's own.
 8. Peak-to-gene linkage, then ask whether escape genes differ from
-   non-escape chrX genes in Xi accessibility and in enhancer usage.
+   non-escape chrX genes in Xi accessibility and in enhancer usage. NOT STARTED
+   - blocked on the union peak set decision in step 7.
+
+## Scripts, and which of them have been run
+
+| script | wrapper | state |
+|---|---|---|
+| `01`-`04` QC, clustering, Signac joint | `multiome_qc_barcodes`, `multiome_cluster_umap`, `multiome_signac_joint`, `multiome_figures` | run |
+| `05_allelome_plots.R` | `multiome_allelome_plots.slurm` | run |
+| `06_gene_level_escape.R` | `multiome_gene_level_escape.slurm` | **never run** - the Allelome.PRO2 side ran 2026-09-11, the analysis side has no output |
+| `07_celltype_ar_violin.R` | none (run by hand) | run |
+| `08_atac_allelome.R` | `multiome_atac_plots.slurm` | **never run** - needs the scratch rsync first |

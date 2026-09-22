@@ -46,7 +46,31 @@ dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 SAMPLES    <- c("9w", "78w")
 ANNOT_BASE <- "chr_annotation_mm39.bed"
 AUTOSOMES  <- paste0("chr", 1:19)
-PRIOR_ESCAPE <- 0.127     # snRNA/spatial estimate this should reproduce
+# The escape figure the multiome is checked against. NOT 0.127.
+#
+# 12.7% was the chromosome-wide snRNA/spatial number and ANALYSIS_PLAN.md step
+# 4 still quotes it as the gate. spatial/NEXT_ANALYSIS.md:386-411 retracts it:
+# splitting the same molecules by whether they sit inside an annotated gene
+# body shows non-genic chrX is 16% of chrX and carries 60% of its CAST signal,
+# sitting at the autosomal value, with chrX:11.5-11.6Mb alone - no annotated
+# gene - contributing 42% of all chrX CAST molecules at 9w. Seven further genes
+# score above 45% CAST, which is impossible for escape (that would be the
+# inactive X out-expressing the active one). The three nested figures are:
+#
+#     0.127   chrX whole, chromosome-wide          <- retracted, do not quote
+#     0.061   chrX inside annotated gene bodies
+#     0.029   the above, artefact loci excluded    <- the biological estimate
+#
+# Leading hypothesis for the artefacts is that the SNP bed is C57BL/6NJ x CAST
+# while the reference is GRCm39 = C57BL/6J, so a genuine B6 read scores as CAST
+# wherever 6NJ is non-reference. The same loci (Gm14719, Llph-ps2, Gm53059)
+# reappear in this multiome data, which is independent support for that.
+PRIOR_ESCAPE <- as.numeric(Sys.getenv("PRIOR_ESCAPE", "0.029"))
+# In THIS script the dashed line is a biological reference rather than a
+# like-for-like match: 05 pools the WHOLE chromosome including non-genic
+# sequence, which is exactly where the retracted signal lived. The genic
+# comparison that can be read directly against 0.029 is in
+# 06_gene_level_escape.R.
 A1_IS      <- "B6"        # A1 = C57BL/6, A2 = CAST/EiJ - confirmed, not inferred
 CHRX_A1_MIN <- 0.60       # below this, the data contradicts the known orientation
 MIN_INFORMATIVE <- 20     # per-nucleus gate, applied at ANALYSIS time on the
