@@ -59,6 +59,19 @@ ar_fill_cont <- function(name = "Allelic ratio\n(B6 / total)") {
   scale_fill_gradientn(colours = AR_COLS, values = mids, limits = c(0, 1), name = name, na.value = "white")
 }
 ESCAPE_GENES <- c("Kdm5c","Kdm6a","Ddx3x","Eif2s3x","Utp14a","Akap17a","Pbdc1","Ftx","Jpx","Sts","5530601H04Rik")
+
+# Genes reported as escaping in AGED heart by the published four-stage
+# (embryonic / young / adult / aged) escape panel, for overlapping that survey
+# with ours. Separate from ESCAPE_GENES, which is the curated list the other
+# AP2 figures bold and which is not restricted to heart or to age.
+#
+# This is the Aged column of that panel only. Jpx, Eif2s3x and 5530601H04Rik
+# appear elsewhere in its heart list but its Aged cell for them is blank, so
+# they are out - note that a blank there is most likely "not measured" rather
+# than "not escaping", and all three do escape in our own data.
+HEART_AGEING_ESCAPE <- c("Shroom4","Tspan7","Sh3kbp1","Med14","Kctd12b",
+                         "2210013O21Rik","Plp1","4930578C19Rik","Smpx",
+                         "Slc16a2","Ftx","Utp14a","Pbdc1","Ddx3x","Kdm5c","Kdm6a")
 CT_ORDER <- c("Ventricular CM","Fibroblasts","Endothelial","Macrophages","Pericytes / SMC",
               "Endocardium","Lymphatic EC","B cells","T cells","CM (stressed)","Epicardial")
 CT_MAP <- c("Ventricular_Cardiomyocytes" = "Ventricular CM",

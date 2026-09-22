@@ -92,7 +92,10 @@ stopifnot(length(consistent) > 0)
 message(length(consistent), " consistent + ", length(restricted),
         " cell-type-restricted = ", length(consistent) + length(restricted),
         " genes; ", length(intersect(c(consistent, restricted), ESCAPE_GENES)),
-        "/", length(ESCAPE_GENES), " of ESCAPE_GENES recovered")
+        "/", length(ESCAPE_GENES), " of ESCAPE_GENES recovered; ",
+        length(intersect(c(consistent, restricted), HEART_AGEING_ESCAPE)), "/",
+        length(HEART_AGEING_ESCAPE), " of HEART_AGEING_ESCAPE (bolded): ",
+        paste(intersect(c(consistent, restricted), HEART_AGEING_ESCAPE), collapse = ", "))
 
 # Escape means biallelic, i.e. AR near 0.5. AR < ESCAPE_AR also admits genes
 # sitting near ZERO, which is expression from the CAST allele only - the
@@ -165,11 +168,13 @@ wrap <- function(x, width = 155) paste(strwrap(x, width = width), collapse = "\n
 CAPTION <- paste(
   wrap(sprintf("Tiles are one gene x cell type x group pseudobulk at >= %d SNP-overlapping reads; blank = below that cutoff, not necessarily silent. AR is the B6 (active X) fraction, so low = biallelic = escape, and the boundary used throughout the repo is %.2f.",
                ESC_MIN_READS, ESCAPE_AR)),
-  wrap(sprintf("Genes are selected on escape rather than on coverage: %d escaping in >= %.0f%% of >= %d measured tiles, plus %d escaping in every measured group of at least one cell type (>= %d groups); which arm each gene came from is in chrX_escape_genes_selection.tsv. %d of the %d genes in ESCAPE_GENES are recovered.",
+  wrap(sprintf("Genes are selected on escape rather than on coverage: %d escaping in >= %.0f%% of >= %d measured tiles, plus %d escaping in every measured group of at least one cell type (>= %d groups); which arm each gene came from is in chrX_escape_genes_selection.tsv. %d of the %d genes in ESCAPE_GENES are recovered, and %d of the %d that the published panel reports escaping in aged heart, bold above.",
                length(consistent), 100 * ESC_MIN_FRAC, ESC_MIN_TILES,
                length(restricted), ESC_CT_MIN_GROUPS,
                length(intersect(c(consistent, restricted), ESCAPE_GENES)),
-               length(ESCAPE_GENES))),
+               length(ESCAPE_GENES),
+               length(intersect(c(consistent, restricted), HEART_AGEING_ESCAPE)),
+               length(HEART_AGEING_ESCAPE))),
   if (nrow(cast_only))
     wrap(sprintf("CAUTION: %s below AR %.2f, i.e. expressed from CAST only. CAST is the inactive X in every nucleus here, so that is a mapping or annotation artefact, not escape.",
                  paste(sprintf("%s sits", cast_only$gene), collapse = " and "),
@@ -199,7 +204,7 @@ p <- ggplot(sel, aes(gene, celltype, fill = ar)) +
   scale_y_discrete(limits = rev, drop = TRUE) +
   labs(x = NULL, y = NULL,
        title = "chrX escape per gene and cell type: adult, Sham, TAC, aged",
-       subtitle = wrap(sprintf("%d of %d measured chrX genes, ordered by chrX position; one column per gene, so spacing is order, not Mb. Bold = previously reported escaper, dashed = distal window boundary",
+       subtitle = wrap(sprintf("%d of %d measured chrX genes, ordered by chrX position; one column per gene, so spacing is order, not Mb. Bold = also reported escaping in aged heart by the published four-stage panel, dashed = distal window boundary",
                                length(lev), n_distinct(pbg$gene)), 125),
        caption = CAPTION) +
   theme(panel.grid = element_blank(),
@@ -209,7 +214,7 @@ p <- ggplot(sel, aes(gene, celltype, fill = ar)) +
         strip.placement = "outside",
         strip.text.y.left = element_text(angle = 0, face = "bold", size = 13),
         axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 9,
-                                   face = ifelse(lev %in% ESCAPE_GENES, "bold", "plain"),
+                                   face = ifelse(lev %in% HEART_AGEING_ESCAPE, "bold", "plain"),
                                    colour = "black"))
 
 save_fig(p, "AP2_chrX_four_group_escape_heatmap",
