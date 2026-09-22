@@ -72,7 +72,8 @@ message(n_distinct(pbg$gene), " chrX genes with at least one tile at >= ",
 # ---- gene selection --------------------------------------------------------
 per_gene <- pbg %>%
   group_by(gene) %>%
-  summarise(n_tiles = n(), n_esc = sum(ar < ESCAPE_AR),
+  summarise(start = first(start),
+            n_tiles = n(), n_esc = sum(ar < ESCAPE_AR),
             frac_esc = n_esc / n_tiles, mean_ar = mean(ar),
             n_ct_measured = n_distinct(celltype), .groups = "drop")
 
@@ -116,17 +117,22 @@ if (nrow(cast_only)) {
 CLASS_LAB <- c(consistent = "Escaping across cell types",
                restricted = "Cell-type restricted")
 
-# Ordered by mean AR rather than by position: the question is how strongly a
-# gene escapes, and with the gene set this small the distal window is better
-# carried by the label colour than by the axis order. Position is still in the
-# accompanying tsv.
+# Ordered by chrX position. A horizontal gene axis reads as a coordinate
+# whether or not it is one, so ordering by mean AR and marking the distal genes
+# in orange invited the wrong reading of the whole figure. Position ordering
+# makes the distal window a region of the axis instead of a property of the
+# labels, so the orange is gone and the boundaries are drawn as lines below.
+#
+# The axis is still DISCRETE - one column per gene, even width - so spacing is
+# rank in position, not distance in Mb. Same choice as the all-genes figure,
+# for the same reason: proportional spacing collapses the dense regions.
 sel <- pbg %>%
   filter(gene %in% c(consistent, restricted)) %>%
   left_join(per_gene %>% select(gene, mean_ar), by = "gene") %>%
   mutate(class = factor(if_else(as.character(gene) %in% consistent,
                                 "consistent", "restricted"),
                         levels = names(CLASS_LAB)),
-         gene = fct_reorder(factor(as.character(gene)), mean_ar))
+         gene = fct_reorder(factor(as.character(gene)), start))
 
 write_tsv(sel %>%
             mutate(class = unname(CLASS_LAB[as.character(class)])) %>%
@@ -136,11 +142,25 @@ write_tsv(per_gene %>%
             filter(as.character(gene) %in% c(consistent, restricted)) %>%
             mutate(class = if_else(as.character(gene) %in% consistent,
                                    "consistent", "restricted")) %>%
-            arrange(class, mean_ar),
+            arrange(class, start),
           file.path(OUT, "chrX_escape_genes_selection.tsv"))
 
 lev <- levels(sel$gene)
-distal_genes <- unique(as.character(sel$gene[sel$distal]))
+
+# Distal window boundaries, one pair per x facet because scales = "free_x"
+# gives each facet its own 1..n discrete axis. A boundary is only drawn when it
+# actually falls inside that facet's gene range - a facet holding no distal
+# gene would otherwise get a line pinned against its edge.
+q_start <- CHRX_LEN - DISTAL_Q_MB * 1e6
+bounds <- sel %>%
+  distinct(class, gene, start) %>%
+  arrange(class, start) %>%
+  group_by(class) %>%
+  summarise(n = n(),
+            b_p = sum(start <= DISTAL_P_MB * 1e6) + 0.5,
+            b_q = sum(start <  q_start) + 0.5, .groups = "drop") %>%
+  tidyr::pivot_longer(c(b_p, b_q), values_to = "xint") %>%
+  filter(xint > 0.5, xint < n + 0.5)
 
 # strwrap, because the caption is laid out against the plot width and a long
 # line is silently clipped at the device edge rather than wrapped.
@@ -157,12 +177,17 @@ CAPTION <- paste(
     wrap(sprintf("CAUTION: %s below AR %.2f, i.e. expressed from CAST only. CAST is the inactive X in every nucleus here, so that is a mapping or annotation artefact, not escape.",
                  paste(sprintf("%s sits", cast_only$gene), collapse = " and "),
                  BIALLELIC_FLOOR)),
+  wrap(sprintf("Genes run left to right by chrX coordinate within each panel; dashed lines mark the distal window, the first %g Mb plus the last %g Mb of the chromosome.",
+               DISTAL_P_MB, DISTAL_Q_MB)),
   "One animal per group, so the four rows differ descriptively only.",
   sep = "\n")
 writeLines(CAPTION, file.path(OUT, "four_group_escape_caption.txt"))
 
 p <- ggplot(sel, aes(gene, celltype, fill = ar)) +
   geom_tile(colour = "white", linewidth = 0.3) +
+  geom_vline(data = bounds, aes(xintercept = xint),
+             inherit.aes = FALSE, colour = "#B5540F",
+             linetype = 2, linewidth = 0.5) +
   # scales = "free_x" + space = "free_x" so the two arms share a tile width
   # despite holding very different numbers of genes; free_y so a group only
   # shows the cell types it actually has.
@@ -175,8 +200,8 @@ p <- ggplot(sel, aes(gene, celltype, fill = ar)) +
   scale_y_discrete(limits = rev, drop = TRUE) +
   labs(x = NULL, y = NULL,
        title = "chrX escape per gene and cell type: adult, Sham, TAC, aged",
-       subtitle = sprintf("%d of %d measured chrX genes. Bold = previously reported escaper, orange = distal window",
-                          length(lev), n_distinct(pbg$gene)),
+       subtitle = wrap(sprintf("%d of %d measured chrX genes, ordered by chrX position within each panel; one column per gene, so spacing is order, not Mb. Bold = previously reported escaper, dashed = distal window boundary",
+                               length(lev), n_distinct(pbg$gene)), 125),
        caption = CAPTION) +
   theme(panel.grid = element_blank(),
         panel.spacing.x = unit(8, "pt"),
@@ -187,7 +212,7 @@ p <- ggplot(sel, aes(gene, celltype, fill = ar)) +
         strip.text.y.left = element_text(angle = 0, face = "bold", size = 13),
         axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5, size = 9,
                                    face = ifelse(lev %in% ESCAPE_GENES, "bold", "plain"),
-                                   colour = ifelse(lev %in% distal_genes, "#B5540F", "grey25")))
+                                   colour = "grey25"))
 
 save_fig(p, "AP2_chrX_four_group_escape_heatmap",
          max(9, 0.34 * length(lev) + 4), 9)
