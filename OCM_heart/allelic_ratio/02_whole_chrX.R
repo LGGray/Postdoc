@@ -344,10 +344,19 @@ ggplot(frac_escaping, aes(sample, 100*escaping, fill = sample)) +
         panel.grid.minor = element_blank())
 dev.off()
 
+# Dropped from this figure only. Neither is measurable in all four arms at
+# MIN_TOTAL_READS: stressed cardiomyocytes survive the cutoff in Sham alone
+# (n = 5) and epicardial/mesothelial cells are absent from 9w, so their panels
+# showed one or three violins and invited a four-group read that is not there.
+# The cell counts, escaping fraction and LRT tables still carry both.
+VIOLIN_DROP_CT <- c("Cardiomyocytes (stressed)", "Epicardial - Mesothelial cells")
+
 violin_tbl <- metadata_whole_chr  %>%
+  filter(!celltype %in% VIOLIN_DROP_CT) %>%
   mutate(
     sample = factor(sample, levels = names(SAMPLE_COL)),
-    sample_idx = as.numeric(sample)
+    sample_idx = as.numeric(sample),
+    celltype = droplevels(factor(celltype))
   )
 
 # The significance brackets that used to sit on top of these violins are gone.
