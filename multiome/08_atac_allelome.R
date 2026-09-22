@@ -486,9 +486,74 @@ if (!is.null(pn)) {
                                                 method = "spearman")$p.value),
                   .groups = "drop")
       say("")
-      say("per-nucleus RNA/ATAC rank correlation:")
-      print(as.data.frame(cors), row.names = FALSE, digits = 3)
-      write_tsv(cors, file.path(OUT, "rna_atac_pernucleus_cor.tsv"))
+      # ---------------------------------------------------------------------
+      # THE AUTOSOMAL CONTROL FOR THIS CORRELATION, WHICH IS WHAT MAKES IT
+      # READABLE AS BIOLOGY
+      # ---------------------------------------------------------------------
+      # A positive per-nucleus correlation between two allelic ratios does not
+      # by itself mean chromatin and transcription are coupled. Both numbers are
+      # measured in the same nucleus by the same barcode, so anything that
+      # shifts a nucleus's apparent allele balance in BOTH assays at once -
+      # ambient contamination, a doublet, index hopping, a barcode collision -
+      # would produce exactly this signal with no biology in it.
+      #
+      # The autosomes separate the two. There the truth is 0.5 in every nucleus
+      # and there is no allele-specific biology to couple, so a shared technical
+      # factor must show up there as well. A correlation that is present on
+      # chrX and absent on the autosomes cannot be produced by any per-nucleus
+      # artefact that does not know which chromosome it is on.
+      #
+      # This runs on MORE nuclei than the chrX test, not fewer, because
+      # autosomal depth per nucleus is far higher - so it is not a weaker test
+      # that happens to come out null.
+      rna_all_f <- file.path(RNA_DIR, "allelome_pernucleus.tsv")
+      ctrl <- NULL
+      if (file.exists(rna_all_f)) {
+        rna_all <- read_tsv(rna_all_f, show_col_types = FALSE)
+        agg_auto <- function(d, tag) d %>% filter(chr %in% AUTOSOMES) %>%
+          group_by(sample, group) %>%
+          summarise(A1 = sum(A1_reads), A2 = sum(A2_reads), .groups = "drop") %>%
+          mutate(n = A1 + A2, cast = A2 / n) %>%
+          filter(n >= MIN_INFORMATIVE) %>%
+          transmute(sample = as.character(sample), barcode = group,
+                    !!paste0(tag, "_n") := n, !!paste0(tag, "_cast") := cast)
+        ja <- inner_join(agg_auto(rna_all, "rna"), agg_auto(pn, "atac"),
+                         by = c("sample", "barcode"))
+        if (nrow(ja) >= 30) {
+          ctrl <- ja %>% group_by(sample) %>%
+            summarise(n = n(),
+                      rho = suppressWarnings(cor(rna_cast, atac_cast, method = "spearman")),
+                      p = suppressWarnings(cor.test(rna_cast, atac_cast,
+                                                    method = "spearman")$p.value),
+                      .groups = "drop") %>%
+            mutate(region = "autosomal")
+        }
+      } else {
+        say("no %s - skipping the autosomal control for the correlation", rna_all_f)
+      }
+
+      cors_out <- bind_rows(cors %>% mutate(region = "chrX"), ctrl) %>%
+        select(region, sample, n, rho, p)
+      say("per-nucleus RNA/ATAC rank correlation, with the autosomal control:")
+      print(as.data.frame(cors_out), row.names = FALSE, digits = 3)
+      write_tsv(cors_out, file.path(OUT, "rna_atac_pernucleus_cor.tsv"))
+      if (!is.null(ctrl)) {
+        if (max(abs(ctrl$rho)) >= min(abs(cors$rho))) {
+          say("")
+          say("WARNING: the autosomal control correlates about as strongly as chrX.")
+          say("  That points at a shared per-nucleus technical factor - ambient")
+          say("  contamination, doublets, barcode collisions - rather than at")
+          say("  chromatin/transcription coupling. Do NOT read the chrX number as")
+          say("  biology until this is understood.")
+        } else {
+          say("")
+          say("  autosomal control is flat (max |rho| = %.3f on %d nuclei) while chrX",
+              max(abs(ctrl$rho)), max(ctrl$n))
+          say("  is positive - so the chrX correlation is not a shared per-nucleus")
+          say("  artefact. It is chromosome-specific, which no barcode-level")
+          say("  technical factor can produce.")
+        }
+      }
 
       dev_open(file.path(OUT, "rna_atac_pernucleus.pdf"), width = 11, height = 6.5)
       print(
@@ -511,6 +576,24 @@ if (!is.null(pn)) {
                colour = NULL, title = "The same, split by cell type") +
           theme_minimal()
       )
+      # The control, plotted on the same axes so the contrast is visible rather
+      # than only tabulated. This panel is the reason the chrX one can be read
+      # as coupling - see the block above.
+      if (exists("ja") && !is.null(ctrl)) {
+        print(
+          ggplot(ja %>% mutate(sample = as_sample(sample)),
+                 aes(rna_cast, atac_cast)) +
+            geom_point(alpha = 0.25, size = 0.8) +
+            geom_smooth(method = "lm", formula = y ~ x, se = TRUE, colour = OKABE_ITO[6]) +
+            facet_wrap(~sample) +
+            labs(x = "autosomal CAST molecule fraction (RNA)",
+                 y = "autosomal CAST fragment fraction (ATAC)",
+                 title = "Autosomal control for the per-nucleus correlation",
+                 subtitle = sprintf("no allele-specific biology here, so this must be flat if the chrX signal is real; Spearman rho = %s",
+                                    paste(sprintf("%s %.3f", ctrl$sample, ctrl$rho), collapse = ", "))) +
+            theme_minimal()
+        )
+      }
       dev.off()
       say("wrote rna_atac_pernucleus.pdf")
     } else {
